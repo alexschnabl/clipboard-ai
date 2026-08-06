@@ -47,3 +47,28 @@ def test_sends_the_expected_payload():
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": "input text"},
     ]
+
+
+def test_strips_multiple_think_blocks():
+    raw = "<think>First thought</think>Start<think>Second thought</think>End"
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    assert backend.transform("x") == "StartEnd"
+
+
+def test_strips_mixed_case_think_blocks():
+    raw = "<THINK>uppercase</THINK>Middle<Think>mixed</Think>End"
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    assert backend.transform("x") == "MiddleEnd"
+
+
+def test_raises_when_unclosed_think_tag_present():
+    raw = "<think>the user wants grammar fixed and I am still reasoning without a closing tag"
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")
+
+
+def test_raises_when_content_is_null():
+    backend = OllamaBackend(http_post=lambda url, payload: {"choices": [{"message": {"content": None}}]})
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")

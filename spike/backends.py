@@ -8,6 +8,7 @@ SYSTEM_PROMPT = (
 )
 
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_UNCLOSED_THINK = re.compile(r"<think\b", re.IGNORECASE)
 
 
 class BackendRefusal(Exception):
@@ -15,8 +16,15 @@ class BackendRefusal(Exception):
 
 
 def strip_think_blocks(text: str) -> str:
-    """Remove <think>...</think> spans emitted by reasoning models."""
-    return _THINK_BLOCK.sub("", text)
+    """Remove <think>...</think> spans emitted by reasoning models.
+
+    Raises BackendRefusal if an unclosed <think tag remains after stripping,
+    indicating a truncated reasoning model response.
+    """
+    stripped = _THINK_BLOCK.sub("", text)
+    if _UNCLOSED_THINK.search(stripped):
+        raise BackendRefusal("unclosed <think tag detected; response may be truncated")
+    return stripped
 
 
 def _default_http_post(url: str, payload: dict) -> dict:
@@ -55,7 +63,8 @@ class OllamaBackend:
         choices = payload.get("choices") or []
         if not choices:
             raise BackendRefusal(f"ollama returned no choices: {payload}")
-        content = strip_think_blocks(choices[0].get("message", {}).get("content", ""))
+        content = choices[0].get("message", {}).get("content") or ""
+        content = strip_think_blocks(content)
         if not content.strip():
             raise BackendRefusal("ollama returned empty content")
         return content.strip()
