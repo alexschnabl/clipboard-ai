@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import re
 import subprocess
 import threading
@@ -28,7 +29,7 @@ _THINK_BLOCK = re.compile(r"<(think|thinking)>.*?</\1>", re.DOTALL | re.IGNORECA
 # chat template that pre-injects the opening tag so the model's own output
 # contains only the closing tag (a documented deployment pattern for
 # reasoning models). Either shape must refuse, not paste the fragment.
-_RESIDUAL_OPEN_THINK = re.compile(r"<(?:think|thinking)>", re.IGNORECASE)
+_RESIDUAL_OPEN_THINK = re.compile(r"<(?:think|thinking)\b", re.IGNORECASE)
 _RESIDUAL_CLOSE_THINK = re.compile(r"</(?:think|thinking)>", re.IGNORECASE)
 
 
@@ -182,6 +183,13 @@ class AgentSDKBackend:
         return output.strip()
 
 
+# Matches the httpx timeout=120.0 in _default_http_post and the
+# subprocess.run timeout=120 in _run_claude_cli -- every backend bounds how
+# long it will wait before giving up, so a hung session can't hold the
+# `busy` lock in main.py forever and kill the hotkey for the rest of a run.
+_SESSION_RESULT_TIMEOUT = 120.0
+
+
 class _AgentSDKSession:
     """Owns one connect()ed ClaudeSDKClient on a dedicated background event
     loop thread, so repeated .ask() calls reuse the same underlying `claude`
@@ -209,7 +217,13 @@ class _AgentSDKSession:
         self._run(self._client.connect())
 
     def _run(self, coro):
-        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+        future = asyncio.run_coroutine_threadsafe(coro, self._loop)
+        try:
+            return future.result(timeout=_SESSION_RESULT_TIMEOUT)
+        except concurrent.futures.TimeoutError as e:
+            raise BackendRefusal(
+                f"agent sdk session timed out after {_SESSION_RESULT_TIMEOUT}s"
+            ) from e
 
     def ask(self, user_text: str) -> str:
         return self._run(self._ask(user_text))

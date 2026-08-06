@@ -1,4 +1,6 @@
+import asyncio
 import subprocess
+import threading
 
 import pytest
 
@@ -65,6 +67,30 @@ def test_strips_mixed_case_think_blocks():
 
 def test_raises_when_unclosed_think_tag_present():
     raw = "<think>the user wants grammar fixed and I am still reasoning without a closing tag"
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")
+
+
+def test_raises_when_response_truncated_mid_open_tag():
+    # The exact shape a reasoning model produces when cut off by a token or
+    # context limit mid-tag: no literal ">" ever arrives. A guard that
+    # requires one would let this straight through to the paste.
+    raw = "Corrected text.<think"
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")
+
+
+def test_raises_when_open_think_tag_has_attributes():
+    raw = 'Corrected.<think foo="1">reasoning'
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")
+
+
+def test_raises_when_open_think_tag_followed_by_newline():
+    raw = "<think\nstill reasoning"
     backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
     with pytest.raises(BackendRefusal):
         backend.transform("x")
@@ -207,3 +233,73 @@ def test_agent_sdk_session_backend_reuses_the_same_run_query_across_calls():
 
 def test_agent_sdk_session_backend_name():
     assert AgentSDKSessionBackend(run_query=lambda t: "x").name == "agent-sdk-session"
+
+
+import spike.backends as backends_module
+from spike.backends import _AgentSDKSession
+
+
+class _HangingClient:
+    """Stands in for ClaudeSDKClient: query() returns immediately but
+    receive_response() never yields a ResultMessage, mirroring the SDK's
+    documented behaviour of iterating indefinitely on a hung session."""
+
+    async def query(self, user_text):
+        return None
+
+    async def receive_response(self):
+        await asyncio.Event().wait()  # never set; this await never returns
+        yield  # pragma: no cover - unreachable, keeps this an async generator
+
+
+def test_agent_sdk_session_raises_backend_refusal_when_it_never_completes(monkeypatch):
+    # Use a short timeout so a correct fix returns almost instantly instead
+    # of making this test wait the real 120s production timeout.
+    monkeypatch.setattr(backends_module, "_SESSION_RESULT_TIMEOUT", 0.05)
+
+    session = _AgentSDKSession.__new__(_AgentSDKSession)
+    session._loop = asyncio.new_event_loop()
+    session._thread = threading.Thread(target=session._loop.run_forever, daemon=True)
+    session._thread.start()
+    session._client = _HangingClient()
+
+    outcome = {}
+
+    def call_ask():
+        try:
+            outcome["result"] = session.ask("x")
+        except BaseException as e:  # noqa: BLE001 - capturing across threads
+            outcome["exception"] = e
+
+    caller = threading.Thread(target=call_ask, daemon=True)
+    caller.start()
+    # Safety net: if the fix is missing and .ask() truly hangs forever, this
+    # join times out and the test fails on the assertion below rather than
+    # hanging the suite.
+    caller.join(timeout=5)
+
+    try:
+        assert not caller.is_alive(), (
+            "session.ask() did not return within the test's safety timeout; "
+            "it appears to hang instead of raising BackendRefusal"
+        )
+        assert isinstance(outcome.get("exception"), BackendRefusal)
+    finally:
+        # The timed-out .ask() call leaves its underlying task parked forever
+        # on session._loop (still awaiting the hanging client). Cancel it
+        # explicitly before stopping the loop so it doesn't get garbage
+        # collected mid-flight and print an unrelated "Task was destroyed
+        # but it is pending!" line to stderr.
+        async def _cancel_pending():
+            current = asyncio.current_task()
+            for task in asyncio.all_tasks():
+                if task is not current:
+                    task.cancel()
+            await asyncio.sleep(0)
+
+        try:
+            asyncio.run_coroutine_threadsafe(_cancel_pending(), session._loop).result(timeout=1)
+        except Exception:
+            pass
+        session._loop.call_soon_threadsafe(session._loop.stop)
+        session._thread.join(timeout=1)
