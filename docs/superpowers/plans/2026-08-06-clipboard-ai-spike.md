@@ -6,7 +6,7 @@
 
 **Architecture:** Five small modules under `spike/`. The OS-touching layer (clipboard, keystrokes) is separated from the orchestration layer so the safety-critical rules — never paste stale text, never paste on a refusal — are covered by fast unit tests with injected fakes. Every function that waits on time or the OS takes its clock, sleep, and probe as parameters, so no test sleeps.
 
-**Tech Stack:** Python 3.11+, pytest, pynput, pyperclip, anthropic, claude-agent-sdk.
+**Tech Stack:** Python 3.11+, pytest, pynput, pyperclip, httpx, claude-agent-sdk.
 
 ## Global Constraints
 
@@ -17,7 +17,8 @@ Copied verbatim from `docs/superpowers/specs/2026-08-06-clipboard-ai-spike-desig
 - System prompt: `Fix grammar and spelling. Return only the corrected text, with no preamble, explanation, or commentary.`
 - Clipboard capture timeout: 1000 ms, polled every 20 ms
 - Clipboard restore delay after paste: 300 ms
-- Messages API model: `claude-opus-5`, `thinking={"type": "adaptive"}`, `output_config={"effort": "low"}`, `max_tokens=16000`, non-streaming
+- Ollama backend: OpenAI-compatible endpoint at `http://localhost:11434/v1`, model `qwen2.5:32b-instruct`, non-streaming
+- Any `<think>...</think>` block must be stripped from backend output before it can be pasted. Two of the models installed locally are reasoning models that emit them.
 - **Never paste on abort.** A capture timeout or a backend refusal must restore the original clipboard and paste nothing. A single occurrence of pasting stale or wrong text is a failure of the whole approach.
 - The original clipboard must be restored in every run, including aborted ones.
 - Throwaway code. No config files, no UI, no persistence, no provider abstraction beyond the three concrete backends.
@@ -66,7 +67,7 @@ Create `requirements.txt`:
 pytest==8.3.4
 pynput==1.7.7
 pyperclip==1.9.0
-anthropic
+httpx==0.28.1
 claude-agent-sdk
 ```
 
@@ -77,7 +78,9 @@ python -m venv .venv
 .venv/Scripts/python -m pip install -r requirements.txt
 ```
 
-`anthropic` and `claude-agent-sdk` are unpinned deliberately — the spike wants current versions of both.
+`claude-agent-sdk` is unpinned deliberately — the spike wants the current version.
+
+If `pynput==1.7.7` fails to install on Python 3.14, drop the pin and install the latest `pynput` instead, then record which version you got in your report. Do not substitute a different library: pynput was chosen precisely because it carries forward to macOS and Linux.
 
 - [ ] **Step 2: Create the empty package markers**
 
@@ -528,7 +531,7 @@ git commit -m "feat: add modifier-release wait and synthetic copy/paste"
 
 ---
 
-### Task 4: Messages API backend
+### Task 4: Ollama backend
 
 **Files:**
 - Create: `spike/backends.py`
@@ -538,8 +541,11 @@ git commit -m "feat: add modifier-release wait and synthetic copy/paste"
 - Consumes: nothing
 - Produces:
   - `spike.backends.SYSTEM_PROMPT: str`
-  - `spike.backends.BackendRefusal` — exception raised when the model declines
-  - `spike.backends.MessagesAPIBackend(client=None)` with `.name: str` and `.transform(text: str) -> str`
+  - `spike.backends.BackendRefusal` — exception raised when a backend produces nothing usable
+  - `spike.backends.strip_think_blocks(text: str) -> str`
+  - `spike.backends.OllamaBackend(base_url="http://localhost:11434/v1", model="qwen2.5:32b-instruct", http_post=None)` with `.name: str` and `.transform(text: str) -> str`
+
+This targets Ollama's **OpenAI-compatible** endpoint rather than its native `/api/chat`, because the production app needs an "any OpenAI-compatible endpoint" adapter anyway — writing it against that shape now means the spike produces something reusable rather than throwaway-only. Use plain `httpx` here, not an Anthropic SDK: this is deliberately a non-Anthropic provider.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -548,74 +554,56 @@ Create `tests/test_backends.py`:
 ```python
 import pytest
 
-from spike.backends import BackendRefusal, MessagesAPIBackend
+from spike.backends import SYSTEM_PROMPT, BackendRefusal, OllamaBackend
 
 
-class FakeBlock:
-    def __init__(self, type_: str, text: str = ""):
-        self.type = type_
-        self.text = text
+def chat_response(content: str) -> dict:
+    return {"choices": [{"message": {"role": "assistant", "content": content}}]}
 
 
-class FakeResponse:
-    def __init__(self, blocks, stop_reason="end_turn"):
-        self.content = blocks
-        self.stop_reason = stop_reason
+def test_returns_the_message_content():
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response("Corrected."))
+    assert backend.transform("corected") == "Corrected."
 
 
-class FakeMessages:
-    def __init__(self, response):
-        self._response = response
-        self.kwargs = None
-
-    def create(self, **kwargs):
-        self.kwargs = kwargs
-        return self._response
+def test_strips_think_blocks():
+    raw = "<think>The user wants grammar fixed.</think>Corrected."
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    assert backend.transform("corected") == "Corrected."
 
 
-class FakeAnthropic:
-    def __init__(self, response):
-        self.messages = FakeMessages(response)
-
-
-def test_returns_the_text_block():
-    client = FakeAnthropic(FakeResponse([FakeBlock("text", "Corrected.")]))
-    assert MessagesAPIBackend(client=client).transform("corected") == "Corrected."
-
-
-def test_skips_thinking_blocks():
-    client = FakeAnthropic(
-        FakeResponse([FakeBlock("thinking", ""), FakeBlock("text", "Corrected.")])
-    )
-    assert MessagesAPIBackend(client=client).transform("corected") == "Corrected."
-
-
-def test_joins_multiple_text_blocks():
-    client = FakeAnthropic(
-        FakeResponse([FakeBlock("text", "One."), FakeBlock("text", " Two.")])
-    )
-    assert MessagesAPIBackend(client=client).transform("x") == "One. Two."
-
-
-def test_raises_on_refusal_without_reading_content():
-    client = FakeAnthropic(FakeResponse([], stop_reason="refusal"))
+def test_raises_when_response_has_no_choices():
+    backend = OllamaBackend(http_post=lambda url, payload: {"choices": []})
     with pytest.raises(BackendRefusal):
-        MessagesAPIBackend(client=client).transform("x")
+        backend.transform("x")
 
 
-def test_sends_the_documented_request_parameters():
-    client = FakeAnthropic(FakeResponse([FakeBlock("text", "ok")]))
-    MessagesAPIBackend(client=client).transform("input text")
-    kwargs = client.messages.kwargs
-    assert kwargs["model"] == "claude-opus-5"
-    assert kwargs["max_tokens"] == 16000
-    assert kwargs["thinking"] == {"type": "adaptive"}
-    assert kwargs["output_config"] == {"effort": "low"}
-    assert kwargs["messages"] == [{"role": "user", "content": "input text"}]
-    assert "stream" not in kwargs
+def test_raises_when_content_is_only_a_think_block():
+    raw = "<think>thinking out loud</think>   "
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")
+
+
+def test_sends_the_expected_payload():
+    seen = {}
+
+    def http_post(url, payload):
+        seen["url"] = url
+        seen["payload"] = payload
+        return chat_response("ok")
+
+    OllamaBackend(http_post=http_post).transform("input text")
+    assert seen["url"] == "http://localhost:11434/v1/chat/completions"
+    assert seen["payload"]["model"] == "qwen2.5:32b-instruct"
+    assert seen["payload"]["stream"] is False
+    assert seen["payload"]["messages"] == [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": "input text"},
+    ]
 ```
 
-The refusal test is load-bearing. Claude Opus 5 can decline a request and return HTTP 200 with `stop_reason: "refusal"` and an empty `content` list. Code that indexes `content[0]` crashes; code that silently returns `""` would blank the user's selection. Neither is acceptable, so the backend raises and Task 7 aborts on it.
+The `<think>`-stripping tests are load-bearing, not defensive padding. Two of the three models installed locally (`qwen3:30b`, `qwen3-coder:30b`) are reasoning models that emit `<think>` blocks in their output, and this text goes directly into the user's document. The fourth test covers the case where stripping leaves nothing behind — that must raise rather than paste an empty string over the selection.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -627,64 +615,91 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'spike.backends'`
 Create `spike/backends.py`:
 
 ```python
-import anthropic
+import re
+
+import httpx
 
 SYSTEM_PROMPT = (
     "Fix grammar and spelling. Return only the corrected text, "
     "with no preamble, explanation, or commentary."
 )
 
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
 
 class BackendRefusal(Exception):
-    """The model declined the request. Never paste after this."""
+    """The backend produced nothing usable. Never paste after this."""
 
 
-class MessagesAPIBackend:
-    """Anthropic Messages API, billed against an API key."""
+def strip_think_blocks(text: str) -> str:
+    """Remove <think>...</think> spans emitted by reasoning models."""
+    return _THINK_BLOCK.sub("", text)
 
-    name = "messages-api"
 
-    def __init__(self, client=None):
-        self._client = client or anthropic.Anthropic()
+def _default_http_post(url: str, payload: dict) -> dict:
+    response = httpx.post(url, json=payload, timeout=120.0)
+    response.raise_for_status()
+    return response.json()
+
+
+class OllamaBackend:
+    """Local Ollama through its OpenAI-compatible chat completions endpoint."""
+
+    name = "ollama"
+
+    def __init__(
+        self,
+        base_url: str = "http://localhost:11434/v1",
+        model: str = "qwen2.5:32b-instruct",
+        http_post=None,
+    ):
+        self._url = f"{base_url.rstrip('/')}/chat/completions"
+        self._model = model
+        self._http_post = http_post or _default_http_post
 
     def transform(self, text: str) -> str:
-        response = self._client.messages.create(
-            model="claude-opus-5",
-            max_tokens=16000,
-            system=SYSTEM_PROMPT,
-            thinking={"type": "adaptive"},
-            output_config={"effort": "low"},
-            messages=[{"role": "user", "content": text}],
+        payload = self._http_post(
+            self._url,
+            {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": text},
+                ],
+                "stream": False,
+            },
         )
-        if response.stop_reason == "refusal":
-            raise BackendRefusal("model declined the request")
-        return "".join(
-            block.text for block in response.content if block.type == "text"
-        )
+        choices = payload.get("choices") or []
+        if not choices:
+            raise BackendRefusal(f"ollama returned no choices: {payload}")
+        content = strip_think_blocks(choices[0].get("message", {}).get("content", ""))
+        if not content.strip():
+            raise BackendRefusal("ollama returned empty content")
+        return content.strip()
 ```
-
-Thinking stays on at low effort rather than disabled. On Claude Opus 5, disabling thinking can leak `<thinking>` tags into the visible response, and this text is pasted straight into the user's document, so leakage is not acceptable. Low effort is the supported way to cut latency instead.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `.venv/Scripts/python -m pytest tests/test_backends.py -v`
 Expected: PASS, 5 tests
 
-- [ ] **Step 5: Verify against the real API**
+- [ ] **Step 5: Verify against the running Ollama server**
 
-Requires `ANTHROPIC_API_KEY` in the environment.
+Ollama is already running locally with `qwen2.5:32b-instruct` available.
 
 ```bash
-.venv/Scripts/python -c "from spike.backends import MessagesAPIBackend; print(MessagesAPIBackend().transform('this sentance have two mistake'))"
+.venv/Scripts/python -c "import time; from spike.backends import OllamaBackend; s=time.perf_counter(); print(OllamaBackend().transform('this sentance have two mistake')); print(f'{(time.perf_counter()-s)*1000:.0f} ms')"
 ```
 
-Expected: a corrected sentence and nothing else. If the output contains a preamble like "Here is the corrected text:", record it — the system prompt needs tightening, and that is a finding for the results note.
+Expected: a corrected sentence, nothing else, and a millisecond figure. Record two numbers — the first call after the model has been idle (Ollama unloads models after a few minutes, so this includes model load time) and a second call immediately after (model resident). That cold/warm gap is a real latency factor for a hotkey tool and belongs in the results note.
+
+If the output contains a preamble like "Here is the corrected text:", or any leftover `<think>` markup, record it — that is a finding, not something to silently patch around.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add spike/backends.py tests/test_backends.py
-git commit -m "feat: add Messages API backend with refusal handling"
+git commit -m "feat: add Ollama backend with think-block stripping"
 ```
 
 ---
@@ -750,7 +765,6 @@ def _run_claude_cli(argv: list[str], input_text: str) -> str:
         capture_output=True,
         text=True,
         timeout=120,
-        shell=True,
     )
     if result.returncode != 0:
         raise BackendRefusal(f"claude exited {result.returncode}: {result.stderr}")
@@ -775,7 +789,7 @@ class ClaudeCLIBackend:
         return output.strip()
 ```
 
-`shell=True` is needed because on Windows `claude` is a `.cmd` shim that `subprocess` will not otherwise resolve. It is acceptable here because the argv is entirely constructed by this module — no user input reaches it — but it is exactly the kind of thing that must not survive into production code.
+No `shell=True`. On this machine `claude` resolves to a real executable (`C:\Users\Work\.local\bin\claude.exe`), so `subprocess` finds it directly. If `FileNotFoundError` occurs anyway, pass the absolute path to the executable rather than reaching for `shell=True`.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
@@ -1195,7 +1209,7 @@ git commit -m "feat: add cycle orchestration with abort-without-pasting guarante
 
 **Interfaces:**
 - Consumes: everything from Tasks 1–7
-- Produces: `python -m spike.main [--backend messages-api|agent-sdk|claude-cli]`
+- Produces: `python -m spike.main [--backend ollama|agent-sdk|claude-cli]`
 
 No unit tests. This module is the untestable shell — global hotkey registration and console printing — and keeping it that thin is why `cycle.py` exists separately.
 
@@ -1210,14 +1224,14 @@ import time
 from pynput import keyboard
 
 from spike import clipboard, keys
-from spike.backends import AgentSDKBackend, ClaudeCLIBackend, MessagesAPIBackend
+from spike.backends import AgentSDKBackend, ClaudeCLIBackend, OllamaBackend
 from spike.cycle import CycleDeps, run_cycle
 from spike.timing import StageTimer
 
 HOTKEY = "<ctrl>+<alt>+j"
 
 BACKENDS = {
-    "messages-api": MessagesAPIBackend,
+    "ollama": OllamaBackend,
     "agent-sdk": AgentSDKBackend,
     "claude-cli": ClaudeCLIBackend,
 }
@@ -1242,7 +1256,7 @@ def build_deps() -> CycleDeps:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Clipboard AI capture/paste spike")
-    parser.add_argument("--backend", choices=sorted(BACKENDS), default="messages-api")
+    parser.add_argument("--backend", choices=sorted(BACKENDS), default="ollama")
     args = parser.parse_args()
 
     backend = BACKENDS[args.backend]()
@@ -1278,7 +1292,7 @@ if __name__ == "__main__":
 Run it, then press the hotkey with nothing selected:
 
 ```bash
-.venv/Scripts/python -m spike.main --backend messages-api
+.venv/Scripts/python -m spike.main --backend ollama
 ```
 
 Click into Notepad without selecting anything, press `Ctrl+Alt+J`.
@@ -1313,7 +1327,7 @@ This task produces the spike's actual deliverable. Tasks 1–8 built the measuri
 
 - [ ] **Step 1: Run the matrix**
 
-For each application below, run 10 consecutive attempts with `--backend messages-api`. Record successes, failures, and the failure mode of each failure.
+For each application below, run 10 consecutive attempts with `--backend ollama`. Ollama is the right backend for this pass because it is local and needs no auth, which keeps the matrix measuring clipboard mechanics rather than network variance. Record successes, failures, and the failure mode of each failure.
 
 - Notepad (control — if this fails, the mechanism is broken, not the app)
 - Outlook
@@ -1329,7 +1343,7 @@ For each application record the median capture latency (`t2 to t3`) from the con
 
 Fill in the four latency figures gathered along the way:
 
-- Messages API (Task 4, Step 5)
+- Ollama, model cold and model resident (Task 4, Step 5)
 - `claude -p` cold (Task 5, Step 5)
 - Agent SDK cold (Task 6, Step 6)
 - Agent SDK warm (Task 6, Step 6)
@@ -1342,7 +1356,7 @@ Create `docs/superpowers/notes/2026-08-06-spike-results.md` with these sections:
 2. **Backend latency** — the four figures, and whether the Agent SDK authenticated off the Claude Code login
 3. **The three questions** — a direct answer to each of the spike's three questions
 4. **Recommendation** — is in-place replacement viable, or does the production app need a different interaction model such as a floating result window? If the answer is mixed, say which applications each model would serve.
-5. **Carried-forward costs** — things the production app will have to solve that the spike sidestepped. Include at minimum: `modifiers_down()` is Windows-only and needs a per-OS implementation; `shell=True` in the CLI backend must not survive into production.
+5. **Carried-forward costs** — things the production app will have to solve that the spike sidestepped. Include at minimum: `modifiers_down()` is Windows-only and needs a per-OS implementation for macOS and Linux; the Anthropic Messages API backend was never built or measured, so that comparison point is still missing; `<think>`-block stripping is currently applied only in the Ollama backend and will need to cover any provider whose models emit reasoning markup.
 
 Write down negative results plainly. Learning that in-place replacement is unreliable in Outlook is worth more than a spike that reports success everywhere.
 

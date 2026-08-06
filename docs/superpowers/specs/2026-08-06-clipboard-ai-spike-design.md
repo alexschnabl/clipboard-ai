@@ -103,27 +103,37 @@ contrived conditions.
   `keyboard` package because it does not generally require elevation, and because it is
   cross-platform, so what is learned here carries into the macOS and Linux work later.
 - `pyperclip` — clipboard read/write.
-- `anthropic` — the Messages API comparison path.
+- `httpx` — the Ollama OpenAI-compatible HTTP path.
 - `claude-agent-sdk` — the subscription path.
 
 ### Backends
 
 Two backends, run side by side so their latency can be compared directly.
 
-**A. Anthropic Messages API** (`anthropic` package, API key via `ANTHROPIC_API_KEY`):
+> **Revised 2026-08-06, after the spec was approved.** The original Backend A was the
+> Anthropic Messages API on `claude-opus-5`. There is no API key available on this
+> machine, so it is replaced by a local Ollama backend. The consequence is recorded
+> honestly: the spike will not produce an Anthropic-API latency figure, so the backend
+> comparison answers "Agent SDK vs `claude -p` vs local model" rather than "vs the
+> hosted API". That gap carries forward into the production design.
 
-- Model `claude-opus-5`
-- `thinking: {"type": "adaptive"}` with `output_config: {"effort": "low"}`
-- `max_tokens: 16000`, non-streaming
+**A. Ollama, OpenAI-compatible endpoint** (`httpx`, no auth):
 
-Two notes on those choices. Thinking is left on at low effort rather than disabled:
-on Claude Opus 5, disabled thinking can leak `<thinking>` tags into the visible
-response, and this text goes straight into the user's document, so leakage is
-unacceptable here. Low effort is the recommended lever for cutting latency instead.
-Streaming is not used because the result is pasted in one shot, so streaming would not
-improve perceived latency. Model choice is itself a latency variable; sweeping cheaper
-models is a knob for the production app and a decision for the user, not something to
-quietly assume here.
+- `http://localhost:11434/v1/chat/completions`
+- Model `qwen2.5:32b-instruct`, non-streaming
+
+Three notes on those choices. The OpenAI-compatible endpoint is used rather than
+Ollama's native `/api/chat` because the production app needs an "any OpenAI-compatible
+endpoint" adapter regardless, so writing it in that shape now makes it reusable.
+`qwen2.5:32b-instruct` is chosen over the two `qwen3` models also installed locally
+because those are reasoning models that emit `<think>` blocks, and that markup would go
+straight into the user's document. The backend strips `<think>` spans anyway, so it stays
+safe if the model is swapped. Streaming is not used because the result is pasted in one
+shot, so streaming would not improve perceived latency.
+
+Ollama unloads idle models after a few minutes, so the first request after a pause pays
+model-load time. Both the cold and resident figures get recorded — for a hotkey tool that
+gap is a real usability factor, not a measurement artifact.
 
 **B. Claude Agent SDK** (`claude-agent-sdk`, using the existing Claude Code login):
 
@@ -165,7 +175,7 @@ Ten consecutive runs in each, recording successes, failures, and the failure mod
   with no manual retry.
 - Median capture latency (t3 − t2) recorded per application.
 - Agent SDK warm-session latency measured and compared against cold `claude -p` and
-  against the Messages API.
+  against local Ollama.
 - The original clipboard is correctly restored in every run, including aborted ones.
 - No run pastes stale or incorrect text. This one is not negotiable — a single
   occurrence is a failure of the whole approach, not a bug to file.
