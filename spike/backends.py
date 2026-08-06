@@ -1,0 +1,61 @@
+import re
+
+import httpx
+
+SYSTEM_PROMPT = (
+    "Fix grammar and spelling. Return only the corrected text, "
+    "with no preamble, explanation, or commentary."
+)
+
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+class BackendRefusal(Exception):
+    """The backend produced nothing usable. Never paste after this."""
+
+
+def strip_think_blocks(text: str) -> str:
+    """Remove <think>...</think> spans emitted by reasoning models."""
+    return _THINK_BLOCK.sub("", text)
+
+
+def _default_http_post(url: str, payload: dict) -> dict:
+    response = httpx.post(url, json=payload, timeout=120.0)
+    response.raise_for_status()
+    return response.json()
+
+
+class OllamaBackend:
+    """Local Ollama through its OpenAI-compatible chat completions endpoint."""
+
+    name = "ollama"
+
+    def __init__(
+        self,
+        base_url: str = "http://localhost:11434/v1",
+        model: str = "qwen2.5:32b-instruct",
+        http_post=None,
+    ):
+        self._url = f"{base_url.rstrip('/')}/chat/completions"
+        self._model = model
+        self._http_post = http_post or _default_http_post
+
+    def transform(self, text: str) -> str:
+        payload = self._http_post(
+            self._url,
+            {
+                "model": self._model,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": text},
+                ],
+                "stream": False,
+            },
+        )
+        choices = payload.get("choices") or []
+        if not choices:
+            raise BackendRefusal(f"ollama returned no choices: {payload}")
+        content = strip_think_blocks(choices[0].get("message", {}).get("content", ""))
+        if not content.strip():
+            raise BackendRefusal("ollama returned empty content")
+        return content.strip()
