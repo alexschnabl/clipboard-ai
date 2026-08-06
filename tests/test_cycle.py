@@ -18,6 +18,7 @@ class FakeOS:
         self._modifiers_release = modifiers_release
         self.pastes = 0
         self.copies = 0
+        self.pasted_content = None
 
     def read_clipboard(self):
         return self.clipboard
@@ -42,6 +43,7 @@ class FakeOS:
 
     def send_paste(self):
         self.pastes += 1
+        self.pasted_content = self.clipboard
 
     def as_deps(self):
         return CycleDeps(
@@ -82,6 +84,7 @@ def test_happy_path_pastes_the_transformed_text():
     assert result.pasted is True
     assert backend.seen == "corected text"
     assert os_.pastes == 1
+    assert os_.pasted_content == "Corrected text."
 
 
 def test_happy_path_restores_the_original_clipboard():
@@ -126,6 +129,32 @@ def test_stuck_modifiers_abort_before_sending_copy():
     assert result.pasted is False
     assert result.reason == "modifiers-stuck"
     assert os_.copies == 0
+    assert os_.pastes == 0
+    assert os_.clipboard == "ORIGINAL"
+
+
+def test_empty_backend_result_never_pastes():
+    os_ = FakeOS()
+    backend = StubBackend(result="   ")
+    result = run_cycle(backend, new_timer(), os_.as_deps())
+    assert result.pasted is False
+    assert result.reason == "empty-result"
+    assert os_.pastes == 0
+
+
+def test_empty_backend_result_restores_the_original_clipboard():
+    os_ = FakeOS(original="ORIGINAL")
+    backend = StubBackend(result="   ")
+    run_cycle(backend, new_timer(), os_.as_deps())
+    assert os_.clipboard == "ORIGINAL"
+
+
+def test_unexpected_exception_still_restores_the_clipboard_and_propagates():
+    os_ = FakeOS(original="ORIGINAL")
+    backend = StubBackend(raises=RuntimeError("boom"))
+    with pytest.raises(RuntimeError):
+        run_cycle(backend, new_timer(), os_.as_deps())
+    assert os_.clipboard == "ORIGINAL"
     assert os_.pastes == 0
 
 

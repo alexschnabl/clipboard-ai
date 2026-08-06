@@ -31,43 +31,54 @@ def run_cycle(backend, timer: StageTimer, deps: CycleDeps) -> CycleResult:
     """One hotkey press, end to end.
 
     Every abort path restores the original clipboard and pastes nothing.
+    A `finally` guarantees that restore even when an exception other than
+    `ClipboardTimeout` or `BackendRefusal` escapes an OS call or the
+    backend; the exception is not swallowed, it still propagates.
     """
     timer.mark("t0-hotkey")
     original = deps.read_clipboard()
+    restored = False
 
     def abort(reason: str) -> CycleResult:
+        nonlocal restored
         deps.write_clipboard(original)
+        restored = True
         return CycleResult(pasted=False, reason=reason, timer=timer)
 
-    if not deps.wait_for_modifier_release():
-        return abort("modifiers-stuck")
-    timer.mark("t1-modifiers-released")
-
-    deps.clear_clipboard()
-    deps.send_copy()
-    timer.mark("t2-copy-sent")
-
     try:
-        captured = deps.wait_for_content()
-    except ClipboardTimeout:
-        return abort("capture-timeout")
-    timer.mark("t3-clipboard-captured")
+        if not deps.wait_for_modifier_release():
+            return abort("modifiers-stuck")
+        timer.mark("t1-modifiers-released")
 
-    try:
-        transformed = backend.transform(captured)
-    except BackendRefusal:
-        return abort("backend-refusal")
-    timer.mark("t4-backend-done")
+        deps.clear_clipboard()
+        deps.send_copy()
+        timer.mark("t2-copy-sent")
 
-    if not transformed.strip():
-        return abort("empty-result")
+        try:
+            captured = deps.wait_for_content()
+        except ClipboardTimeout:
+            return abort("capture-timeout")
+        timer.mark("t3-clipboard-captured")
 
-    deps.write_clipboard(transformed)
-    deps.send_paste()
-    timer.mark("t5-paste-sent")
+        try:
+            transformed = backend.transform(captured)
+        except BackendRefusal:
+            return abort("backend-refusal")
+        timer.mark("t4-backend-done")
 
-    deps.sleep(RESTORE_DELAY_S)
-    deps.write_clipboard(original)
-    timer.mark("t6-clipboard-restored")
+        if not transformed.strip():
+            return abort("empty-result")
 
-    return CycleResult(pasted=True, reason="ok", timer=timer)
+        deps.write_clipboard(transformed)
+        deps.send_paste()
+        timer.mark("t5-paste-sent")
+
+        deps.sleep(RESTORE_DELAY_S)
+        deps.write_clipboard(original)
+        restored = True
+        timer.mark("t6-clipboard-restored")
+
+        return CycleResult(pasted=True, reason="ok", timer=timer)
+    finally:
+        if not restored:
+            deps.write_clipboard(original)
