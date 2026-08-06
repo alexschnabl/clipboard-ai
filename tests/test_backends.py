@@ -70,8 +70,44 @@ def test_raises_when_unclosed_think_tag_present():
         backend.transform("x")
 
 
+def test_raises_when_orphan_closing_think_tag_present():
+    # Some chat templates pre-inject the opening <think> tag themselves, so the
+    # model's own output only ever contains the closing tag. If that closing
+    # tag survives (e.g. because the template's opening tag never reached this
+    # code), the fragment must still be refused rather than pasted.
+    raw = "The user wants grammar fixed. …</think>Corrected."
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")
+
+
+def test_strips_thinking_block_variant():
+    raw = "<thinking>reasoning about grammar</thinking>Corrected."
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    assert backend.transform("x") == "Corrected."
+
+
+def test_raises_when_orphan_closing_thinking_tag_present():
+    raw = "still reasoning</thinking>Corrected."
+    backend = OllamaBackend(http_post=lambda url, payload: chat_response(raw))
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")
+
+
 def test_raises_when_content_is_null():
     backend = OllamaBackend(http_post=lambda url, payload: {"choices": [{"message": {"content": None}}]})
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")
+
+
+def test_raises_when_message_is_null():
+    backend = OllamaBackend(http_post=lambda url, payload: {"choices": [{"message": None}]})
+    with pytest.raises(BackendRefusal):
+        backend.transform("x")
+
+
+def test_raises_when_first_choice_is_null():
+    backend = OllamaBackend(http_post=lambda url, payload: {"choices": [None]})
     with pytest.raises(BackendRefusal):
         backend.transform("x")
 
@@ -130,3 +166,44 @@ def test_agent_sdk_backend_passes_prompt_and_text_to_run_query():
 def test_agent_sdk_backend_raises_on_empty_output():
     with pytest.raises(BackendRefusal):
         AgentSDKBackend(run_query=lambda s, t: "").transform("x")
+
+
+from spike.backends import AgentSDKSessionBackend
+
+
+def test_agent_sdk_session_backend_passes_text_to_run_query():
+    calls = []
+
+    def run_query(user_text):
+        calls.append(user_text)
+        return "Corrected.\n"
+
+    backend = AgentSDKSessionBackend(run_query=run_query)
+    assert backend.transform("corected") == "Corrected."
+    assert calls == ["corected"]
+
+
+def test_agent_sdk_session_backend_raises_on_empty_output():
+    with pytest.raises(BackendRefusal):
+        AgentSDKSessionBackend(run_query=lambda t: "").transform("x")
+
+
+def test_agent_sdk_session_backend_reuses_the_same_run_query_across_calls():
+    """The point of this backend is a session held open across calls, so the
+    adapter must invoke the same injected run_query for every transform()
+    call rather than constructing a new one -- this is what the real
+    implementation reuses to hold one ClaudeSDKClient open across calls."""
+    calls = []
+
+    def run_query(user_text):
+        calls.append(user_text)
+        return f"done:{user_text}"
+
+    backend = AgentSDKSessionBackend(run_query=run_query)
+    assert backend.transform("a") == "done:a"
+    assert backend.transform("b") == "done:b"
+    assert calls == ["a", "b"]
+
+
+def test_agent_sdk_session_backend_name():
+    assert AgentSDKSessionBackend(run_query=lambda t: "x").name == "agent-sdk-session"
