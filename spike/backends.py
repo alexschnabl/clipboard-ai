@@ -72,13 +72,18 @@ class OllamaBackend:
 
 
 def _run_claude_cli(argv: list[str], input_text: str) -> str:
-    result = subprocess.run(
-        argv,
-        input=input_text,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
+    try:
+        result = subprocess.run(
+            argv,
+            input=input_text,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise BackendRefusal(f"claude timeout after {e.timeout}s") from e
+    except FileNotFoundError as e:
+        raise BackendRefusal(f"claude executable not found") from e
     if result.returncode != 0:
         raise BackendRefusal(f"claude exited {result.returncode}: {result.stderr}")
     return result.stdout

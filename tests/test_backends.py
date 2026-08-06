@@ -1,6 +1,8 @@
+import subprocess
+
 import pytest
 
-from spike.backends import SYSTEM_PROMPT, BackendRefusal, OllamaBackend, ClaudeCLIBackend
+from spike.backends import SYSTEM_PROMPT, BackendRefusal, OllamaBackend, ClaudeCLIBackend, _run_claude_cli
 
 
 def chat_response(content: str) -> dict:
@@ -91,3 +93,21 @@ def test_cli_backend_invokes_claude_p_with_the_prompt():
 def test_cli_backend_raises_when_the_cli_returns_nothing():
     with pytest.raises(BackendRefusal):
         ClaudeCLIBackend(runner=lambda argv, input_text: "   ").transform("x")
+
+
+def test_cli_backend_raises_when_subprocess_times_out(monkeypatch):
+    def mock_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="claude", timeout=120)
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    with pytest.raises(BackendRefusal, match="timeout"):
+        _run_claude_cli(["claude", "-p"], "input")
+
+
+def test_cli_backend_raises_when_claude_executable_not_found(monkeypatch):
+    def mock_run(*args, **kwargs):
+        raise FileNotFoundError("claude not found")
+
+    monkeypatch.setattr(subprocess, "run", mock_run)
+    with pytest.raises(BackendRefusal, match="executable not found"):
+        _run_claude_cli(["claude", "-p"], "input")
