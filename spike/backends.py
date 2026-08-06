@@ -112,15 +112,15 @@ class ClaudeCLIBackend:
 async def _run_agent_sdk_query(system_prompt: str, user_text: str) -> str:
     """Drive claude_agent_sdk.query() for a single exchange and collect its text.
 
-    allowed_tools=[] is deliberate: this backend is a plain text transform
-    (grammar/spelling fix), not a coding agent, and the default toolset
-    (Read/Bash/Edit/...) would otherwise sit behind interactive permission
-    prompts that can hang a headless call and would pollute the latency
-    measurement this backend exists to produce.
+    tools=[] disables the built-in toolset (Read/Bash/Edit/...) entirely.
+    This backend only rewrites text, so it has no business invoking tools;
+    disabling them removes the risk of a headless call hanging behind an
+    interactive permission prompt and any chance of the model reaching for
+    the filesystem mid-request.
     """
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
-        allowed_tools=[],
+        tools=[],
     )
     chunks: list[str] = []
     async for message in query(prompt=user_text, options=options):
