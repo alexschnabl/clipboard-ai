@@ -17,6 +17,15 @@ def modifiers_down() -> bool:
     return any(get_state(vk) & 0x8000 for vk in (_VK_SHIFT, _VK_CONTROL, _VK_MENU))
 
 
+def get_foreground_window() -> int:
+    """Handle of the window currently holding focus. Windows only.
+
+    Used to detect focus loss between capture and paste-back: the value at
+    hotkey time is compared against the value right before Ctrl+V is sent.
+    """
+    return ctypes.windll.user32.GetForegroundWindow()
+
+
 def wait_for_modifier_release(
     probe: Callable[[], bool] = modifiers_down,
     timeout_ms: int = 2000,

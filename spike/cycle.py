@@ -18,6 +18,7 @@ class CycleDeps:
     send_copy: Callable[[], None]
     send_paste: Callable[[], None]
     sleep: Callable[[float], None]
+    get_foreground_window: Callable[[], object]
 
 
 @dataclass
@@ -34,6 +35,14 @@ def run_cycle(backend, timer: StageTimer, deps: CycleDeps) -> CycleResult:
     A `finally` guarantees that restore even when an exception other than
     `ClipboardTimeout` or `BackendRefusal` escapes an OS call or the
     backend; the exception is not swallowed, it still propagates.
+
+    Between capture (t2) and paste, the backend call can take anywhere from
+    tens of milliseconds to tens of seconds. Two things the user did at
+    capture time can silently stop being true by the time paste fires:
+    the window they meant to paste into can lose focus, and a modifier key
+    can be back down (e.g. mid-shortcut for something else). Both are
+    re-checked immediately before send_paste and abort rather than paste
+    into the wrong place or trigger the wrong paste variant.
     """
     timer.mark("t0-hotkey")
     original = deps.read_clipboard()
@@ -53,6 +62,7 @@ def run_cycle(backend, timer: StageTimer, deps: CycleDeps) -> CycleResult:
         deps.clear_clipboard()
         deps.send_copy()
         timer.mark("t2-copy-sent")
+        focus_at_copy = deps.get_foreground_window()
 
         try:
             captured = deps.wait_for_content()
@@ -68,6 +78,13 @@ def run_cycle(backend, timer: StageTimer, deps: CycleDeps) -> CycleResult:
 
         if not transformed.strip():
             return abort("empty-result")
+
+        if deps.get_foreground_window() != focus_at_copy:
+            return abort("focus-changed")
+
+        if not deps.wait_for_modifier_release():
+            return abort("modifiers-stuck-before-paste")
+        timer.mark("t4a-preflight-passed")
 
         deps.write_clipboard(transformed)
         deps.send_paste()

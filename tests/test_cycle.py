@@ -8,42 +8,78 @@ from tests.fakes import FakeClock
 
 
 class FakeOS:
-    """Records clipboard and keystroke effects so tests can assert on them."""
+    """Records clipboard, keystroke, and OS-probe effects so tests can assert on them.
+
+    `calls` is an ordered log of every operation performed, in the order
+    run_cycle performed them -- this is what lets tests pin the safety-critical
+    orderings (clear-before-copy, restore-after-paste, and so on) instead of
+    only checking end states.
+    """
 
     def __init__(self, original="ORIGINAL", captured="corected text",
-                 capture_raises=False, modifiers_release=True):
+                 capture_raises=False, modifiers_release=True,
+                 modifiers_release_before_paste=True,
+                 focus_at_copy="WIN-1", focus_before_paste=None):
         self.clipboard = original
         self._captured = captured
         self._capture_raises = capture_raises
         self._modifiers_release = modifiers_release
+        self._modifiers_release_before_paste = modifiers_release_before_paste
+        self._focus_at_copy = focus_at_copy
+        self._focus_before_paste = (
+            focus_at_copy if focus_before_paste is None else focus_before_paste
+        )
         self.pastes = 0
         self.copies = 0
         self.pasted_content = None
+        self.calls = []
+        self._modifier_check_count = 0
+        self._focus_check_count = 0
 
     def read_clipboard(self):
+        self.calls.append("read")
         return self.clipboard
 
     def write_clipboard(self, text):
+        self.calls.append(f"write:{text}")
         self.clipboard = text
 
     def clear_clipboard(self):
+        self.calls.append("clear")
         self.clipboard = ""
 
     def wait_for_content(self):
+        self.calls.append("wait_for_content")
         if self._capture_raises:
             raise ClipboardTimeout("nothing selected")
         self.clipboard = self._captured
         return self._captured
 
     def wait_for_modifier_release(self):
-        return self._modifiers_release
+        self._modifier_check_count += 1
+        self.calls.append("wait_for_modifier_release")
+        if self._modifier_check_count == 1:
+            return self._modifiers_release
+        return self._modifiers_release_before_paste
 
     def send_copy(self):
+        self.calls.append("copy")
         self.copies += 1
 
     def send_paste(self):
+        self.calls.append("paste")
         self.pastes += 1
         self.pasted_content = self.clipboard
+
+    def sleep(self, seconds):
+        self.calls.append(f"sleep:{seconds}")
+
+    def get_foreground_window(self):
+        self._focus_check_count += 1
+        self.calls.append("get_foreground_window")
+        if self._focus_check_count == 1:
+            return self._focus_at_copy
+        return self._focus_before_paste
 
     def as_deps(self):
         return CycleDeps(
@@ -54,7 +90,8 @@ class FakeOS:
             wait_for_modifier_release=self.wait_for_modifier_release,
             send_copy=self.send_copy,
             send_paste=self.send_paste,
-            sleep=lambda _: None,
+            sleep=self.sleep,
+            get_foreground_window=self.get_foreground_window,
         )
 
 
@@ -166,3 +203,56 @@ def test_records_all_timing_stages_on_the_happy_path():
                   "t3-clipboard-captured", "t4-backend-done",
                   "t5-paste-sent", "t6-clipboard-restored"):
         assert stage in report
+
+
+def test_happy_path_call_sequence_matches_the_safety_critical_order():
+    """Mutation-tested: this must fail if clear_clipboard() or the post-paste
+    sleep() is removed from run_cycle. See the report for the check performed.
+    """
+    os_ = FakeOS()
+    run_cycle(StubBackend("Corrected text."), new_timer(), os_.as_deps())
+    tracked = [c for c in os_.calls if c.split(":", 1)[0] in
+               {"clear", "copy", "write", "paste", "sleep"}]
+    assert tracked == [
+        "clear",
+        "copy",
+        "write:Corrected text.",
+        "paste",
+        "sleep:0.3",
+        "write:ORIGINAL",
+    ]
+
+
+def test_focus_unchanged_pastes_normally():
+    os_ = FakeOS(focus_at_copy="WIN-1", focus_before_paste="WIN-1")
+    result = run_cycle(StubBackend("Corrected text."), new_timer(), os_.as_deps())
+    assert result.pasted is True
+    assert os_.pastes == 1
+
+
+def test_focus_changed_before_paste_aborts_without_pasting():
+    os_ = FakeOS(focus_at_copy="WIN-1", focus_before_paste="WIN-2")
+    result = run_cycle(StubBackend("Corrected text."), new_timer(), os_.as_deps())
+    assert result.pasted is False
+    assert result.reason == "focus-changed"
+    assert os_.pastes == 0
+
+
+def test_focus_changed_before_paste_restores_the_original_clipboard():
+    os_ = FakeOS(original="ORIGINAL", focus_at_copy="WIN-1", focus_before_paste="WIN-2")
+    run_cycle(StubBackend("Corrected text."), new_timer(), os_.as_deps())
+    assert os_.clipboard == "ORIGINAL"
+
+
+def test_modifiers_stuck_before_paste_aborts_without_pasting():
+    os_ = FakeOS(modifiers_release_before_paste=False)
+    result = run_cycle(StubBackend("Corrected text."), new_timer(), os_.as_deps())
+    assert result.pasted is False
+    assert result.reason == "modifiers-stuck-before-paste"
+    assert os_.pastes == 0
+
+
+def test_modifiers_stuck_before_paste_restores_the_original_clipboard():
+    os_ = FakeOS(original="ORIGINAL", modifiers_release_before_paste=False)
+    run_cycle(StubBackend("Corrected text."), new_timer(), os_.as_deps())
+    assert os_.clipboard == "ORIGINAL"
