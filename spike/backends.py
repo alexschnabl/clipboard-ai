@@ -1,4 +1,5 @@
 import re
+import subprocess
 
 import httpx
 
@@ -68,3 +69,34 @@ class OllamaBackend:
         if not content.strip():
             raise BackendRefusal("ollama returned empty content")
         return content.strip()
+
+
+def _run_claude_cli(argv: list[str], input_text: str) -> str:
+    result = subprocess.run(
+        argv,
+        input=input_text,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    if result.returncode != 0:
+        raise BackendRefusal(f"claude exited {result.returncode}: {result.stderr}")
+    return result.stdout
+
+
+class ClaudeCLIBackend:
+    """Cold `claude -p` subprocess per request. The latency baseline."""
+
+    name = "claude-cli"
+
+    def __init__(self, runner=None):
+        self._runner = runner or _run_claude_cli
+
+    def transform(self, text: str) -> str:
+        output = self._runner(
+            ["claude", "-p", "--system-prompt", SYSTEM_PROMPT],
+            text,
+        )
+        if not output.strip():
+            raise BackendRefusal("claude returned no output")
+        return output.strip()

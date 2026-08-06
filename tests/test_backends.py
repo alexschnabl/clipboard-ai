@@ -1,6 +1,6 @@
 import pytest
 
-from spike.backends import SYSTEM_PROMPT, BackendRefusal, OllamaBackend
+from spike.backends import SYSTEM_PROMPT, BackendRefusal, OllamaBackend, ClaudeCLIBackend
 
 
 def chat_response(content: str) -> dict:
@@ -72,3 +72,22 @@ def test_raises_when_content_is_null():
     backend = OllamaBackend(http_post=lambda url, payload: {"choices": [{"message": {"content": None}}]})
     with pytest.raises(BackendRefusal):
         backend.transform("x")
+
+
+def test_cli_backend_invokes_claude_p_with_the_prompt():
+    calls = []
+
+    def runner(argv, input_text):
+        calls.append((argv, input_text))
+        return "Corrected.\n"
+
+    assert ClaudeCLIBackend(runner=runner).transform("corected") == "Corrected."
+    argv, input_text = calls[0]
+    assert argv[0] == "claude"
+    assert "-p" in argv
+    assert "corected" in input_text
+
+
+def test_cli_backend_raises_when_the_cli_returns_nothing():
+    with pytest.raises(BackendRefusal):
+        ClaudeCLIBackend(runner=lambda argv, input_text: "   ").transform("x")
