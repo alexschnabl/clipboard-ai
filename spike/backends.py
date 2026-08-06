@@ -1,7 +1,9 @@
+import asyncio
 import re
 import subprocess
 
 import httpx
+from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, TextBlock, query
 
 SYSTEM_PROMPT = (
     "Fix grammar and spelling. Return only the corrected text, "
@@ -104,4 +106,56 @@ class ClaudeCLIBackend:
         )
         if not output.strip():
             raise BackendRefusal("claude returned no output")
+        return output.strip()
+
+
+async def _run_agent_sdk_query(system_prompt: str, user_text: str) -> str:
+    """Drive claude_agent_sdk.query() for a single exchange and collect its text.
+
+    allowed_tools=[] is deliberate: this backend is a plain text transform
+    (grammar/spelling fix), not a coding agent, and the default toolset
+    (Read/Bash/Edit/...) would otherwise sit behind interactive permission
+    prompts that can hang a headless call and would pollute the latency
+    measurement this backend exists to produce.
+    """
+    options = ClaudeAgentOptions(
+        system_prompt=system_prompt,
+        allowed_tools=[],
+    )
+    chunks: list[str] = []
+    async for message in query(prompt=user_text, options=options):
+        if isinstance(message, AssistantMessage):
+            if message.error is not None:
+                raise BackendRefusal(f"agent sdk assistant error: {message.error}")
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    chunks.append(block.text)
+        elif isinstance(message, ResultMessage) and message.is_error:
+            raise BackendRefusal(
+                f"agent sdk result error: subtype={message.subtype} errors={message.errors}"
+            )
+    return "".join(chunks)
+
+
+def _default_run_query(system_prompt: str, user_text: str) -> str:
+    """Single-shot query through the Claude Agent SDK.
+
+    Uses the existing Claude Code login rather than an API key.
+    Written against https://code.claude.com/docs/en/agent-sdk — see Step 1.
+    """
+    return asyncio.run(_run_agent_sdk_query(system_prompt, user_text))
+
+
+class AgentSDKBackend:
+    """Claude Agent SDK, authenticating off the existing Claude Code login."""
+
+    name = "agent-sdk"
+
+    def __init__(self, run_query=None):
+        self._run_query = run_query or _default_run_query
+
+    def transform(self, text: str) -> str:
+        output = self._run_query(SYSTEM_PROMPT, text)
+        if not output.strip():
+            raise BackendRefusal("agent sdk returned no output")
         return output.strip()

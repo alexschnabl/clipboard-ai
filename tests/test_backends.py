@@ -111,3 +111,22 @@ def test_cli_backend_raises_when_claude_executable_not_found(monkeypatch):
     monkeypatch.setattr(subprocess, "run", mock_run)
     with pytest.raises(BackendRefusal, match="executable not found"):
         _run_claude_cli(["claude", "-p"], "input")
+
+
+from spike.backends import SYSTEM_PROMPT, AgentSDKBackend
+
+
+def test_agent_sdk_backend_passes_prompt_and_text_to_run_query():
+    calls = []
+
+    def run_query(system_prompt, user_text):
+        calls.append((system_prompt, user_text))
+        return "Corrected.\n"
+
+    assert AgentSDKBackend(run_query=run_query).transform("corected") == "Corrected."
+    assert calls == [(SYSTEM_PROMPT, "corected")]
+
+
+def test_agent_sdk_backend_raises_on_empty_output():
+    with pytest.raises(BackendRefusal):
+        AgentSDKBackend(run_query=lambda s, t: "").transform("x")
