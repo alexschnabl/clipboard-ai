@@ -81,10 +81,38 @@ Measured. Only the last row is outstanding.
 
 | Backend | Cold | Warm | Notes |
 |---|---|---|---|
-| Ollama `qwen2.5:32b-instruct` | 16,036 ms | 399 ms | Ollama unloads idle models after a few minutes |
-| `claude -p` subprocess | 4,389 ms | — | Fresh process per request by definition |
-| Agent SDK `query()` | 4,527 ms | 3,999 / 2,998 ms | **All three are cold** — see below |
-| Agent SDK persistent session | **[TO FILL]** | **[TO FILL]** | Part B |
+| Ollama `qwen2.5:32b-instruct` | 16,036 ms | 351–399 ms | Ollama unloads idle models after a few minutes |
+| `claude -p` subprocess | 4,389 ms | 3,290–4,126 ms | Fresh process per request by definition. **Leaks a preamble — see below** |
+| Agent SDK `query()` | 4,527 ms | 3,230–3,892 ms | Stateless per call, so every call is effectively cold |
+| Agent SDK persistent session | 2,623 ms | **2,083–2,109 ms** | Fastest of the three Claude paths |
+
+Measured across three consecutive calls per backend on the same sample sentence
+(`this sentance have two mistake and need fixing`).
+
+**A persistent session is worth having: ~35–40% faster than stateless `query()`, and it lands
+around 2.1 s.** That is a real improvement but not a category change — it does not reach the
+sub-500 ms band where a hotkey feels instant. Only a resident local model does that.
+
+Note the Ollama "cold" figure of 16 s requires a genuinely unloaded model. A re-run minutes later
+with the model still resident showed 4,352 ms on the first call — so the penalty you actually pay
+depends on how long since the last use, not on a fixed cold/warm binary.
+
+### ⚠️ `claude-cli` leaks a preamble into the pasted text
+
+Observed on every call, despite the system prompt saying "no preamble, explanation, or commentary":
+
+```
+'The corrected text:\n\nThis sentence has two mistakes and needs fixing.'
+'Corrected text.\n\nThis sentence has two mistakes and needs fixing.'
+```
+
+The whole string is what gets pasted over the user's selection. `ollama`, `agent-sdk`, and
+`agent-sdk-session` were all clean on the same sample — this is specific to `claude -p`, which
+appears to apply its own response framing over the supplied `--system-prompt`.
+
+**Do not run the application matrix on `--backend claude-cli`.** For production, this says the
+system prompt alone is not a sufficient contract for output shape: a backend that can editorialise
+needs either output post-processing or a structured-output mode.
 
 **On the `query()` row:** the SDK documents `query()` as *"Stateless: each query is independent"*,
 spawning a fresh `claude` CLI subprocess per call. The figures labelled warm during the build were
@@ -113,8 +141,20 @@ production app, not model choice.
 **[TO FILL: the t2→t3 capture cost from Part D, which is the part the model does not explain.]**
 
 **3. Does the Agent SDK authenticate off the Claude Code login, and is a warm session faster?**
-Half answered. **Authentication works** — confirmed repeatedly with `ANTHROPIC_API_KEY` unset, no
-auth error, correct output. The warm-session half is **[TO FILL from Part B]**.
+**Answered — yes to both, with a caveat on the second.**
+
+Authentication works: confirmed repeatedly with `ANTHROPIC_API_KEY` unset, no auth error, correct
+output. A persistent `ClaudeSDKClient` session is consistently faster than stateless `query()` —
+2.1 s versus 3.2–3.9 s, roughly 35–40%.
+
+The caveat is that 2.1 s is still 2.1 s. It is the best of the three Claude paths and worth using
+if the production app goes the subscription route, but it does not get the tool into the range
+where a hotkey feels immediate. Anything built on it should assume a visible wait and design the UX
+around that — a progress indicator, or the review-popup mode rather than silent in-place
+replacement.
+
+Not measured: whether session latency degrades over a long run as context accumulates (the session
+reuses a single session id — see Part H).
 
 ---
 
