@@ -2,6 +2,7 @@
 <script lang="ts">
 	import * as Dialog from '$lib/components/shadcn/dialog/index.js';
 	import * as Select from '$lib/components/shadcn/select/index.js';
+	import * as Alert from '$lib/components/shadcn/alert/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import { Input } from '$lib/components/shadcn/input/index.js';
 	import { Label } from '$lib/components/shadcn/label/index.js';
@@ -40,6 +41,13 @@
 	let apiKey = $state('');
 	let timeoutMs = $state(DEFAULT_TIMEOUT_MS);
 	let revealed = $state(false);
+	let saving = $state(false);
+	/** Set from `configState.error` when `save()` (via `commit`) rejects this
+	 *  dialog's edit -- shown inline, dialog left open, so the user can fix
+	 *  the field and retry (see fix3 report). Reset on open, not just on a
+	 *  fresh attempt, so a stale error from a *previous* dialog session never
+	 *  bleeds into one that hasn't tried to save yet. */
+	let submitError = $state<string | null>(null);
 
 	const isEdit = $derived(backend !== null);
 	// `min={MIN_TIMEOUT_MS}` on the <Input> below is HTML-only -- it doesn't stop a
@@ -59,6 +67,7 @@
 			apiKey = backend?.apiKey ?? '';
 			timeoutMs = backend?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 			revealed = false;
+			submitError = null;
 		}
 	});
 
@@ -72,8 +81,8 @@
 		timeoutMs = Number.isFinite(v) ? v : DEFAULT_TIMEOUT_MS;
 	}
 
-	function handleSave(): void {
-		if (!canSave) return;
+	async function handleSave(): Promise<void> {
+		if (!canSave || saving) return;
 		const usesModelAndKey = kind === 'openai-compatible' || kind === 'anthropic-api';
 		const next: BackendConfig = {
 			id: backend?.id ?? crypto.randomUUID(),
@@ -84,12 +93,15 @@
 			apiKey: usesModelAndKey ? apiKey.trim() || null : null,
 			timeoutMs
 		};
-		if (backend) {
-			configState.updateBackend(next);
+		saving = true;
+		submitError = null;
+		const ok = backend ? await configState.updateBackend(next) : await configState.addBackend(next);
+		saving = false;
+		if (ok) {
+			open = false;
 		} else {
-			configState.addBackend(next);
+			submitError = configState.error ?? 'Save failed.';
 		}
-		open = false;
 	}
 </script>
 
@@ -255,10 +267,17 @@
 			{/if}
 		</div>
 
+		{#if submitError}
+			<Alert.Root variant="destructive">
+				<Alert.Title>Couldn’t save backend</Alert.Title>
+				<Alert.Description>{submitError}</Alert.Description>
+			</Alert.Root>
+		{/if}
+
 		<Dialog.Footer>
-			<Button variant="outline" onclick={() => (open = false)}>Cancel</Button>
-			<Button onclick={handleSave} disabled={!canSave}>
-				{isEdit ? 'Save changes' : 'Add backend'}
+			<Button variant="outline" onclick={() => (open = false)} disabled={saving}>Cancel</Button>
+			<Button onclick={() => void handleSave()} disabled={!canSave || saving}>
+				{saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add backend'}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

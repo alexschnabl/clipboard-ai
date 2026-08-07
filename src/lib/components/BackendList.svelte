@@ -42,13 +42,18 @@
 
 	/** The used-by refusal is unchanged: still attempted only after the user
 	 *  confirms, still shown as the same destructive Alert naming the
-	 *  blocking commands. */
-	function confirmDelete(): void {
+	 *  blocking commands -- `deleteBackend` checks that locally and refuses
+	 *  before any write, so it's the only way this call resolves with a
+	 *  non-empty `usedBy`. The confirmation dialog itself closes immediately
+	 *  on confirm, same as before; the write that follows now persists to
+	 *  disk rather than only flipping a dirty flag. */
+	async function confirmDelete(): Promise<void> {
 		if (!pendingDelete) return;
-		const result = configState.deleteBackend(pendingDelete.id);
-		blockedDelete = result.ok ? null : { backendName: pendingDelete.name, usedBy: result.usedBy };
+		const target = pendingDelete;
 		confirmDeleteOpen = false;
 		pendingDelete = null;
+		const result = await configState.deleteBackend(target.id);
+		blockedDelete = result.usedBy.length > 0 ? { backendName: target.name, usedBy: result.usedBy } : null;
 	}
 
 	function cancelDelete(): void {
@@ -141,7 +146,7 @@
 		</Dialog.Header>
 		<Dialog.Footer>
 			<Button variant="outline" onclick={cancelDelete}>Cancel</Button>
-			<Button variant="destructive" onclick={confirmDelete}>Delete</Button>
+			<Button variant="destructive" onclick={() => void confirmDelete()}>Delete</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>

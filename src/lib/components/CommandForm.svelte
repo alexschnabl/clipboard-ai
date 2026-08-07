@@ -2,6 +2,7 @@
 <script lang="ts">
 	import * as Dialog from '$lib/components/shadcn/dialog/index.js';
 	import * as Select from '$lib/components/shadcn/select/index.js';
+	import * as Alert from '$lib/components/shadcn/alert/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import { Input } from '$lib/components/shadcn/input/index.js';
 	import { Label } from '$lib/components/shadcn/label/index.js';
@@ -23,6 +24,13 @@
 	let backendId = $state('');
 	let hotkey = $state('');
 	let systemPrompt = $state('');
+	let saving = $state(false);
+	/** Set from `configState.error` when `save()` (via `commit`) rejects this
+	 *  dialog's edit -- shown inline, dialog left open, so the user can fix
+	 *  the field and retry (see fix3 report). Reset on open, not just on a
+	 *  fresh attempt, so a stale error from a *previous* dialog session never
+	 *  bleeds into one that hasn't tried to save yet. */
+	let submitError = $state<string | null>(null);
 
 	const isEdit = $derived(command !== null);
 	const canSave = $derived(name.trim().length > 0 && backendId.length > 0);
@@ -37,6 +45,7 @@
 			backendId = command?.backendId ?? configState.config.backends[0]?.id ?? '';
 			hotkey = command?.hotkey ?? '';
 			systemPrompt = command?.systemPrompt ?? '';
+			submitError = null;
 		}
 	});
 
@@ -49,8 +58,8 @@
 		hotkey = next;
 	}
 
-	function handleSave(): void {
-		if (!canSave) return;
+	async function handleSave(): Promise<void> {
+		if (!canSave || saving) return;
 		const next: CommandConfig = {
 			id: command?.id ?? crypto.randomUUID(),
 			name: name.trim(),
@@ -58,12 +67,15 @@
 			hotkey,
 			systemPrompt: systemPrompt.trim()
 		};
-		if (command) {
-			configState.updateCommand(next);
+		saving = true;
+		submitError = null;
+		const ok = command ? await configState.updateCommand(next) : await configState.addCommand(next);
+		saving = false;
+		if (ok) {
+			open = false;
 		} else {
-			configState.addCommand(next);
+			submitError = configState.error ?? 'Save failed.';
 		}
-		open = false;
 	}
 </script>
 
@@ -119,10 +131,17 @@
 			</div>
 		</div>
 
+		{#if submitError}
+			<Alert.Root variant="destructive">
+				<Alert.Title>Couldn’t save command</Alert.Title>
+				<Alert.Description>{submitError}</Alert.Description>
+			</Alert.Root>
+		{/if}
+
 		<Dialog.Footer>
-			<Button variant="outline" onclick={() => (open = false)}>Cancel</Button>
-			<Button onclick={handleSave} disabled={!canSave}>
-				{isEdit ? 'Save changes' : 'Add command'}
+			<Button variant="outline" onclick={() => (open = false)} disabled={saving}>Cancel</Button>
+			<Button onclick={() => void handleSave()} disabled={!canSave || saving}>
+				{saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add command'}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

@@ -31,11 +31,12 @@
 		confirmDeleteOpen = true;
 	}
 
-	function confirmDelete(): void {
+	async function confirmDelete(): Promise<void> {
 		if (!pendingDelete) return;
-		configState.deleteCommand(pendingDelete.id);
+		const target = pendingDelete;
 		confirmDeleteOpen = false;
 		pendingDelete = null;
+		await configState.deleteCommand(target.id);
 	}
 
 	function cancelDelete(): void {
@@ -142,7 +143,7 @@
 		</Dialog.Header>
 		<Dialog.Footer>
 			<Button variant="outline" onclick={cancelDelete}>Cancel</Button>
-			<Button variant="destructive" onclick={confirmDelete}>Delete</Button>
+			<Button variant="destructive" onclick={() => void confirmDelete()}>Delete</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>

@@ -160,8 +160,9 @@ const QUIT_CYCLE_WAIT: Duration = Duration::from_secs(2);
 /// than recovering it. This matters most for `state.commands`: swallowed
 /// via `.ok()`, a poisoned lock there would make every hotkey press quietly
 /// no-op for the rest of the process's life, with nothing anywhere to say
-/// why. `config_dir` is `Option` because a couple of call sites (`ACK_TX`
-/// in commands.rs) have no `AppState`, and so no log directory, in scope.
+/// why. `config_dir` is `Option` so a call site with no `AppState`, and so
+/// no log directory, in scope can still recover a poisoned lock -- it just
+/// loses the `status::append_log` half and falls back to `eprintln!` alone.
 fn recover_lock<'a, T>(
     result: Result<
         std::sync::MutexGuard<'a, T>,
@@ -1096,16 +1097,15 @@ pub fn run() {
             //
             // `prevent_close` always runs, unconditionally -- native close
             // must never proceed on its own. What happens next is
-            // `commands::handle_close_request`'s call: hide immediately if
-            // there is nothing unsaved (which is also the path a frontend
-            // that never mounted takes -- see that function's doc comment),
-            // otherwise ask the frontend first and hide anyway if it never
-            // answers. Either way that function is also where the
-            // Task-4 defensive config re-apply now lives (hotkey recording,
-            // Task 8, suspends global shortcuts while it listens; this is
-            // the one exit path the frontend cannot reliably intercept to
-            // resume them itself), run on every route that actually hides
-            // the window, never on a route that doesn't.
+            // `commands::handle_close_request`'s call: every config mutation
+            // now persists to disk as it happens (see `ConfigState.commit`
+            // in config.svelte.ts), so there is no unsaved state left to ask
+            // the frontend about -- it just hides and re-applies. That
+            // re-apply is the Task-4 defensive config re-apply (hotkey
+            // recording, Task 8, suspends global shortcuts while it listens;
+            // this is the one exit path the frontend cannot reliably
+            // intercept to resume them itself), run on every route that
+            // actually hides the window, never on a route that doesn't.
             if let Some(window) = app.get_webview_window("settings") {
                 let handle = handle.clone();
                 window.on_window_event(move |event| {
@@ -1129,9 +1129,6 @@ pub fn run() {
             commands::save_config,
             commands::suspend_hotkeys,
             commands::resume_hotkeys,
-            commands::set_dirty,
-            commands::ack_close_prompt,
-            commands::force_close_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
