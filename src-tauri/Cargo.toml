@@ -4,6 +4,9 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+# `smoke` is a second binary (the input-stack diagnostic), so a bare `cargo run`
+# -- which is what `tauri dev` issues -- cannot pick one. Name the app explicitly.
+default-run = "clipboard-ai-app"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
