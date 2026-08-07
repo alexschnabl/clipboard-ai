@@ -36,6 +36,12 @@ struct CommandEntry {
 /// config's hotkey spelling against the plugin's own textual rendering of
 /// the same shortcut.
 struct AppState {
+    /// The in-memory source of truth for the running config. `apply_config`
+    /// is the only writer, at startup and (later) on every settings-window
+    /// save; it replaces this wholesale rather than mutating it in place,
+    /// the same way it replaces `commands` below wholesale rather than
+    /// patching it.
+    config: Mutex<config::Config>,
     commands: Mutex<HashMap<Shortcut, CommandEntry>>,
     ops: Arc<dyn osops::OsOps>,
     busy: AtomicBool,
@@ -223,6 +229,44 @@ fn register_hotkeys(app: &tauri::AppHandle, shortcuts: &[Shortcut]) -> Vec<Strin
     problems
 }
 
+/// Unregisters every hotkey, rebuilds the command map from `config`, swaps
+/// both `state.commands` and `state.config` to the new values, then
+/// re-registers with the OS. Returns per-command problems that did not
+/// prevent the apply (an unparseable hotkey, an unknown backend, a hotkey
+/// collision -- see `build_command_map` -- or a hotkey the OS refused to
+/// register, e.g. one already owned by another application).
+///
+/// Called once at startup below, and later by a settings-window save on
+/// every save -- that's why `config` arrives as an owned, already-loaded
+/// value rather than a path this function reads for itself. v1 registered
+/// hotkeys once in `setup` and never again, which made a settings UI a
+/// lie; this is the fix.
+///
+/// A cycle already running is unaffected by this call. The hotkey handler
+/// below clones the matching `CommandEntry` -- and, inside it, the
+/// `Arc<dyn Backend>` -- out of `state.commands` *before* spawning the
+/// cycle thread; `cycle::run` then only ever touches that owned clone, and
+/// never looks at the map again. So swapping `state.commands` here, even
+/// while a cycle is mid-flight, cannot reach it: a save during a
+/// 16-second cold-model cycle takes effect starting with the *next* press,
+/// not the one already running.
+fn apply_config(app: &tauri::AppHandle, state: &AppState, config: config::Config) -> Vec<String> {
+    let _ = app.global_shortcut().unregister_all();
+
+    let (map, mut problems) = build_command_map(&config);
+    let shortcuts: Vec<Shortcut> = map.keys().copied().collect();
+
+    if let Ok(mut guard) = state.commands.lock() {
+        *guard = map;
+    }
+    if let Ok(mut guard) = state.config.lock() {
+        *guard = config;
+    }
+
+    problems.extend(register_hotkeys(app, &shortcuts));
+    problems
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -249,7 +293,7 @@ pub fn run() {
             // configuration mechanism in v1, so a trailing comma is a
             // likely outcome, not an exotic one. Do not propagate `?` here:
             // fall through with an empty config (no backends, no commands --
-            // `build_command_map` below then registers nothing rather than
+            // `apply_config` below then registers nothing rather than
             // guessing) so the app still reaches a tray icon, with the
             // failure surfaced in the log and the tray status text.
             let mut config_load_failed = false;
@@ -264,8 +308,7 @@ pub fn run() {
                 }
             };
 
-            let (command_map, mut problems) = build_command_map(&cfg);
-            let hotkeys: Vec<Shortcut> = command_map.keys().copied().collect();
+            let mut problems: Vec<String> = Vec::new();
 
             // Same treatment for a failed OS layer (no clipboard or input
             // subsystem available, e.g. a non-interactive session): fall
@@ -292,21 +335,16 @@ pub fn run() {
             let status_item =
                 MenuItem::with_id(app, "status", "starting…", false, None::<&str>)?;
 
-            // One disabled, informational entry per successfully-registered
-            // command, built from `command_map` rather than all of
-            // `cfg.commands` -- a command whose hotkey didn't parse, whose
-            // backend is unknown, or whose hotkey collided with another
-            // (see build_command_map) is not in this map, and the tray must
-            // not advertise a hotkey that does nothing.
-            let mut command_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
-            for (i, (shortcut, entry)) in command_map.iter().enumerate() {
-                let label = format!("{} \u{2014} {shortcut}", entry.name);
-                let id = format!("command-{i}");
-                command_items.push(MenuItem::with_id(app, id, label, false, None::<&str>)?);
-            }
-
+            // Built empty: `apply_config` below is the sole writer of both
+            // `commands` and `config`, at startup here and (later) on every
+            // settings-window save.
             let state = Arc::new(AppState {
-                commands: Mutex::new(command_map),
+                config: Mutex::new(config::Config {
+                    version: 1,
+                    backends: Vec::new(),
+                    commands: Vec::new(),
+                }),
+                commands: Mutex::new(HashMap::new()),
                 ops,
                 busy: AtomicBool::new(false),
                 last_status: Mutex::new("starting…".into()),
@@ -357,7 +395,25 @@ pub fn run() {
                     .build(),
             )?;
 
-            problems.extend(register_hotkeys(&handle, &hotkeys));
+            let backends_configured = cfg.backends.len();
+            let commands_configured = cfg.commands.len();
+            problems.extend(apply_config(&handle, &state, cfg));
+            let hotkeys_attempted = state.commands.lock().map(|m| m.len()).unwrap_or(0);
+
+            // One disabled, informational entry per successfully-registered
+            // command, built from `state.commands` rather than all of
+            // `cfg.commands` -- a command whose hotkey didn't parse, whose
+            // backend is unknown, or whose hotkey collided with another
+            // (see build_command_map) is not in this map, and the tray must
+            // not advertise a hotkey that does nothing.
+            let mut command_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
+            if let Ok(guard) = state.commands.lock() {
+                for (i, (shortcut, entry)) in guard.iter().enumerate() {
+                    let label = format!("{} \u{2014} {shortcut}", entry.name);
+                    let id = format!("command-{i}");
+                    command_items.push(MenuItem::with_id(app, id, label, false, None::<&str>)?);
+                }
+            }
 
             // Hotkey-registration failures (a shortcut already owned by
             // another application) and config problems (unknown backend,
@@ -370,9 +426,9 @@ pub fn run() {
                 &config_dir,
                 &format!(
                     "STARTUP backends={} commands-configured={} hotkeys-attempted={} problems={}",
-                    cfg.backends.len(),
-                    cfg.commands.len(),
-                    hotkeys.len(),
+                    backends_configured,
+                    commands_configured,
+                    hotkeys_attempted,
                     problems.len()
                 ),
             );
@@ -431,14 +487,14 @@ pub fn run() {
                             .spawn();
                     }
                     "reload" => {
-                        // Deliberate v1 narrowing: hotkeys and backends are
-                        // built once here at startup, not watched. Live
-                        // re-registration would mean unregistering shortcuts
-                        // and rebuilding backends under a lock while a cycle
-                        // might already be in flight on its own thread —
-                        // real concurrency risk that isn't worth taking in
-                        // this pass. It lands with the settings UI in v2,
-                        // where reload has a real trigger. For now, restart
+                        // v1 narrowing, not yet lifted here: `apply_config`
+                        // above is the live-reregistration mechanism (safe
+                        // to call while a cycle is in flight -- see its doc
+                        // comment), built so a settings-window save can take
+                        // effect immediately. This tray button just isn't
+                        // wired to it yet -- rereading config.json from disk
+                        // and calling apply_config is the settings-window
+                        // save flow's job, not this one's. For now, restart
                         // the app to pick up config changes.
                         println!("reload requested — restart the app to apply config changes");
                     }
