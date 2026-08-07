@@ -1,4 +1,5 @@
 mod backend;
+mod commands;
 mod config;
 mod cycle;
 mod osops;
@@ -505,6 +506,12 @@ pub fn run() {
 
             Ok(())
         })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_config,
+            commands::save_config,
+            commands::suspend_hotkeys,
+            commands::resume_hotkeys,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
