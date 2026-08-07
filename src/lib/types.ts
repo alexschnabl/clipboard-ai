@@ -1,5 +1,14 @@
 export type BackendKind = 'openai-compatible' | 'anthropic-api' | 'claude-cli';
 
+/** Shared between `BackendList.svelte` (table column) and `BackendForm.svelte`
+ *  (Select trigger) so a new `BackendKind` can't update one screen's label and
+ *  silently leave the other showing `undefined`. */
+export const KIND_LABELS: Record<BackendKind, string> = {
+	'openai-compatible': 'OpenAI-compatible',
+	'anthropic-api': 'Anthropic API',
+	'claude-cli': 'Claude CLI'
+};
+
 export interface BackendConfig {
 	id: string;
 	name: string;
@@ -51,4 +60,10 @@ export interface ConfigLoadError {
 export interface GetConfigResult {
 	config: Config;
 	loadError: ConfigLoadError | null;
+	/** `Problem`s produced at startup (a hotkey the OS refused to register, an
+	 *  unparseable hotkey, ...) -- see `GetConfigResult` in
+	 *  src-tauri/src/commands.rs. Without loading this into `configState`, a
+	 *  hotkey that failed to register at launch was invisible in the UI until
+	 *  an unrelated Save happened to call `apply_config` again. */
+	startupProblems: Problem[];
 }

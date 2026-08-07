@@ -9,7 +9,7 @@
 	import RiEyeLine from 'remixicon-svelte/icons/eye-line';
 	import RiEyeOffLine from 'remixicon-svelte/icons/eye-off-line';
 	import { configState } from '$lib/state/config.svelte.js';
-	import type { BackendConfig, BackendKind } from '$lib/types';
+	import { KIND_LABELS, type BackendConfig, type BackendKind } from '$lib/types';
 
 	let {
 		open = $bindable(false),
@@ -19,12 +19,6 @@
 		/** The backend being edited, or null when adding a new one. */
 		backend?: BackendConfig | null;
 	} = $props();
-
-	const KIND_LABELS: Record<BackendKind, string> = {
-		'openai-compatible': 'OpenAI-compatible',
-		'anthropic-api': 'Anthropic API',
-		'claude-cli': 'Claude CLI'
-	};
 
 	const DEFAULT_TIMEOUT_MS = 120_000;
 	/**
@@ -56,10 +50,21 @@
 	// suggesting one.
 	const timeoutTooLow = $derived(timeoutMs < MIN_TIMEOUT_MS);
 	const canSave = $derived(name.trim().length > 0 && !timeoutTooLow);
+	/** `claude-cli` needs neither -- it shells out to a locally-installed CLI
+	 *  that handles its own auth and model choice. Used both here (what to
+	 *  send on save) and in the template (which fields to show). */
+	const usesModelAndKey = $derived(kind === 'openai-compatible' || kind === 'anthropic-api');
 
-	// Seed the form whenever the dialog opens.
+	let wasOpen = false;
+	// Seed the form whenever the dialog opens; when it closes -- Save,
+	// Cancel, Escape or a backdrop click all flow through here since `open`
+	// is the one signal common to all of them -- clear any stale
+	// `configState.error` so the page-level banner in +page.svelte doesn't
+	// keep showing a failed-save error for an edit the user just abandoned
+	// (a successful save has already nulled it out, so this is a no-op then).
 	$effect(() => {
 		if (open) {
+			wasOpen = true;
 			name = backend?.name ?? '';
 			kind = backend?.kind ?? 'openai-compatible';
 			baseUrl = backend?.baseUrl ?? '';
@@ -68,6 +73,9 @@
 			timeoutMs = backend?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 			revealed = false;
 			submitError = null;
+		} else if (wasOpen) {
+			wasOpen = false;
+			configState.error = null;
 		}
 	});
 
@@ -83,7 +91,6 @@
 
 	async function handleSave(): Promise<void> {
 		if (!canSave || saving) return;
-		const usesModelAndKey = kind === 'openai-compatible' || kind === 'anthropic-api';
 		const next: BackendConfig = {
 			id: backend?.id ?? crypto.randomUUID(),
 			name: name.trim(),
@@ -100,7 +107,7 @@
 		if (ok) {
 			open = false;
 		} else {
-			submitError = configState.error ?? 'Save failed.';
+			submitError = configState.error?.message ?? 'Save failed.';
 		}
 	}
 </script>
@@ -144,18 +151,24 @@
 						autocomplete="off"
 					/>
 				</div>
+			{/if}
+
+			{#if usesModelAndKey}
 				<div class="flex flex-col gap-1.5">
 					<Label for="backend-model">Model</Label>
 					<Input
 						id="backend-model"
 						bind:value={model}
-						placeholder="qwen2.5:32b-instruct"
+						placeholder={kind === 'openai-compatible' ? 'qwen2.5:32b-instruct' : 'claude-opus-5'}
 						autocomplete="off"
 					/>
 				</div>
 				<div class="flex flex-col gap-1.5">
 					<Label for="backend-api-key">
-						API key <span class="font-normal text-muted-foreground">(optional)</span>
+						API key
+						{#if kind === 'openai-compatible'}
+							<span class="font-normal text-muted-foreground">(optional)</span>
+						{/if}
 					</Label>
 					<div class="relative">
 						<Input
@@ -179,92 +192,31 @@
 						</button>
 					</div>
 				</div>
-				<div class="flex flex-col gap-1.5">
-					<Label for="backend-timeout">Timeout (ms)</Label>
-					<Input
-						id="backend-timeout"
-						type="number"
-						min={MIN_TIMEOUT_MS}
-						step="1000"
-						value={timeoutMs}
-						oninput={handleTimeoutInput}
-						aria-invalid={timeoutTooLow}
-					/>
+			{/if}
+
+			<div class="flex flex-col gap-1.5">
+				<Label for="backend-timeout">Timeout (ms)</Label>
+				<Input
+					id="backend-timeout"
+					type="number"
+					min={MIN_TIMEOUT_MS}
+					step="1000"
+					value={timeoutMs}
+					oninput={handleTimeoutInput}
+					aria-invalid={timeoutTooLow}
+				/>
+				{#if kind === 'openai-compatible'}
 					<p class="text-xs text-muted-foreground">
 						A cold local model can take ~16,000 ms on its first request of the day — the
 						{DEFAULT_TIMEOUT_MS.toLocaleString()} ms default avoids a false timeout then.
 					</p>
-					{#if timeoutTooLow}
-						<p class="text-xs text-destructive">
-							Timeout must be at least {MIN_TIMEOUT_MS} ms.
-						</p>
-					{/if}
-				</div>
-			{:else if kind === 'anthropic-api'}
-				<div class="flex flex-col gap-1.5">
-					<Label for="backend-model">Model</Label>
-					<Input id="backend-model" bind:value={model} placeholder="claude-opus-5" autocomplete="off" />
-				</div>
-				<div class="flex flex-col gap-1.5">
-					<Label for="backend-api-key">API key</Label>
-					<div class="relative">
-						<Input
-							id="backend-api-key"
-							type={revealed ? 'text' : 'password'}
-							bind:value={apiKey}
-							class="pr-9"
-							autocomplete="off"
-						/>
-						<button
-							type="button"
-							onclick={() => (revealed = !revealed)}
-							class="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-							aria-label={revealed ? 'Hide API key' : 'Show API key'}
-						>
-							{#if revealed}
-								<RiEyeOffLine class="size-4" />
-							{:else}
-								<RiEyeLine class="size-4" />
-							{/if}
-						</button>
-					</div>
-				</div>
-				<div class="flex flex-col gap-1.5">
-					<Label for="backend-timeout">Timeout (ms)</Label>
-					<Input
-						id="backend-timeout"
-						type="number"
-						min={MIN_TIMEOUT_MS}
-						step="1000"
-						value={timeoutMs}
-						oninput={handleTimeoutInput}
-						aria-invalid={timeoutTooLow}
-					/>
-					{#if timeoutTooLow}
-						<p class="text-xs text-destructive">
-							Timeout must be at least {MIN_TIMEOUT_MS} ms.
-						</p>
-					{/if}
-				</div>
-			{:else}
-				<div class="flex flex-col gap-1.5">
-					<Label for="backend-timeout">Timeout (ms)</Label>
-					<Input
-						id="backend-timeout"
-						type="number"
-						min={MIN_TIMEOUT_MS}
-						step="1000"
-						value={timeoutMs}
-						oninput={handleTimeoutInput}
-						aria-invalid={timeoutTooLow}
-					/>
-					{#if timeoutTooLow}
-						<p class="text-xs text-destructive">
-							Timeout must be at least {MIN_TIMEOUT_MS} ms.
-						</p>
-					{/if}
-				</div>
-			{/if}
+				{/if}
+				{#if timeoutTooLow}
+					<p class="text-xs text-destructive">
+						Timeout must be at least {MIN_TIMEOUT_MS} ms.
+					</p>
+				{/if}
+			</div>
 		</div>
 
 		{#if submitError}

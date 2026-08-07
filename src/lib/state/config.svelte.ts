@@ -16,17 +16,24 @@ function emptyConfig(): Config {
 	return { version: 2, backends: [], commands: [] };
 }
 
+/** `error` and its source always moved together as two separate fields --
+ *  every write site set both or neither, which is an invariant a plain pair
+ *  of `$state` fields can't enforce. One nullable value instead: `source`
+ *  lets `+page.svelte` title its Alert correctly instead of always assuming
+ *  a save failed -- this is set from both `load()` and `commit()` below, and
+ *  a poisoned-mutex or IPC-level rejection on the very first `get_config` is
+ *  not a save. */
+export interface ConfigError {
+	message: string;
+	source: 'load' | 'save';
+}
+
 export class ConfigState {
 	// ── State ─────────────────────────────────────────────────────────
 	config = $state<Config>(emptyConfig());
 	loading = $state(true);
 	saving = $state(false);
-	error = $state<string | null>(null);
-	/** Which operation produced `error` above, so `+page.svelte` can title its
-	 *  Alert correctly instead of always assuming a save failed -- `error` is
-	 *  set from both `load()` and `commit()` below, and a poisoned-mutex or
-	 *  IPC-level rejection on the very first `get_config` is not a save. */
-	errorSource = $state<'load' | 'save' | null>(null);
+	error = $state<ConfigError | null>(null);
 	problems = $state<Problem[]>([]);
 	/** Set by `load()` whenever the backend's real config.json failed to
 	 *  read at startup. Non-null means `config` above is the empty startup
@@ -54,12 +61,17 @@ export class ConfigState {
 			const result = await invoke<GetConfigResult>('get_config');
 			this.config = result.config;
 			this.loadError = result.loadError;
+			// R10: a hotkey that failed to register at launch is otherwise
+			// invisible until an unrelated Save re-populates `problems` --
+			// see `startupProblems` on `GetConfigResult`. Surfaced through the
+			// same `problems` channel `save()` already uses below, so
+			// `CommandList`'s existing per-command `commandId` attribution
+			// picks it up with no changes there.
+			this.problems = result.startupProblems ?? [];
 			this.error = null;
-			this.errorSource = null;
 			this.revision++;
 		} catch (e) {
-			this.error = String(e);
-			this.errorSource = 'load';
+			this.error = { message: String(e), source: 'load' };
 		} finally {
 			this.loading = false;
 		}
@@ -72,13 +84,11 @@ export class ConfigState {
 		this.saving = true;
 		try {
 			const result = await invoke<SaveResult>('save_config', { config: this.config });
-			this.error = result.error;
-			this.errorSource = result.error ? 'save' : null;
+			this.error = result.error ? { message: result.error, source: 'save' } : null;
 			this.problems = result.problems;
 			return result.ok;
 		} catch (e) {
-			this.error = String(e);
-			this.errorSource = 'save';
+			this.error = { message: String(e), source: 'save' };
 			this.problems = [];
 			return false;
 		} finally {

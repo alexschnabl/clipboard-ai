@@ -2,7 +2,7 @@
 <script lang="ts">
 	import { invoke } from '@tauri-apps/api/core';
 	import { onDestroy } from 'svelte';
-	import { hotkeyFromEvent } from '$lib/utils/hotkey';
+	import { hotkeyFromEvent } from '$lib/hotkey';
 	import { configState } from '$lib/state/config.svelte.js';
 	import type { Problem } from '$lib/types';
 

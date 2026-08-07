@@ -9,13 +9,7 @@
 	import RiDeleteBinLine from 'remixicon-svelte/icons/delete-bin-line';
 	import BackendForm from './BackendForm.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
-	import type { BackendConfig, BackendKind } from '$lib/types';
-
-	const KIND_LABELS: Record<BackendKind, string> = {
-		'openai-compatible': 'OpenAI-compatible',
-		'anthropic-api': 'Anthropic API',
-		'claude-cli': 'Claude CLI'
-	};
+	import { KIND_LABELS, type BackendConfig } from '$lib/types';
 
 	let formOpen = $state(false);
 	let editingBackend = $state<BackendConfig | null>(null);

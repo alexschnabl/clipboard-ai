@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hotkeyFromEvent } from '../../src/lib/utils/hotkey';
+import { hotkeyFromEvent } from '../../src/lib/hotkey';
 
 function ev(init: Partial<KeyboardEvent>): KeyboardEvent {
 	return { ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...init } as KeyboardEvent;
@@ -15,10 +15,6 @@ describe('hotkeyFromEvent', () => {
 		const b = hotkeyFromEvent(ev({ ctrlKey: true, altKey: true, key: 'j', code: 'KeyJ' }));
 		expect(a).toBe('Ctrl+Alt+J');
 		expect(b).toBe('Ctrl+Alt+J');
-	});
-
-	it('uppercases the letter', () => {
-		expect(hotkeyFromEvent(ev({ ctrlKey: true, key: 'j', code: 'KeyJ' }))).toBe('Ctrl+J');
 	});
 
 	it('includes Shift and Super in the fixed order', () => {

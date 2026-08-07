@@ -38,14 +38,24 @@
 		configState.config.backends.find((b) => b.id === backendId)?.name ?? 'Select a backend'
 	);
 
-	// Seed the form whenever the dialog opens.
+	let wasOpen = false;
+	// Seed the form whenever the dialog opens; when it closes -- Save,
+	// Cancel, Escape or a backdrop click all flow through here since `open`
+	// is the one signal common to all of them -- clear any stale
+	// `configState.error` so the page-level banner in +page.svelte doesn't
+	// keep showing a failed-save error for an edit the user just abandoned
+	// (a successful save has already nulled it out, so this is a no-op then).
 	$effect(() => {
 		if (open) {
+			wasOpen = true;
 			name = command?.name ?? '';
 			backendId = command?.backendId ?? configState.config.backends[0]?.id ?? '';
 			hotkey = command?.hotkey ?? '';
 			systemPrompt = command?.systemPrompt ?? '';
 			submitError = null;
+		} else if (wasOpen) {
+			wasOpen = false;
+			configState.error = null;
 		}
 	});
 
@@ -74,7 +84,7 @@
 		if (ok) {
 			open = false;
 		} else {
-			submitError = configState.error ?? 'Save failed.';
+			submitError = configState.error?.message ?? 'Save failed.';
 		}
 	}
 </script>

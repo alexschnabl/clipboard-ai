@@ -82,8 +82,7 @@ describe('ConfigState commit-and-rollback semantics', () => {
 
 			expect(result).toBe(false);
 			expect(state.config.backends).toHaveLength(0);
-			expect(state.error).toBe('duplicate id: b1');
-			expect(state.errorSource).toBe('save');
+			expect(state.error).toEqual({ message: 'duplicate id: b1', source: 'save' });
 		});
 
 		it('rolls back when the invoke call itself throws', async () => {
@@ -93,7 +92,7 @@ describe('ConfigState commit-and-rollback semantics', () => {
 
 			expect(result).toBe(false);
 			expect(state.config.backends).toHaveLength(0);
-			expect(state.error).toContain('ipc failed');
+			expect(state.error?.message).toContain('ipc failed');
 		});
 	});
 
@@ -234,28 +233,39 @@ describe('ConfigState commit-and-rollback semantics', () => {
 
 	describe('load()', () => {
 		it('bumps revision and clears any previous error on success', async () => {
-			state.error = 'stale error';
-			state.errorSource = 'save';
+			state.error = { message: 'stale error', source: 'save' };
 			const before = state.revision;
 			invokeMock.mockResolvedValue({
 				config: { version: 2, backends: [], commands: [] },
-				loadError: null
+				loadError: null,
+				startupProblems: []
 			});
 
 			await state.load();
 
 			expect(state.revision).toBe(before + 1);
 			expect(state.error).toBeNull();
-			expect(state.errorSource).toBeNull();
 		});
 
-		it('sets error and errorSource on a failed load', async () => {
+		it('sets error with source "load" on a failed load', async () => {
 			invokeMock.mockRejectedValue(new Error('disk error'));
 
 			await state.load();
 
-			expect(state.error).toContain('disk error');
-			expect(state.errorSource).toBe('load');
+			expect(state.error?.message).toContain('disk error');
+			expect(state.error?.source).toBe('load');
+		});
+
+		it('loads startup problems into `problems`, the same channel save() uses', async () => {
+			invokeMock.mockResolvedValue({
+				config: { version: 2, backends: [], commands: [] },
+				loadError: null,
+				startupProblems: [{ commandId: 'c1', message: 'hotkey already in use' }]
+			});
+
+			await state.load();
+
+			expect(state.problems).toEqual([{ commandId: 'c1', message: 'hotkey already in use' }]);
 		});
 	});
 });

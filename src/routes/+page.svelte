@@ -10,19 +10,18 @@
 
 	onMount(() => {
 		void configState.load();
-	});
 
-	// The settings window is hidden, never destroyed (see `hide_and_reapply`
-	// in commands.rs), so anything transient a running Svelte tree holds --
-	// a `HotkeyRecorder` mid-recording, an open `BackendForm`/`CommandForm`
-	// dialog with a stale draft -- would otherwise survive straight through
-	// a hide/reshow cycle. Rust emits this event every time it actually
-	// hides the window; bumping `configState.revision` here, consumed by the
-	// `{#key}` blocks below, remounts the tab bodies so all of that resets.
-	// Listening for this event specifically, rather than
-	// `document.visibilitychange`, is deliberate -- WebView2 firing that on
-	// a native window hide is not guaranteed.
-	onMount(() => {
+		// The settings window is hidden, never destroyed (see
+		// `hide_and_reapply` in commands.rs), so anything transient a running
+		// Svelte tree holds -- a `HotkeyRecorder` mid-recording, an open
+		// `BackendForm`/`CommandForm` dialog with a stale draft -- would
+		// otherwise survive straight through a hide/reshow cycle. Rust emits
+		// this event every time it actually hides the window; bumping
+		// `configState.revision` here, consumed by the `{#key}` blocks below,
+		// remounts the tab bodies so all of that resets. Listening for this
+		// event specifically, rather than `document.visibilitychange`, is
+		// deliberate -- WebView2 firing that on a native window hide is not
+		// guaranteed.
 		const unlisten = listen('settings://window-hidden', () => {
 			configState.revision++;
 		});
@@ -64,15 +63,15 @@
 	{#if configState.error}
 		<Alert.Root variant="destructive">
 			<Alert.Title>
-				{configState.errorSource === 'load' ? 'Couldn’t load config' : 'Couldn’t save config'}
+				{configState.error.source === 'load' ? 'Couldn’t load config' : 'Couldn’t save config'}
 			</Alert.Title>
-			<Alert.Description>{configState.error}</Alert.Description>
+			<Alert.Description>{configState.error.message}</Alert.Description>
 		</Alert.Root>
 	{/if}
 
 	{#if configState.problems.length > 0}
 		<Alert.Root>
-			<Alert.Title>Saved, but some settings couldn’t be applied</Alert.Title>
+			<Alert.Title>Some settings couldn’t be applied</Alert.Title>
 			<Alert.Description>
 				<ul class="list-disc pl-4">
 					{#each configState.problems as problem, i (i)}
@@ -83,28 +82,24 @@
 		</Alert.Root>
 	{/if}
 
-	<Tabs.Root value="backends">
-		<Tabs.List>
-			<Tabs.Trigger value="backends">Backends</Tabs.Trigger>
-			<Tabs.Trigger value="commands">Commands</Tabs.Trigger>
-		</Tabs.List>
-		<Tabs.Content value="backends">
-			{#if configState.loading}
-				<p class="text-sm text-muted-foreground">Loading…</p>
-			{:else}
+	{#if configState.loading}
+		<p class="text-sm text-muted-foreground">Loading…</p>
+	{:else}
+		<Tabs.Root value="backends">
+			<Tabs.List>
+				<Tabs.Trigger value="backends">Backends</Tabs.Trigger>
+				<Tabs.Trigger value="commands">Commands</Tabs.Trigger>
+			</Tabs.List>
+			<Tabs.Content value="backends">
 				{#key configState.revision}
 					<BackendList />
 				{/key}
-			{/if}
-		</Tabs.Content>
-		<Tabs.Content value="commands">
-			{#if configState.loading}
-				<p class="text-sm text-muted-foreground">Loading…</p>
-			{:else}
+			</Tabs.Content>
+			<Tabs.Content value="commands">
 				{#key configState.revision}
 					<CommandList />
 				{/key}
-			{/if}
-		</Tabs.Content>
-	</Tabs.Root>
+			</Tabs.Content>
+		</Tabs.Root>
+	{/if}
 </div>
