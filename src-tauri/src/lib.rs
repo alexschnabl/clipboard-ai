@@ -5,6 +5,7 @@ use tauri::{
 
 mod backend;
 mod config;
+mod cycle;
 mod osops;
 mod sentinel;
 
