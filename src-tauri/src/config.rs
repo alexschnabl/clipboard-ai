@@ -25,6 +25,12 @@ pub enum ConfigError {
     DuplicateHotkey { hotkey: String },
     #[error("unknown backend kind: {kind}")]
     UnknownKind { kind: String },
+    #[error(
+        "backend {backend} has timeoutMs {timeout_ms}, below the {minimum} ms minimum; \
+         the slowest measured warm backend takes about 4,100 ms and a cold local model \
+         about 16,000 ms, so a lower value only causes false timeouts"
+    )]
+    TimeoutTooLow { backend: String, timeout_ms: u64, minimum: u64 },
     #[error("config version {version} is newer than this app understands")]
     UnsupportedVersion { version: u32 },
     #[error("config version field is malformed: {found}")]
@@ -48,6 +54,22 @@ pub struct BackendConfig {
     #[serde(default = "default_timeout")]
     pub timeout_ms: u64,
 }
+
+/// The lowest `timeoutMs` a backend may be configured with.
+///
+/// A timeout is a failure bound, not a latency target: lowering it does not
+/// make a response arrive sooner, it only converts slow successes into
+/// failures. So the floor is set from this project's own measurements
+/// (`docs/superpowers/notes/2026-08-06-spike-results.md`) rather than being
+/// nominal -- the slowest *warm* backend measured is `claude -p` at
+/// 3,290-4,126 ms, and a cold local model took 16,036 ms. Anything below
+/// this floor is a value that could only ever produce false timeouts on a
+/// backend the user deliberately configured.
+///
+/// Enforced here rather than only in the settings UI because hand-editing
+/// `config.json` remains a supported path, and validation is meant to have
+/// exactly one home.
+pub const MIN_TIMEOUT_MS: u64 = 5_000;
 
 fn default_timeout() -> u64 {
     120_000
@@ -120,6 +142,13 @@ fn validate(config: &Config) -> Result<(), ConfigError> {
         match backend.kind.as_str() {
             KIND_OPENAI | KIND_ANTHROPIC | KIND_CLAUDE_CLI => {}
             other => return Err(ConfigError::UnknownKind { kind: other.to_string() }),
+        }
+        if backend.timeout_ms < MIN_TIMEOUT_MS {
+            return Err(ConfigError::TimeoutTooLow {
+                backend: backend.id.clone(),
+                timeout_ms: backend.timeout_ms,
+                minimum: MIN_TIMEOUT_MS,
+            });
         }
     }
 
@@ -350,6 +379,47 @@ mod tests {
         assert_eq!(cfg.backends[0].timeout_ms, 120_000);
     }
 
+    // The settings UI enforces this floor too, but hand-editing config.json
+    // is a supported path and would otherwise bypass it entirely -- the UI
+    // check alone was cosmetic.
+    #[test]
+    fn rejects_a_timeout_below_the_floor() {
+        let json = valid_json().replace(r#""timeoutMs":120000"#, r#""timeoutMs":1"#);
+        let err = parse(&json).expect_err("a 1 ms timeout must be rejected");
+        assert!(
+            matches!(err, ConfigError::TimeoutTooLow { timeout_ms: 1, .. }),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn the_timeout_error_names_the_offending_backend_and_the_minimum() {
+        let json = valid_json().replace(r#""timeoutMs":120000"#, r#""timeoutMs":1"#);
+        let message = parse(&json).expect_err("must reject").to_string();
+        assert!(message.contains("ollama"), "must name the backend, got: {message}");
+        assert!(message.contains("5000"), "must state the minimum, got: {message}");
+    }
+
+    #[test]
+    fn accepts_a_timeout_exactly_at_the_floor() {
+        let json = valid_json()
+            .replace(r#""timeoutMs":120000"#, &format!(r#""timeoutMs":{MIN_TIMEOUT_MS}"#));
+        let cfg = parse(&json).expect("the floor itself must be a legal value");
+        assert_eq!(cfg.backends[0].timeout_ms, MIN_TIMEOUT_MS);
+    }
+
+    // The measured cold start for a local model is 16,036 ms; the default
+    // must leave generous headroom above that or every first request of the
+    // day fails.
+    #[test]
+    fn the_default_timeout_comfortably_exceeds_a_cold_local_model_start() {
+        assert!(
+            default_timeout() >= 16_036 * 2,
+            "default {} ms leaves too little headroom over a 16,036 ms cold start",
+            default_timeout()
+        );
+    }
+
     #[test]
     fn rejects_a_command_naming_an_unknown_backend() {
         let json = valid_json().replace(r#""backendId":"ollama""#, r#""backendId":"nope""#);
@@ -367,7 +437,7 @@ mod tests {
             r#""apiKey":null,"timeoutMs":120000}"#,
             r#""apiKey":null,"timeoutMs":120000},
                {"id":"ollama","name":"Dup","kind":"openai-compatible",
-                "baseUrl":"http://x/v1","model":"m","apiKey":null,"timeoutMs":1000}"#,
+                "baseUrl":"http://x/v1","model":"m","apiKey":null,"timeoutMs":120000}"#,
         );
         assert!(matches!(parse(&json), Err(ConfigError::DuplicateId { .. })));
     }

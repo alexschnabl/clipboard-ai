@@ -26,7 +26,12 @@
 	};
 
 	const DEFAULT_TIMEOUT_MS = 120_000;
-	const MIN_TIMEOUT_MS = 1000;
+	/**
+	 * Must match `MIN_TIMEOUT_MS` in `src-tauri/src/config.rs`, which is the
+	 * authority — Rust rejects the save regardless. This copy exists only so
+	 * the form can say so before a round trip, not as a second rule.
+	 */
+	const MIN_TIMEOUT_MS = 5000;
 
 	let name = $state('');
 	let kind = $state<BackendKind>('openai-compatible');
@@ -37,7 +42,7 @@
 	let revealed = $state(false);
 
 	const isEdit = $derived(backend !== null);
-	// `min="1000"` on the <Input> below is HTML-only -- it doesn't stop a
+	// `min={MIN_TIMEOUT_MS}` on the <Input> below is HTML-only -- it doesn't stop a
 	// typed "1" from reaching `timeoutMs`. Enforce the floor here too, so
 	// the form is genuinely unsaveable below it rather than just visually
 	// suggesting one.
@@ -167,7 +172,7 @@
 					<Input
 						id="backend-timeout"
 						type="number"
-						min="1000"
+						min={MIN_TIMEOUT_MS}
 						step="1000"
 						value={timeoutMs}
 						oninput={handleTimeoutInput}
@@ -213,7 +218,7 @@
 					<Input
 						id="backend-timeout"
 						type="number"
-						min="1000"
+						min={MIN_TIMEOUT_MS}
 						step="1000"
 						value={timeoutMs}
 						oninput={handleTimeoutInput}
@@ -231,7 +236,7 @@
 					<Input
 						id="backend-timeout"
 						type="number"
-						min="1000"
+						min={MIN_TIMEOUT_MS}
 						step="1000"
 						value={timeoutMs}
 						oninput={handleTimeoutInput}
