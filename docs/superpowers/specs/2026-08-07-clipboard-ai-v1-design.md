@@ -194,7 +194,11 @@ Non-negotiable. Each exists because a review found the corresponding defect in t
 ### Abort reasons
 
 Surfaced in a tray notification and the log: `capture-timeout`, `modifiers-stuck`,
-`modifiers-stuck-before-paste`, `focus-changed`, `backend-error`, `no-sentinel`, `empty-result`.
+`modifiers-stuck-before-paste`, `focus-changed`, `backend-error`, `no-sentinel`, `empty-result`,
+`paste-failed`.
+
+`paste-failed` was added during implementation. A synthetic-input failure was originally reported as
+`backend-error`, which would have sent the user to debug Ollama when the real problem was `enigo`.
 
 ## Backends
 
