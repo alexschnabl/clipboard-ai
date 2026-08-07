@@ -68,11 +68,13 @@ impl WindowsOps {
 impl OsOps for WindowsOps {
     fn read_clipboard(&self) -> Result<String, OsError> {
         let mut cb = self.clipboard.lock().map_err(|_| OsError::Clipboard("poisoned".into()))?;
-        match cb.get_text() {
-            Ok(text) => Ok(text),
-            // An empty or non-text clipboard is not an error for our purposes.
-            Err(_) => Ok(String::new()),
-        }
+        // Do not flatten a read failure into `Ok(String::new())`: a non-text
+        // clipboard (an image, a file list) and a locked/unreadable one both
+        // fail here, and the caller must be able to tell that apart from a
+        // clipboard that genuinely holds an empty string. Callers that treat
+        // "unreadable" the same as "empty" risk overwriting content they
+        // never actually read (see cycle::ClipboardGuard).
+        cb.get_text().map_err(|e| OsError::Clipboard(e.to_string()))
     }
 
     fn write_clipboard(&self, text: &str) -> Result<(), OsError> {

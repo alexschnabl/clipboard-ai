@@ -44,7 +44,8 @@ fn wait_for_clipboard(ops: &dyn OsOps) -> Option<String> {
     }
 }
 
-/// Restores the clipboard when it goes out of scope, on every path.
+/// Restores the clipboard when it goes out of scope, on every path where we
+/// know what to restore.
 ///
 /// This is the Rust equivalent of a `finally` block, and it is deliberately
 /// unconditional: there is no `disarm`. Every exit from `run` — an early
@@ -52,14 +53,23 @@ fn wait_for_clipboard(ops: &dyn OsOps) -> Option<String> {
 /// guard and restores what the user had. Making restoration a property of
 /// scope rather than a step someone has to remember on each path removes the
 /// entire class of "this abort forgot to restore" bug.
+///
+/// `original` is `None` only when the very first clipboard read failed — a
+/// non-text clipboard (an image, a file list) or one we could not read at
+/// all. In that case we never learned what was there, so the guard leaves
+/// the clipboard alone rather than guessing and overwriting it with an
+/// empty string. Every other path — including a panic after a successful
+/// initial read — still restores unconditionally.
 struct ClipboardGuard<'a> {
     ops: &'a dyn OsOps,
-    original: String,
+    original: Option<String>,
 }
 
 impl Drop for ClipboardGuard<'_> {
     fn drop(&mut self) {
-        let _ = self.ops.write_clipboard(&self.original);
+        if let Some(original) = &self.original {
+            let _ = self.ops.write_clipboard(original);
+        }
     }
 }
 
@@ -68,7 +78,10 @@ impl Drop for ClipboardGuard<'_> {
 /// Every exit restores the original clipboard, and no exit except the happy
 /// path reaches `send_paste`.
 pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> CycleOutcome {
-    let original = ops.read_clipboard().unwrap_or_default();
+    // `.ok()`, not `.unwrap_or_default()`: a read failure (non-text
+    // clipboard, or one we cannot read) must not be treated as "the
+    // clipboard held an empty string" — see ClipboardGuard.
+    let original = ops.read_clipboard().ok();
     let _guard = ClipboardGuard { ops, original };
 
     let abort = |reason: &'static str, captured_ms: u64, backend_ms: u64| CycleOutcome {
@@ -88,7 +101,14 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
     // miss a focus change that happens during the copy/capture step itself.
     let focus_at_capture = ops.foreground_window();
 
-    let _ = ops.clear_clipboard();
+    // A failed clear is not harmless: if it fails, the clipboard still
+    // holds the user's previous content, `wait_for_clipboard` below reads
+    // that stale content on its very first poll, and the cycle silently
+    // transforms and pastes over it instead of the real selection. Treat a
+    // failed clear the same as a failed capture.
+    if ops.clear_clipboard().is_err() {
+        return abort("capture-timeout", 0, 0);
+    }
     if ops.send_copy().is_err() {
         return abort("capture-timeout", 0, 0);
     }
@@ -116,11 +136,16 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
         return abort("empty-result", captured_ms, backend_ms);
     }
 
-    if ops.foreground_window() != focus_at_capture {
-        return abort("focus-changed", captured_ms, backend_ms);
-    }
+    // The modifier gate runs before the focus check, not after: it can
+    // block for up to MODIFIER_TIMEOUT_MS (2s), and a window switch during
+    // that wait would otherwise go unnoticed by a focus check that already
+    // ran. Checking focus last keeps the smallest possible gap between the
+    // check and the paste that follows it.
     if !wait_for_modifier_release(ops) {
         return abort("modifiers-stuck-before-paste", captured_ms, backend_ms);
+    }
+    if ops.foreground_window() != focus_at_capture {
+        return abort("focus-changed", captured_ms, backend_ms);
     }
 
     if ops.write_clipboard(&extracted).is_err() {
@@ -154,6 +179,8 @@ mod tests {
         modifiers_sequence: Mutex<Vec<bool>>,
         focus: Mutex<isize>,
         focus_after_capture: Mutex<Option<isize>>,
+        read_should_fail: Mutex<bool>,
+        clear_should_fail: Mutex<bool>,
     }
 
     impl FakeOps {
@@ -174,6 +201,9 @@ mod tests {
 
     impl OsOps for FakeOps {
         fn read_clipboard(&self) -> Result<String, OsError> {
+            if *self.read_should_fail.lock().unwrap() {
+                return Err(OsError::Clipboard("no text content available".into()));
+            }
             Ok(self.clipboard.lock().unwrap().clone())
         }
         fn write_clipboard(&self, text: &str) -> Result<(), OsError> {
@@ -183,6 +213,9 @@ mod tests {
         }
         fn clear_clipboard(&self) -> Result<(), OsError> {
             self.log("clear");
+            if *self.clear_should_fail.lock().unwrap() {
+                return Err(OsError::Clipboard("clipboard is locked by another process".into()));
+            }
             *self.clipboard.lock().unwrap() = String::new();
             Ok(())
         }
@@ -281,6 +314,20 @@ mod tests {
     }
 
     #[test]
+    fn clear_clipboard_failure_never_pastes_and_restores() {
+        // I1: a failed clear (e.g. another process holds the clipboard)
+        // must not silently fall through to capturing whatever stale
+        // content is still sitting in the clipboard.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        *ops.clear_should_fail.lock().unwrap() = true;
+        let outcome = run(&StubBackend::ok("<output>x</output>"), "Fix.", &ops);
+        assert!(!outcome.pasted);
+        assert_eq!(outcome.reason, "capture-timeout");
+        assert!(ops.pasted_content.lock().unwrap().is_none());
+        assert_eq!(*ops.clipboard.lock().unwrap(), "ORIGINAL");
+    }
+
+    #[test]
     fn backend_error_never_pastes_and_restores() {
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         let outcome = run(&StubBackend::failing(), "Fix.", &ops);
@@ -333,6 +380,24 @@ mod tests {
     }
 
     #[test]
+    fn stuck_modifiers_before_paste_never_pastes_and_restores() {
+        // I3: the second modifier gate (immediately before Ctrl+V) is a
+        // distinct, independently-binding check from the first one (before
+        // Ctrl+C). Let the first gate see the modifiers already released,
+        // then keep them stuck for the whole pre-paste wait.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        let mut seq = vec![false];
+        seq.extend(std::iter::repeat(true).take(500));
+        *ops.modifiers_sequence.lock().unwrap() = seq;
+        let outcome = run(&StubBackend::ok("<output>Corrected.</output>"), "Fix.", &ops);
+        assert!(!outcome.pasted);
+        assert_eq!(outcome.reason, "modifiers-stuck-before-paste");
+        assert!(ops.pasted_content.lock().unwrap().is_none());
+        assert!(!ops.calls().iter().any(|c| c == "paste"));
+        assert_eq!(*ops.clipboard.lock().unwrap(), "ORIGINAL");
+    }
+
+    #[test]
     fn a_panic_mid_cycle_still_restores_the_clipboard() {
         struct Panicking;
         impl Backend for Panicking {
@@ -352,6 +417,26 @@ mod tests {
             "the guard must restore even when the cycle unwinds"
         );
         assert!(ops.pasted_content.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn unreadable_original_clipboard_is_never_overwritten_by_the_guard() {
+        // I4: if the very first read fails (a non-text clipboard, e.g. an
+        // image, or one we simply cannot read), the guard never learned
+        // what was there. It must leave the clipboard alone rather than
+        // writing an empty string over it — even on an abort path that
+        // otherwise touches nothing else.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        *ops.read_should_fail.lock().unwrap() = true;
+        *ops.modifiers_sequence.lock().unwrap() = vec![true; 500];
+        let outcome = run(&StubBackend::ok("<output>x</output>"), "Fix.", &ops);
+        assert!(!outcome.pasted);
+        assert_eq!(outcome.reason, "modifiers-stuck");
+        assert!(
+            !ops.calls().iter().any(|c| c.starts_with("write(")),
+            "the guard must not write anything when the original clipboard could not be read; calls were: {:?}",
+            ops.calls()
+        );
     }
 
     #[test]
