@@ -3,6 +3,7 @@
 	import * as Table from '$lib/components/shadcn/table/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import * as Alert from '$lib/components/shadcn/alert/index.js';
+	import * as Dialog from '$lib/components/shadcn/dialog/index.js';
 	import RiAddLine from 'remixicon-svelte/icons/add-line';
 	import RiPencilLine from 'remixicon-svelte/icons/pencil-line';
 	import RiDeleteBinLine from 'remixicon-svelte/icons/delete-bin-line';
@@ -19,6 +20,8 @@
 	let formOpen = $state(false);
 	let editingBackend = $state<BackendConfig | null>(null);
 	let blockedDelete = $state<{ backendName: string; usedBy: string[] } | null>(null);
+	let pendingDelete = $state<BackendConfig | null>(null);
+	let confirmDeleteOpen = $state(false);
 
 	function openAdd(): void {
 		editingBackend = null;
@@ -33,8 +36,24 @@
 	}
 
 	function handleDelete(backend: BackendConfig): void {
-		const result = configState.deleteBackend(backend.id);
-		blockedDelete = result.ok ? null : { backendName: backend.name, usedBy: result.usedBy };
+		pendingDelete = backend;
+		confirmDeleteOpen = true;
+	}
+
+	/** The used-by refusal is unchanged: still attempted only after the user
+	 *  confirms, still shown as the same destructive Alert naming the
+	 *  blocking commands. */
+	function confirmDelete(): void {
+		if (!pendingDelete) return;
+		const result = configState.deleteBackend(pendingDelete.id);
+		blockedDelete = result.ok ? null : { backendName: pendingDelete.name, usedBy: result.usedBy };
+		confirmDeleteOpen = false;
+		pendingDelete = null;
+	}
+
+	function cancelDelete(): void {
+		confirmDeleteOpen = false;
+		pendingDelete = null;
 	}
 </script>
 
@@ -105,3 +124,18 @@
 </div>
 
 <BackendForm bind:open={formOpen} backend={editingBackend} />
+
+<Dialog.Root bind:open={confirmDeleteOpen}>
+	<Dialog.Content class="sm:max-w-md">
+		<Dialog.Header>
+			<Dialog.Title>Delete “{pendingDelete?.name}”?</Dialog.Title>
+			<Dialog.Description>
+				This removes the backend permanently. This can’t be undone.
+			</Dialog.Description>
+		</Dialog.Header>
+		<Dialog.Footer>
+			<Button variant="outline" onclick={cancelDelete}>Cancel</Button>
+			<Button variant="destructive" onclick={confirmDelete}>Delete</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>

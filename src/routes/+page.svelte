@@ -46,6 +46,27 @@
 		};
 	});
 
+	// The settings window is hidden, never destroyed (see `hide_and_reapply`
+	// in commands.rs), so anything transient a running Svelte tree holds --
+	// a `HotkeyRecorder` mid-recording, an open `BackendForm`/`CommandForm`
+	// dialog with a stale draft -- would otherwise survive straight through
+	// a hide/reshow cycle. Rust emits this event every time it actually
+	// hides the window (every route: the immediate-hide path, the
+	// close-confirmation timeout fallback, and `force_close_settings`);
+	// bumping `configState.revision` here, consumed by the `{#key}` blocks
+	// below, remounts the tab bodies so all of that resets. Listening for
+	// this event specifically, rather than `document.visibilitychange`, is
+	// deliberate -- WebView2 firing that on a native window hide is not
+	// guaranteed.
+	onMount(() => {
+		const unlisten = listen('settings://window-hidden', () => {
+			configState.revision++;
+		});
+		return () => {
+			void unlisten.then((f) => f());
+		};
+	});
+
 	async function discardAndClose(): Promise<void> {
 		confirmingClose = false;
 		await configState.load(); // drop local edits
@@ -117,7 +138,7 @@
 			<Alert.Description>
 				<ul class="list-disc pl-4">
 					{#each configState.problems as problem, i (i)}
-						<li>{problem}</li>
+						<li>{problem.message}</li>
 					{/each}
 				</ul>
 			</Alert.Description>
@@ -133,14 +154,18 @@
 			{#if configState.loading}
 				<p class="text-sm text-muted-foreground">Loading…</p>
 			{:else}
-				<BackendList />
+				{#key configState.revision}
+					<BackendList />
+				{/key}
 			{/if}
 		</Tabs.Content>
 		<Tabs.Content value="commands">
 			{#if configState.loading}
 				<p class="text-sm text-muted-foreground">Loading…</p>
 			{:else}
-				<CommandList />
+				{#key configState.revision}
+					<CommandList />
+				{/key}
 			{/if}
 		</Tabs.Content>
 	</Tabs.Root>

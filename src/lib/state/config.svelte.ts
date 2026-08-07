@@ -7,6 +7,7 @@ import type {
 	Config,
 	ConfigLoadError,
 	GetConfigResult,
+	Problem,
 	SaveResult
 } from '$lib/types';
 
@@ -14,14 +15,14 @@ function emptyConfig(): Config {
 	return { version: 2, backends: [], commands: [] };
 }
 
-class ConfigState {
+export class ConfigState {
 	// ── State ─────────────────────────────────────────────────────────
 	config = $state<Config>(emptyConfig());
 	loading = $state(true);
 	saving = $state(false);
 	dirty = $state(false);
 	error = $state<string | null>(null);
-	problems = $state<string[]>([]);
+	problems = $state<Problem[]>([]);
 	/** Set by `load()` whenever the backend's real config.json failed to
 	 *  read at startup. Non-null means `config` above is the empty startup
 	 *  fallback, not the user's actual saved configuration -- the settings
@@ -30,6 +31,16 @@ class ConfigState {
 	 *  the original file has already been preserved on disk by the
 	 *  backend, so a fresh save here cannot lose anything. */
 	loadError = $state<ConfigLoadError | null>(null);
+	/** Bumped whenever the settings window is hidden (the Rust-emitted
+	 *  `settings://window-hidden` event -- see `+page.svelte`) and on every
+	 *  `load()`. The window is only ever hidden, never destroyed, so a
+	 *  `HotkeyRecorder` mid-recording or an open `BackendForm`/`CommandForm`
+	 *  dialog would otherwise survive a hide/reshow cycle with stale state
+	 *  (review findings: hotkey-lifecycle #1, components C1). `+page.svelte`
+	 *  keys the tab bodies on this counter so a change remounts them --
+	 *  dropping any open dialog, re-seeding every form, and unmounting the
+	 *  recorder so its `onDestroy` resumes hotkeys. */
+	revision = $state(0);
 
 	// ── Public API ────────────────────────────────────────────────────
 	async load(): Promise<void> {
@@ -40,6 +51,7 @@ class ConfigState {
 			this.loadError = result.loadError;
 			this.dirty = false;
 			this.error = null;
+			this.revision++;
 		} catch (e) {
 			this.error = String(e);
 		} finally {

@@ -3,15 +3,18 @@
 	import * as Table from '$lib/components/shadcn/table/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import { Badge } from '$lib/components/shadcn/badge/index.js';
+	import * as Dialog from '$lib/components/shadcn/dialog/index.js';
 	import RiAddLine from 'remixicon-svelte/icons/add-line';
 	import RiPencilLine from 'remixicon-svelte/icons/pencil-line';
 	import RiDeleteBinLine from 'remixicon-svelte/icons/delete-bin-line';
 	import CommandForm from './CommandForm.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
-	import type { CommandConfig } from '$lib/types';
+	import type { CommandConfig, Problem } from '$lib/types';
 
 	let formOpen = $state(false);
 	let editingCommand = $state<CommandConfig | null>(null);
+	let pendingDelete = $state<CommandConfig | null>(null);
+	let confirmDeleteOpen = $state(false);
 
 	function openAdd(): void {
 		editingCommand = null;
@@ -24,25 +27,32 @@
 	}
 
 	function handleDelete(command: CommandConfig): void {
-		configState.deleteCommand(command.id);
+		pendingDelete = command;
+		confirmDeleteOpen = true;
+	}
+
+	function confirmDelete(): void {
+		if (!pendingDelete) return;
+		configState.deleteCommand(pendingDelete.id);
+		confirmDeleteOpen = false;
+		pendingDelete = null;
+	}
+
+	function cancelDelete(): void {
+		confirmDeleteOpen = false;
+		pendingDelete = null;
 	}
 
 	function backendName(backendId: string): string {
 		return configState.config.backends.find((b) => b.id === backendId)?.name ?? 'Unknown backend';
 	}
 
-	/**
-	 * `configState.problems` entries arrive prefixed with either the command
-	 * name ("Fix grammar: unknown backend") or the parsed hotkey
-	 * ("Ctrl+Alt+J: already in use (...)") — see `build_command_map` and
-	 * `register_hotkeys` in src-tauri/src/lib.rs. Best-effort match on those
-	 * prefixes so a command's own problem shows on its own row; the aggregate
-	 * Alert in +page.svelte is still shown as the fallback.
-	 */
-	function problemsFor(command: CommandConfig): string[] {
-		return configState.problems.filter(
-			(p) => p.startsWith(`${command.name}: `) || p.startsWith(`${command.hotkey}: `)
-		);
+	/** Each `Problem` carries the id of the command it belongs to (see
+	 *  `Problem` in src-tauri/src/lib.rs) rather than a string prefix to
+	 *  match against, so this is a direct equality filter -- no fragile
+	 *  reconciliation with how Rust happens to have formatted `message`. */
+	function problemsFor(command: CommandConfig): Problem[] {
+		return configState.problems.filter((p) => p.commandId === command.id);
 	}
 </script>
 
@@ -71,7 +81,9 @@
 					<Table.Cell class="font-medium">
 						{command.name}
 						{#if problems.length > 0}
-							<p class="mt-1 text-xs font-normal text-destructive">{problems.join(' ')}</p>
+							<p class="mt-1 text-xs font-normal text-destructive">
+								{problems.map((p) => p.message).join(' ')}
+							</p>
 						{/if}
 					</Table.Cell>
 					<Table.Cell>
@@ -115,3 +127,18 @@
 </div>
 
 <CommandForm bind:open={formOpen} command={editingCommand} />
+
+<Dialog.Root bind:open={confirmDeleteOpen}>
+	<Dialog.Content class="sm:max-w-md">
+		<Dialog.Header>
+			<Dialog.Title>Delete “{pendingDelete?.name}”?</Dialog.Title>
+			<Dialog.Description>
+				This removes the command and its hotkey permanently. This can’t be undone.
+			</Dialog.Description>
+		</Dialog.Header>
+		<Dialog.Footer>
+			<Button variant="outline" onclick={cancelDelete}>Cancel</Button>
+			<Button variant="destructive" onclick={confirmDelete}>Delete</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>

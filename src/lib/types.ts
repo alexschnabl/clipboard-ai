@@ -24,10 +24,19 @@ export interface Config {
 	commands: CommandConfig[];
 }
 
+/** A problem surfaced by the backend: something in the config didn't apply
+ *  cleanly. `commandId` is set whenever it's attributable to one command --
+ *  see `CommandList.svelte`'s `problemsFor`, which filters on it directly
+ *  instead of matching against `message`'s wording. */
+export interface Problem {
+	commandId: string | null;
+	message: string;
+}
+
 export interface SaveResult {
 	ok: boolean;
 	error: string | null;
-	problems: string[];
+	problems: Problem[];
 }
 
 /** Set once at startup if the real config.json failed to load -- see

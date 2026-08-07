@@ -26,6 +26,7 @@
 	};
 
 	const DEFAULT_TIMEOUT_MS = 120_000;
+	const MIN_TIMEOUT_MS = 1000;
 
 	let name = $state('');
 	let kind = $state<BackendKind>('openai-compatible');
@@ -36,7 +37,12 @@
 	let revealed = $state(false);
 
 	const isEdit = $derived(backend !== null);
-	const canSave = $derived(name.trim().length > 0);
+	// `min="1000"` on the <Input> below is HTML-only -- it doesn't stop a
+	// typed "1" from reaching `timeoutMs`. Enforce the floor here too, so
+	// the form is genuinely unsaveable below it rather than just visually
+	// suggesting one.
+	const timeoutTooLow = $derived(timeoutMs < MIN_TIMEOUT_MS);
+	const canSave = $derived(name.trim().length > 0 && !timeoutTooLow);
 
 	// Seed the form whenever the dialog opens.
 	$effect(() => {
@@ -165,7 +171,13 @@
 						step="1000"
 						value={timeoutMs}
 						oninput={handleTimeoutInput}
+						aria-invalid={timeoutTooLow}
 					/>
+					{#if timeoutTooLow}
+						<p class="text-xs text-destructive">
+							Timeout must be at least {MIN_TIMEOUT_MS} ms.
+						</p>
+					{/if}
 				</div>
 			{:else if kind === 'anthropic-api'}
 				<div class="flex flex-col gap-1.5">
@@ -205,7 +217,13 @@
 						step="1000"
 						value={timeoutMs}
 						oninput={handleTimeoutInput}
+						aria-invalid={timeoutTooLow}
 					/>
+					{#if timeoutTooLow}
+						<p class="text-xs text-destructive">
+							Timeout must be at least {MIN_TIMEOUT_MS} ms.
+						</p>
+					{/if}
 				</div>
 			{:else}
 				<div class="flex flex-col gap-1.5">
@@ -217,7 +235,13 @@
 						step="1000"
 						value={timeoutMs}
 						oninput={handleTimeoutInput}
+						aria-invalid={timeoutTooLow}
 					/>
+					{#if timeoutTooLow}
+						<p class="text-xs text-destructive">
+							Timeout must be at least {MIN_TIMEOUT_MS} ms.
+						</p>
+					{/if}
 				</div>
 			{/if}
 		</div>
