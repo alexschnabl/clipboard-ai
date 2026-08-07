@@ -3,9 +3,11 @@ mod config;
 mod cycle;
 mod osops;
 mod sentinel;
+mod status;
 
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -13,10 +15,19 @@ use std::{
 };
 
 use tauri::{
-    menu::{Menu, MenuItem, PredefinedMenuItem},
+    menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+
+/// A single hotkey's dispatch data: the display name (used in the log and
+/// tray status), the system prompt to send, and the backend to send it to.
+#[derive(Clone)]
+struct PromptEntry {
+    name: String,
+    system_prompt: String,
+    backend: Arc<dyn backend::Backend>,
+}
 
 /// Per-hotkey dispatch table plus the machinery a cycle needs to run.
 ///
@@ -25,14 +36,35 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 /// config's hotkey spelling against the plugin's own textual rendering of
 /// the same shortcut.
 struct AppState {
-    prompts: Mutex<HashMap<Shortcut, (String, Arc<dyn backend::Backend>)>>,
+    prompts: Mutex<HashMap<Shortcut, PromptEntry>>,
     ops: Arc<dyn osops::OsOps>,
     busy: AtomicBool,
-    /// Set after every cycle. Not yet surfaced in the UI — a hook for a
-    /// future "last status" tray item/tooltip, which lands with the
-    /// settings UI in v2 alongside live config reload.
-    #[allow(dead_code)]
+    /// The last status line, mirrored onto the disabled "status" tray menu
+    /// item below. This is the only console a release build has — see
+    /// `set_status`.
     last_status: Mutex<String>,
+    /// Handle to the disabled tray menu item that always shows
+    /// `last_status`. Kept as a live handle (not rebuilt) because
+    /// `MenuItem::set_text` can update it in place from any thread — it
+    /// hops to the main thread internally.
+    status_item: MenuItem<tauri::Wry>,
+    /// Directory holding `config.json`; `clipboard-ai.log` lives alongside
+    /// it — see `status::append_log`.
+    config_dir: PathBuf,
+}
+
+/// Writes `text` to both halves of the status hook: the `last_status`
+/// mutex, and — read back from that same mutex, not from a second copy of
+/// the string threaded through separately — the tray's status menu item.
+/// A tray-update failure must never take down a cycle that otherwise
+/// succeeded, so `set_text`'s result is swallowed deliberately.
+fn set_status(state: &AppState, text: String) {
+    if let Ok(mut last) = state.last_status.lock() {
+        *last = text;
+    }
+    if let Ok(last) = state.last_status.lock() {
+        let _ = state.status_item.set_text(&*last);
+    }
 }
 
 /// Resets the busy re-entrancy flag on drop, including when the spawned
@@ -51,7 +83,7 @@ impl Drop for BusyGuard<'_> {
     }
 }
 
-/// Build the hotkey -> (system prompt, backend) map from config.
+/// Build the hotkey -> prompt-entry map from config.
 ///
 /// A prompt whose hotkey will not parse, or whose backend will not build, is
 /// skipped with a message rather than aborting the whole load — one bad
@@ -67,9 +99,7 @@ impl Drop for BusyGuard<'_> {
 /// normalization entirely: the plugin always hands the handler back the
 /// exact value that was registered, and `Shortcut` derives `Eq`/`Hash`, so
 /// lookup is structural rather than string-based.
-fn build_prompt_map(
-    cfg: &config::Config,
-) -> (HashMap<Shortcut, (String, Arc<dyn backend::Backend>)>, Vec<String>) {
+fn build_prompt_map(cfg: &config::Config) -> (HashMap<Shortcut, PromptEntry>, Vec<String>) {
     let mut map = HashMap::new();
     let mut problems = Vec::new();
     for prompt in &cfg.prompts {
@@ -88,8 +118,15 @@ fn build_prompt_map(
             }
         };
         match backend::build(backend_cfg) {
-            Ok(b) => {
-                map.insert(shortcut, (prompt.system_prompt.clone(), b));
+            Ok(backend) => {
+                map.insert(
+                    shortcut,
+                    PromptEntry {
+                        name: prompt.name.clone(),
+                        system_prompt: prompt.system_prompt.clone(),
+                        backend,
+                    },
+                );
             }
             Err(e) => problems.push(format!("{}: {e}", prompt.name)),
         }
@@ -113,18 +150,49 @@ pub fn run() {
             let handle = app.handle().clone();
 
             let path = config::config_path(&handle);
+            // The config directory doubles as the log directory. In every
+            // realistic failure path below, `config::load_or_create` has
+            // already created this directory (it does so before it ever
+            // tries to parse anything) or the file already existed inside
+            // it — so logging into it even from the config-error path
+            // below is safe, not a chicken-and-egg problem.
+            let config_dir = path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or_else(|| PathBuf::from("."));
+
+            // A config-load failure is otherwise the most silent failure
+            // mode there is: `setup` returns `Err`, and `.run()` below
+            // turns that into a panic message that a windowed release
+            // build has no console to show. The log line is the only
+            // record of it that survives.
             let cfg = config::load_or_create(&path).map_err(|e| {
-                eprintln!("config error: {e}");
+                let line = format!("STARTUP config-load-failed reason={e}");
+                eprintln!("{line}");
+                status::append_log(&config_dir, &line);
                 e
             })?;
+
             let (prompt_map, mut problems) = build_prompt_map(&cfg);
             let hotkeys: Vec<Shortcut> = prompt_map.keys().copied().collect();
 
+            let ops = osops::WindowsOps::new().map_err(|e| {
+                let line = format!("STARTUP osops-init-failed reason={e}");
+                eprintln!("{line}");
+                status::append_log(&config_dir, &line);
+                e
+            })?;
+
+            let status_item =
+                MenuItem::with_id(app, "status", "starting…", false, None::<&str>)?;
+
             let state = Arc::new(AppState {
                 prompts: Mutex::new(prompt_map),
-                ops: Arc::new(osops::WindowsOps::new()?),
+                ops: Arc::new(ops),
                 busy: AtomicBool::new(false),
-                last_status: Mutex::new("ready".into()),
+                last_status: Mutex::new("starting…".into()),
+                status_item: status_item.clone(),
+                config_dir: config_dir.clone(),
             });
 
             let handler_state = state.clone();
@@ -138,7 +206,9 @@ pub fn run() {
                         let state = handler_state.clone();
 
                         if state.busy.swap(true, Ordering::SeqCst) {
-                            println!("busy; hotkey ignored");
+                            let line = "busy; hotkey ignored".to_string();
+                            println!("{line}");
+                            status::append_log(&state.config_dir, &line);
                             return;
                         }
 
@@ -151,21 +221,17 @@ pub fn run() {
                                 .lock()
                                 .ok()
                                 .and_then(|m| m.get(&key).cloned());
-                            if let Some((system_prompt, backend)) = entry {
-                                let outcome =
-                                    cycle::run(backend.as_ref(), &system_prompt, state.ops.as_ref());
-                                let status = format!(
-                                    "{} — {} [{}] (capture {} ms, backend {} ms)",
-                                    backend.name(),
-                                    outcome.reason,
-                                    if outcome.pasted { "pasted" } else { "not pasted" },
-                                    outcome.captured_ms,
-                                    outcome.backend_ms
+                            if let Some(PromptEntry { name, system_prompt, backend }) = entry {
+                                let outcome = cycle::run(
+                                    backend.as_ref(),
+                                    &system_prompt,
+                                    state.ops.as_ref(),
                                 );
-                                println!("{status}");
-                                if let Ok(mut last) = state.last_status.lock() {
-                                    *last = status;
-                                }
+                                let line = status::log_line(&outcome, &name, backend.name());
+                                println!("{line}");
+                                status::append_log(&state.config_dir, &line);
+
+                                set_status(&state, status::summary(&outcome, &name));
                             }
                         });
                     })
@@ -173,18 +239,71 @@ pub fn run() {
             )?;
 
             problems.extend(register_hotkeys(&handle, &hotkeys));
+
+            // Hotkey-registration failures (a shortcut already owned by
+            // another application) and config problems (unknown backend,
+            // unparseable hotkey) are the highest-value thing to surface:
+            // without this, the corresponding hotkey just does nothing,
+            // forever, with no signal anywhere. Every one of them reaches
+            // both the log file and the tray status, not just per-cycle
+            // outcomes.
+            status::append_log(
+                &config_dir,
+                &format!(
+                    "STARTUP backends={} prompts-configured={} hotkeys-attempted={} problems={}",
+                    cfg.backends.len(),
+                    cfg.prompts.len(),
+                    hotkeys.len(),
+                    problems.len()
+                ),
+            );
             for problem in &problems {
-                eprintln!("config problem: {problem}");
+                let line = format!("STARTUP problem: {problem}");
+                eprintln!("{line}");
+                status::append_log(&config_dir, &line);
+            }
+            let initial_status = if problems.is_empty() {
+                "ready".to_string()
+            } else {
+                format!("{} startup problem(s) \u{2014} see log", problems.len())
+            };
+            set_status(&state, initial_status);
+
+            // One disabled, informational entry per configured prompt, so
+            // the user can see what hotkey is supposed to do what without
+            // opening the config file.
+            let mut prompt_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
+            for prompt in &cfg.prompts {
+                let label = format!("{} \u{2014} {}", prompt.name, prompt.hotkey);
+                let id = format!("prompt-{}", prompt.id);
+                prompt_items.push(MenuItem::with_id(app, id, label, false, None::<&str>)?);
             }
 
             let open_config =
                 MenuItem::with_id(app, "open-config", "Open config file", true, None::<&str>)?;
             let reload = MenuItem::with_id(app, "reload", "Reload config", true, None::<&str>)?;
-            let separator = PredefinedMenuItem::separator(app)?;
+            let show_log = MenuItem::with_id(app, "show-log", "Show log", true, None::<&str>)?;
+            let sep_after_status = PredefinedMenuItem::separator(app)?;
+            let sep_after_prompts = PredefinedMenuItem::separator(app)?;
+            let sep_before_quit = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open_config, &reload, &separator, &quit])?;
+
+            let mut items: Vec<&dyn IsMenuItem<_>> = vec![&status_item, &sep_after_status];
+            for item in &prompt_items {
+                items.push(item);
+            }
+            if !prompt_items.is_empty() {
+                items.push(&sep_after_prompts);
+            }
+            items.push(&open_config);
+            items.push(&reload);
+            items.push(&show_log);
+            items.push(&sep_before_quit);
+            items.push(&quit);
+            let menu = Menu::with_items(app, &items)?;
 
             let menu_path = path.clone();
+            let log_path = config_dir.join("clipboard-ai.log");
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Clipboard AI")
@@ -193,6 +312,11 @@ pub fn run() {
                     "open-config" => {
                         let _ = std::process::Command::new("cmd")
                             .args(["/C", "start", "", &menu_path.to_string_lossy()])
+                            .spawn();
+                    }
+                    "show-log" => {
+                        let _ = std::process::Command::new("cmd")
+                            .args(["/C", "start", "", &log_path.to_string_lossy()])
                             .spawn();
                     }
                     "reload" => {
