@@ -3,6 +3,8 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 
+mod config;
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
