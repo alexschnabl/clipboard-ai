@@ -13,6 +13,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
+    time::{Duration, Instant},
 };
 
 use serde::Serialize;
@@ -122,6 +123,76 @@ struct AppState {
     /// the UI itself rather than relying on the user to notice an
     /// implausibly empty config.
     config_load_error: Option<commands::ConfigLoadError>,
+    /// R10: every `Problem` produced during startup (a failed OS-layer
+    /// init, an unparseable hotkey, a hotkey the OS refused to register --
+    /// see `run`'s `setup`) -- distinct from `config_load_error` because
+    /// these don't prevent a config from loading, they just mean part of it
+    /// didn't take effect. `Mutex`-wrapped and written once, shortly after
+    /// `setup`'s own `apply_config` call finishes, rather than being a
+    /// plain field set at construction time like `config_load_error` --
+    /// unlike a load failure, these problems are not known until *after*
+    /// `apply_config` has run, which is after this struct already exists
+    /// and has been handed to `app.manage`. `commands::get_config` clones
+    /// it out on every settings-window load; without this a hotkey that
+    /// failed to register at launch was invisible in the UI until an
+    /// unrelated Save happened to call `apply_config` again.
+    startup_problems: Arc<Mutex<Vec<Problem>>>,
+}
+
+/// R4: how long tray Quit waits for an in-flight cycle to reach its own
+/// `ClipboardGuard`/chord-release cleanup before tearing the process down
+/// regardless. `app.exit(0)` does not unwind, so anything relying on `Drop`
+/// to run (restoring the user's clipboard, releasing a synthetic Ctrl held
+/// down mid-chord) is simply skipped if the process dies while a cycle is
+/// still using it. A couple of seconds covers a normal cycle (capture,
+/// backend call, paste) comfortably without making Quit itself feel hung;
+/// it does *not* cover a slow backend call still inside its own multi-second
+/// timeout -- that case still loses the clipboard, and the wait below logs
+/// rather than pretending otherwise.
+const QUIT_CYCLE_WAIT: Duration = Duration::from_secs(2);
+
+/// R8: recovers a poisoned mutex guard instead of propagating the poison,
+/// and logs that it happened. Mirrors `osops.rs`'s `chord`/`read_clipboard`
+/// (`.unwrap_or_else(|e| e.into_inner())`) and the same reasoning: a panic
+/// elsewhere while this lock was held does not corrupt the data it guards,
+/// so the default `?`/`if let Ok(..)` behaviour -- silently treating every
+/// *later* access to this exact state as "do nothing" forever -- is worse
+/// than recovering it. This matters most for `state.commands`: swallowed
+/// via `.ok()`, a poisoned lock there would make every hotkey press quietly
+/// no-op for the rest of the process's life, with nothing anywhere to say
+/// why. `config_dir` is `Option` because a couple of call sites (`ACK_TX`
+/// in commands.rs) have no `AppState`, and so no log directory, in scope.
+fn recover_lock<'a, T>(
+    result: Result<
+        std::sync::MutexGuard<'a, T>,
+        std::sync::PoisonError<std::sync::MutexGuard<'a, T>>,
+    >,
+    what: &str,
+    config_dir: Option<&Path>,
+) -> std::sync::MutexGuard<'a, T> {
+    result.unwrap_or_else(|poisoned| {
+        let line = format!("{what} mutex was poisoned by an earlier panic; recovering");
+        eprintln!("{line}");
+        if let Some(dir) = config_dir {
+            status::append_log(dir, &line);
+        }
+        poisoned.into_inner()
+    })
+}
+
+/// Best-effort extraction of a message from a `catch_unwind` payload. Most
+/// panics in this codebase carry a `&str` (a `panic!("literal")`) or a
+/// `String` (a `panic!("{formatted}")`); anything else (a custom payload
+/// from a dependency) has no guaranteed shape at all, so this falls back to
+/// a fixed string rather than guessing further.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        s.to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "non-string panic payload".to_string()
+    }
 }
 
 /// Writes `text` to both halves of the status hook: the `last_status`
@@ -130,12 +201,12 @@ struct AppState {
 /// A tray-update failure must never take down a cycle that otherwise
 /// succeeded, so `set_text`'s result is swallowed deliberately.
 fn set_status(state: &AppState, text: String) {
-    if let Ok(mut last) = state.last_status.lock() {
+    {
+        let mut last = recover_lock(state.last_status.lock(), "last_status", Some(&state.config_dir));
         *last = text;
     }
-    if let Ok(last) = state.last_status.lock() {
-        let _ = state.status_item.set_text(&*last);
-    }
+    let last = recover_lock(state.last_status.lock(), "last_status", Some(&state.config_dir));
+    let _ = state.status_item.set_text(&*last);
 }
 
 /// Resets the busy re-entrancy flag on drop, including when the spawned
@@ -442,12 +513,17 @@ mod register_hotkeys_tests {
 ///
 /// A cycle already running is unaffected by this call. The hotkey handler
 /// below clones the matching `CommandEntry` -- and, inside it, the
-/// `Arc<dyn Backend>` -- out of `state.commands` *before* spawning the
-/// cycle thread; `cycle::run` then only ever touches that owned clone, and
-/// never looks at the map again. So swapping `state.commands` here, even
-/// while a cycle is mid-flight, cannot reach it: a save during a
-/// 16-second cold-model cycle takes effect starting with the *next* press,
-/// not the one already running.
+/// `Arc<dyn Backend>` -- out of `state.commands` *inside* the spawned cycle
+/// thread, once, right at its start and before `cycle::run` itself is ever
+/// invoked (R15: this used to say "before spawning the cycle thread",
+/// which described a different mechanism than the code -- the clone always
+/// happened on the spawned thread, not on the handler thread beforehand;
+/// the substance below was correct even though that mechanism claim
+/// wasn't). `cycle::run` then only ever touches that owned clone, and never
+/// looks at the map again. So swapping `state.commands` here, even while a
+/// cycle is mid-flight, cannot reach it: a save during a 16-second
+/// cold-model cycle takes effect starting with the *next* press, not the
+/// one already running.
 fn apply_config(app: &tauri::AppHandle, state: &AppState, config: config::Config) -> Vec<Problem> {
     let mut problems = Vec::new();
     // `suspend_hotkeys` (commands.rs) propagates this same call's Result;
@@ -481,12 +557,8 @@ fn apply_config(app: &tauri::AppHandle, state: &AppState, config: config::Config
         })
         .collect();
 
-    if let Ok(mut guard) = state.commands.lock() {
-        *guard = map;
-    }
-    if let Ok(mut guard) = state.config.lock() {
-        *guard = config;
-    }
+    *recover_lock(state.commands.lock(), "commands", Some(&state.config_dir)) = map;
+    *recover_lock(state.config.lock(), "config", Some(&state.config_dir)) = config;
 
     problems.extend(register_hotkeys(app, &registrations));
     problems
@@ -712,6 +784,7 @@ pub fn run() {
                 status_item: status_item.clone(),
                 config_dir: config_dir.clone(),
                 config_load_error,
+                startup_problems: Arc::new(Mutex::new(Vec::new())),
             });
 
             // Hand Tauri's own state container a second *handle* onto this
@@ -737,6 +810,12 @@ pub fn run() {
                             let line = "busy; hotkey ignored".to_string();
                             println!("{line}");
                             status::append_log(&state.config_dir, &line);
+                            // R11: this used to only reach the log file --
+                            // invisible in a release build with no console
+                            // (see set_status's doc comment) -- so a dropped
+                            // press looked like nothing happened at all
+                            // rather than "busy, try again".
+                            set_status(&state, line);
                             return;
                         }
 
@@ -744,22 +823,52 @@ pub fn run() {
                         // the shortcut listener for its whole duration.
                         std::thread::spawn(move || {
                             let _busy_guard = BusyGuard(&state.busy);
-                            let entry = state
-                                .commands
-                                .lock()
-                                .ok()
-                                .and_then(|m| m.get(&key).cloned());
-                            if let Some(CommandEntry { name, system_prompt, backend, .. }) = entry {
-                                let outcome = cycle::run(
-                                    backend.as_ref(),
-                                    &system_prompt,
-                                    state.ops.as_ref(),
-                                );
-                                let line = status::log_line(&outcome, &name, backend.name());
-                                println!("{line}");
-                                status::append_log(&state.config_dir, &line);
+                            // R9: a panic anywhere in here used to simply
+                            // vanish -- a spawned thread's panic prints to
+                            // stderr (invisible in a release build with no
+                            // console) and unwinds only this thread; nothing
+                            // caught it, logged it, or told the tray. This
+                            // cannot "handle" the panic in any deeper sense
+                            // -- something already went wrong that the code
+                            // below didn't anticipate -- but it at least
+                            // gets one line into the log and the tray status
+                            // instead of a silent, permanently-stuck-looking
+                            // hotkey.
+                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                // R8: `.ok()` on a poisoned `commands` lock
+                                // used to mean every hotkey press after an
+                                // unrelated panic silently did nothing,
+                                // forever, with no signal anywhere --
+                                // recover instead (see `recover_lock`'s doc
+                                // comment: the map itself is never left
+                                // mid-mutation by a panic elsewhere).
+                                let entry = recover_lock(
+                                    state.commands.lock(),
+                                    "commands",
+                                    Some(&state.config_dir),
+                                )
+                                .get(&key)
+                                .cloned();
+                                if let Some(CommandEntry { name, system_prompt, backend, .. }) = entry
+                                {
+                                    let outcome = cycle::run(
+                                        backend.as_ref(),
+                                        &system_prompt,
+                                        state.ops.as_ref(),
+                                    );
+                                    let line = status::log_line(&outcome, &name, backend.name());
+                                    println!("{line}");
+                                    status::append_log(&state.config_dir, &line);
 
-                                set_status(&state, status::summary(&outcome, &name));
+                                    set_status(&state, status::summary(&outcome, &name));
+                                }
+                            }));
+                            if let Err(payload) = result {
+                                let message = panic_message(&payload);
+                                let line = format!("PANIC hotkey-thread panicked: {message}");
+                                eprintln!("{line}");
+                                status::append_log(&state.config_dir, &line);
+                                set_status(&state, "internal error \u{2014} see log".to_string());
                             }
                         });
                     })
@@ -769,7 +878,15 @@ pub fn run() {
             let backends_configured = cfg.backends.len();
             let commands_configured = cfg.commands.len();
             problems.extend(apply_config(&handle, &state, cfg));
-            let hotkeys_attempted = state.commands.lock().map(|m| m.len()).unwrap_or(0);
+            // R10: record the full startup problem list where
+            // `commands::get_config` can hand it to the settings window on
+            // every load -- not just log it, which is where the rest of
+            // this block already sends it. Cloned rather than moved: the
+            // log lines and `initial_status` below still need `problems`.
+            *recover_lock(state.startup_problems.lock(), "startup_problems", Some(&config_dir)) =
+                problems.clone();
+            let hotkeys_attempted =
+                recover_lock(state.commands.lock(), "commands", Some(&config_dir)).len();
 
             // One disabled, informational entry per successfully-registered
             // command, built from `state.commands` rather than all of
@@ -778,7 +895,8 @@ pub fn run() {
             // (see build_command_map) is not in this map, and the tray must
             // not advertise a hotkey that does nothing.
             let mut command_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
-            if let Ok(guard) = state.commands.lock() {
+            {
+                let guard = recover_lock(state.commands.lock(), "commands", Some(&config_dir));
                 for (i, (_shortcut, entry)) in guard.iter().enumerate() {
                     // `entry.hotkey`, not the parsed `Shortcut`: the latter's
                     // `Display` renders "Ctrl+Alt+J" as "control+alt+KeyJ",
@@ -852,10 +970,24 @@ pub fn run() {
 
             let menu_path = path.clone();
             let log_path = config_dir.join("clipboard-ai.log");
-            TrayIconBuilder::new()
-                .icon(app.default_window_icon().unwrap().clone())
-                .tooltip("Clipboard AI")
-                .menu(&menu)
+            let menu_state = state.clone();
+            let mut tray_builder = TrayIconBuilder::new().tooltip("Clipboard AI").menu(&menu);
+            // R17: `.unwrap()` on a missing bundled icon used to panic
+            // during `setup`, and `windows_subsystem = "windows"` means a
+            // release build has no console to show that panic on -- the app
+            // would just never reach a tray icon, with nothing to tell the
+            // user why. `.icon(...)` is optional on the builder; skipping it
+            // still yields a working tray (menu, click handling, status
+            // text) with no glyph rather than no tray at all.
+            match app.default_window_icon() {
+                Some(icon) => tray_builder = tray_builder.icon(icon.clone()),
+                None => {
+                    let line = "STARTUP tray-icon-missing; continuing without one".to_string();
+                    eprintln!("{line}");
+                    status::append_log(&config_dir, &line);
+                }
+            }
+            tray_builder
                 // The tray-icon crate shows its own native context menu on a
                 // left click by default (true), independent of the
                 // on_tray_icon_event handler below. Left click on Windows is
@@ -876,18 +1008,69 @@ pub fn run() {
                             .spawn();
                     }
                     "reload" => {
-                        // v1 narrowing, not yet lifted here: `apply_config`
-                        // above is the live-reregistration mechanism (safe
-                        // to call while a cycle is in flight -- see its doc
-                        // comment), built so a settings-window save can take
-                        // effect immediately. This tray button just isn't
-                        // wired to it yet -- rereading config.json from disk
-                        // and calling apply_config is the settings-window
-                        // save flow's job, not this one's. For now, restart
-                        // the app to pick up config changes.
-                        println!("reload requested — restart the app to apply config changes");
+                        // R6: this used to be a `println!` stub that did not
+                        // reload anything and, being `println!` rather than
+                        // going through `status::append_log`, was invisible
+                        // in a release build entirely. Menu events run on
+                        // the main thread (same as window events -- see the
+                        // `CloseRequested` handler below and R3's doc
+                        // comment on `hide_and_reapply`), so it is safe to
+                        // call `apply_config` here directly, the same way
+                        // `setup` and the settings-window Save path do.
+                        let line = match config::load_or_create(&menu_path) {
+                            Ok(cfg) => {
+                                let problems = apply_config(app, &menu_state, cfg);
+                                for problem in &problems {
+                                    let line = format!("RELOAD problem: {}", problem.message);
+                                    eprintln!("{line}");
+                                    status::append_log(&menu_state.config_dir, &line);
+                                }
+                                if problems.is_empty() {
+                                    "reloaded config".to_string()
+                                } else {
+                                    format!("reloaded with {} problem(s) \u{2014} see log", problems.len())
+                                }
+                            }
+                            Err(e) => {
+                                format!("reload failed: {e} \u{2014} see log")
+                            }
+                        };
+                        println!("RELOAD {line}");
+                        status::append_log(&menu_state.config_dir, &format!("RELOAD {line}"));
+                        set_status(&menu_state, line);
                     }
-                    "quit" => app.exit(0),
+                    "quit" => {
+                        // R4: `app.exit(0)` terminates the process without
+                        // unwinding, so `cycle::ClipboardGuard`'s `Drop`
+                        // never runs if a cycle is still in flight on the
+                        // spawned hotkey thread -- the user's original
+                        // clipboard is gone for good, and a kill mid-`chord`
+                        // (osops.rs) can strand a synthetic Ctrl held down
+                        // OS-wide. Give it a bounded window to reach its own
+                        // restore path first. This is a mitigation, not a
+                        // guarantee: a cycle blocked inside a slow backend
+                        // call can still outlast `QUIT_CYCLE_WAIT`, and that
+                        // case still loses the clipboard -- there is no way
+                        // to force a `Drop` to run early without unwinding,
+                        // and Quit must never hang waiting for a 120-second
+                        // timeout to expire on the user's behalf.
+                        if menu_state.busy.load(Ordering::SeqCst) {
+                            let start = Instant::now();
+                            while menu_state.busy.load(Ordering::SeqCst)
+                                && start.elapsed() < QUIT_CYCLE_WAIT
+                            {
+                                std::thread::sleep(Duration::from_millis(20));
+                            }
+                            if menu_state.busy.load(Ordering::SeqCst) {
+                                let line = "QUIT cycle still in flight after \
+                                            bounded wait; exiting anyway"
+                                    .to_string();
+                                eprintln!("{line}");
+                                status::append_log(&menu_state.config_dir, &line);
+                            }
+                        }
+                        app.exit(0)
+                    }
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {

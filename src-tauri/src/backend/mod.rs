@@ -2,7 +2,11 @@ pub mod anthropic;
 pub mod claude_cli;
 pub mod openai;
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{mpsc, Arc},
+    thread,
+    time::Duration,
+};
 
 use serde_json::Value;
 use thiserror::Error;
@@ -54,23 +58,56 @@ impl HttpClient for ReqwestClient {
             request = request.header(key.as_str(), value.as_str());
         }
 
-        let response = request.send().map_err(|e| {
-            if e.is_timeout() {
-                BackendError::Timeout
-            } else {
-                BackendError::Transport(e.to_string())
-            }
-        })?;
+        // R12: reqwest's blocking `.timeout()` is not a total-request
+        // deadline -- confirmed against reqwest 0.13.4's blocking client
+        // (`blocking/client.rs`'s `execute_request` and `blocking/response.rs`):
+        // `execute_request` waits up to the full configured duration for the
+        // response *headers*, and `Response::json`/`text`/`bytes` each wait
+        // up to that *same* full duration again for the *body*, because the
+        // duration is simply baked into the `Response` value and reapplied
+        // on every subsequent wait rather than shrinking with elapsed time.
+        // A slow-but-not-hung backend can therefore hold this call for
+        // close to 2x `timeout_ms` (measured: 300 ms configured -> 581 ms
+        // actual), and at the 120 s default that lets one cycle hold
+        // `BusyGuard` for roughly 240 s. reqwest has no API to hand a
+        // shrinking remaining-budget into the body read once the headers
+        // wait has already spent part of it, so -- mirroring
+        // `ProcessRunner`'s own bounded-wait pattern in claude_cli.rs --
+        // the whole send-plus-read runs on a worker thread while this
+        // thread enforces a single deadline against the wall clock and
+        // abandons (does not join) the worker if that deadline passes: the
+        // worker's eventual result, whenever reqwest's own doubled wait
+        // finally resolves, just has nowhere to go once the receiver here
+        // has already returned.
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let result = (|| {
+                let response = request.send().map_err(|e| {
+                    if e.is_timeout() {
+                        BackendError::Timeout
+                    } else {
+                        BackendError::Transport(e.to_string())
+                    }
+                })?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().unwrap_or_default();
-            return Err(BackendError::BadResponse(format!("HTTP {status}: {text}")));
-        }
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let text = response.text().unwrap_or_default();
+                    return Err(BackendError::BadResponse(format!("HTTP {status}: {text}")));
+                }
 
-        response
-            .json()
-            .map_err(|e| BackendError::BadResponse(e.to_string()))
+                response
+                    .json()
+                    .map_err(|e| BackendError::BadResponse(e.to_string()))
+            })();
+            // No receiver left means the deadline below already fired and
+            // moved on; dropping this result is the intended outcome, not
+            // an error worth handling.
+            let _ = tx.send(result);
+        });
+
+        rx.recv_timeout(Duration::from_millis(timeout_ms))
+            .unwrap_or(Err(BackendError::Timeout))
     }
 }
 
@@ -89,5 +126,67 @@ pub fn build(config: &BackendConfig) -> Result<Arc<dyn Backend>, BackendError> {
             Arc::new(claude_cli::ProcessRunner),
         ))),
         other => Err(BackendError::Misconfigured(format!("unknown kind: {other}"))),
+    }
+}
+
+/// R12: exercises the real `ReqwestClient`, not a fake `HttpClient` --
+/// `anthropic.rs`/`openai.rs`'s tests all substitute a fake, so nothing
+/// elsewhere in the suite ever ran actual reqwest code before this. Mirrors
+/// `claude_cli.rs`'s `process_runner_tests` in spirit: a real background
+/// actor (here a raw `TcpListener` instead of a child process) and a
+/// wall-clock measurement, not a mocked timing source.
+#[cfg(test)]
+mod reqwest_client_tests {
+    use std::{
+        io::{Read, Write},
+        net::TcpListener,
+        time::Instant,
+    };
+
+    use super::*;
+
+    #[test]
+    fn a_slow_body_does_not_get_a_second_full_timeout_budget() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Not joined -- like `join_with_deadline_tests`'s hung-thread test
+        // in claude_cli.rs, this thread deliberately outlives the
+        // assertions below; it is abandoned, not awaited.
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 1024];
+                let _ = stream.set_read_timeout(Some(Duration::from_millis(200)));
+                let _ = stream.read(&mut buf); // drain the request, best-effort
+
+                // Headers arrive well within budget...
+                thread::sleep(Duration::from_millis(300));
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\n\r\n",
+                );
+                let _ = stream.flush();
+
+                // ...but the two promised body bytes never arrive within
+                // any reasonable window. Pre-fix, `.json()` would start its
+                // own fresh `timeout_ms` wait right here; post-fix, the
+                // caller's single deadline has already fired by the time
+                // this matters.
+                thread::sleep(Duration::from_secs(5));
+            }
+        });
+
+        let timeout_ms = 500;
+        let start = Instant::now();
+        let result =
+            ReqwestClient.post_json(&format!("http://{addr}"), &[], &serde_json::json!({}), timeout_ms);
+        let elapsed = start.elapsed();
+
+        assert!(matches!(result, Err(BackendError::Timeout)), "expected Timeout, got {result:?}");
+        // Pre-fix this would be close to (header-wait ~300ms) + (body-wait
+        // ~500ms) =~ 800ms; a single deadline keeps it near timeout_ms.
+        assert!(
+            elapsed < Duration::from_millis(700),
+            "a single {timeout_ms}ms deadline must bound headers+body together, not double it; took {elapsed:?}"
+        );
     }
 }

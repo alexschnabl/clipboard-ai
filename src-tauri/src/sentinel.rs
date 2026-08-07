@@ -26,6 +26,20 @@ pub fn wrap_system_prompt(system_prompt: &str) -> String {
 /// the one closest to the content — so an earlier mention of the literal
 /// string `<output>` is treated as prose, not as the start of the block.
 pub fn extract(raw: &str) -> Option<String> {
+    // R2: two *complete* `<output>...</output>` blocks are genuinely
+    // ambiguous. C1 above only handles an echoed opening tag inside the
+    // first pair; it has no way to tell a real second block (an echoed
+    // example, a retry the model narrated, a hallucinated second answer)
+    // from the intended one. Silently pairing "first open with first
+    // close" used to paste whichever block happened to come first --
+    // including a decoy -- straight into the user's document with no
+    // sign anything was wrong. This module's contract is that a missing
+    // tag is a refusal, never empty text; ambiguity about *which* block
+    // is the answer must fail the same way, because a retry in a rare
+    // case beats silently corrupting the user's work.
+    if raw.matches(CLOSE).count() > 1 {
+        return None;
+    }
     let start = raw.find(OPEN)? + OPEN.len();
     let rest = &raw[start..];
     let end = rest.find(CLOSE)?;
@@ -95,10 +109,16 @@ mod tests {
         assert!(extract("<output>   \n  </output>").is_none());
     }
 
+    // R2: this used to be `takes_the_first_block_when_several_are_present`,
+    // asserting `Some("first")` -- i.e. it pinned the vulnerable behaviour
+    // as intended. Two complete blocks are ambiguous (see the comment on
+    // `extract`), and picking "first" is exactly how a decoy block gets
+    // silently pasted into a real document. Refusal is the correct,
+    // deliberate outcome here, not a regression.
     #[test]
-    fn takes_the_first_block_when_several_are_present() {
+    fn refuses_when_more_than_one_complete_block_is_present() {
         let raw = "<output>first</output> junk <output>second</output>";
-        assert_eq!(extract(raw).as_deref(), Some("first"));
+        assert!(extract(raw).is_none());
     }
 
     #[test]

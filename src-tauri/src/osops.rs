@@ -19,6 +19,13 @@ pub enum OsError {
     Input(String),
 }
 
+/// R13: how many times `chord` retries a failed Control-release before
+/// giving up and surfacing the failure. A stuck-down Control is bad enough
+/// (see `chord`'s doc comment) that a couple of cheap extra attempts are
+/// worth it even though a `SendInput` failure is not usually the kind of
+/// thing that clears up on its own.
+const CONTROL_RELEASE_RETRIES: u32 = 3;
+
 pub trait OsOps: Send + Sync {
     fn read_clipboard(&self) -> Result<String, OsError>;
     fn write_clipboard(&self, text: &str) -> Result<(), OsError>;
@@ -65,9 +72,34 @@ impl WindowsOps {
         let click = enigo.key(Key::Unicode(letter), Direction::Click);
         // Release Control even if the letter failed, so a failure never leaves
         // a modifier logically stuck down for the user.
-        let release = enigo.key(Key::Control, Direction::Release);
+        //
+        // R13: a failed release here is worse than a failed click -- it can
+        // leave Control synthetically held down OS-wide, so the user's very
+        // next ordinary keystroke in *any* application fires as a Ctrl
+        // shortcut, silently, until they happen to tap Control themselves.
+        // Retry it a few times before giving up, and -- unlike before,
+        // where a release failure alongside a click failure was never even
+        // inspected, because the click's own `?` returned first and threw
+        // the release's `Result` away unread -- always surface a release
+        // failure, in preference to a click failure if both happened: a
+        // missed paste is recoverable by pressing the hotkey again, a
+        // stuck Control is not something the user can diagnose from inside
+        // the app that caused it.
+        let mut release = enigo.key(Key::Control, Direction::Release);
+        for attempt in 1..CONTROL_RELEASE_RETRIES {
+            if release.is_ok() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10 * attempt as u64));
+            release = enigo.key(Key::Control, Direction::Release);
+        }
+        if let Err(e) = release {
+            return Err(OsError::Input(format!(
+                "Control release failed after {CONTROL_RELEASE_RETRIES} attempts -- it may \
+                 still be held down: {e}"
+            )));
+        }
         click.map_err(|e| OsError::Input(e.to_string()))?;
-        release.map_err(|e| OsError::Input(e.to_string()))?;
         Ok(())
     }
 }

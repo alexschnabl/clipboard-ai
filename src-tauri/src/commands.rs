@@ -43,16 +43,29 @@ pub struct ConfigLoadError {
 pub struct GetConfigResult {
     pub config: config::Config,
     pub load_error: Option<ConfigLoadError>,
+    /// R10: `Problem`s produced at startup (a hotkey the OS refused to
+    /// register, an unparseable hotkey, ...) -- without this a hotkey that
+    /// failed to register at launch was invisible in the UI until an
+    /// unrelated Save happened to call `apply_config` again and produce a
+    /// fresh problem list for *that* response.
+    pub startup_problems: Vec<Problem>,
 }
 
 #[tauri::command]
-pub fn get_config(state: State<'_, AppState>) -> Result<GetConfigResult, String> {
-    let config = state
-        .config
-        .lock()
-        .map(|c| c.clone())
-        .map_err(|_| "config lock poisoned".to_string())?;
-    Ok(GetConfigResult { config, load_error: state.config_load_error.clone() })
+pub fn get_config(state: State<'_, AppState>) -> GetConfigResult {
+    // R8: this used to map a poisoned lock to an `Err` string returned to
+    // the frontend, which -- since nothing in this app ever clears a
+    // poisoned `Mutex`'s poison flag -- would have meant every future
+    // `get_config` call failing forever after one unrelated panic anywhere
+    // else that happened to hold this same lock. Recover instead (see
+    // `crate::recover_lock`'s doc comment): the config itself is never left
+    // mid-mutation by a panic elsewhere.
+    let config =
+        crate::recover_lock(state.config.lock(), "config", Some(&state.config_dir)).clone();
+    let startup_problems =
+        crate::recover_lock(state.startup_problems.lock(), "startup_problems", Some(&state.config_dir))
+            .clone();
+    GetConfigResult { config, load_error: state.config_load_error.clone(), startup_problems }
 }
 
 /// The outcome of `decide_save`: either the config was rejected before
@@ -217,12 +230,10 @@ pub fn suspend_hotkeys(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 pub fn resume_hotkeys(app: AppHandle, state: State<'_, AppState>) -> Vec<Problem> {
-    let config = match state.config.lock() {
-        Ok(c) => c.clone(),
-        Err(_) => {
-            return vec![Problem { command_id: None, message: "config lock poisoned".into() }]
-        }
-    };
+    // R8: recover a poisoned lock instead of giving up on this call (and
+    // every future one -- see `crate::recover_lock`'s doc comment) forever.
+    let config =
+        crate::recover_lock(state.config.lock(), "config", Some(&state.config_dir)).clone();
     apply_config(&app, &state, config)
 }
 
@@ -288,9 +299,12 @@ pub fn set_dirty(dirty: bool) {
 /// response to a second, independent close request anyway.
 fn begin_close_wait() -> mpsc::Receiver<()> {
     let (tx, rx) = mpsc::channel();
-    if let Ok(mut guard) = ACK_TX.lock() {
-        *guard = Some(tx);
-    }
+    // R8: recover rather than silently drop the sender on a poisoned lock
+    // -- `ACK_TX` has no `AppState`/log directory in scope (see
+    // `crate::recover_lock`'s doc comment on why `config_dir` is
+    // `Option`), so this can only reach stderr, but that is still strictly
+    // better than the close-confirmation guard quietly stopping working.
+    *crate::recover_lock(ACK_TX.lock(), "ACK_TX", None) = Some(tx);
     rx
 }
 
@@ -298,10 +312,9 @@ fn begin_close_wait() -> mpsc::Receiver<()> {
 /// as it has the confirmation dialog on screen -- see `ACK_TX`.
 #[tauri::command]
 pub fn ack_close_prompt() {
-    if let Ok(guard) = ACK_TX.lock() {
-        if let Some(tx) = guard.as_ref() {
-            let _ = tx.send(());
-        }
+    let guard = crate::recover_lock(ACK_TX.lock(), "ACK_TX", None);
+    if let Some(tx) = guard.as_ref() {
+        let _ = tx.send(());
     }
 }
 
@@ -328,14 +341,59 @@ pub fn ack_close_prompt() {
 /// re-registered), and a `BackendForm`/`CommandForm` dialog left open with
 /// a stale draft that Discard's reload wouldn't otherwise touch. See
 /// `+page.svelte`'s listener and `configState.revision`.
+///
+/// R3: the config-reapply half is dispatched through
+/// `AppHandle::run_on_main_thread` rather than calling `apply_config`
+/// inline, and its result is logged from inside the dispatched closure
+/// rather than returned. This is not a style choice -- `apply_config` ends
+/// up calling the global-shortcut plugin's `unregister_all`, which (verified
+/// against tauri-plugin-global-shortcut-2.3.2's `lib.rs:219-227`) locks its
+/// internal `shortcuts` mutex *before* the blocking main-thread round-trip
+/// and holds it across the whole wait -- unlike `unregister_multiple` a few
+/// lines above it in that same file, which deliberately scopes the
+/// round-trip before taking the lock. `hide_and_reapply` is called from the
+/// close-wait thread spawned in `handle_close_request` below, which is not
+/// the main thread. Calling `apply_config` from there directly would hold
+/// that lock while blocked waiting for the main thread's event loop to
+/// service the round-trip; if the main thread is ever itself blocked trying
+/// to acquire that same lock (any other apply_config call reaching the
+/// plugin -- a second close, a settings save, `resume_hotkeys`), neither
+/// side can make progress and the app hangs forever. `run_on_main_thread`
+/// sidesteps this on both sides: called from the main thread it runs the
+/// closure inline with no round-trip at all (tauri-runtime-wry's
+/// `send_user_message`, `lib.rs:239`, special-cases the calling thread being
+/// the main thread), and called from anywhere else it just queues the
+/// closure and returns immediately -- so this caller, main thread or not,
+/// never blocks waiting for it. That in turn means `apply_config` itself is
+/// now only ever invoked while already on the main thread, so its call into
+/// the plugin never takes the blocking cross-thread path at all.
 fn hide_and_reapply(app: &AppHandle, state: Option<&AppState>) {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.hide();
         let _ = app.emit("settings://window-hidden", ());
     }
     if let Some(state) = state {
-        if let Ok(config) = state.config.lock().map(|c| c.clone()) {
-            let _ = apply_config(app, state, config);
+        let state = state.clone();
+        let app_for_task = app.clone();
+        if let Err(e) = app.run_on_main_thread(move || {
+            // R8: recover rather than silently skip the reapply on a
+            // poisoned lock (see `crate::recover_lock`'s doc comment).
+            let config =
+                crate::recover_lock(state.config.lock(), "config", Some(&state.config_dir))
+                    .clone();
+            // R7: this used to be `let _ = apply_config(...)`, silently
+            // discarding every Problem a settings-window close produced
+            // (an OS-registration failure, a stale unregister). Log them
+            // the same way startup does, so they are at least
+            // discoverable after the fact.
+            let problems = apply_config(&app_for_task, &state, config);
+            for problem in &problems {
+                let line = format!("CONFIG reapply-on-close problem: {}", problem.message);
+                eprintln!("{line}");
+                crate::status::append_log(&state.config_dir, &line);
+            }
+        }) {
+            eprintln!("failed to schedule config re-apply on settings close: {e}");
         }
     }
 }

@@ -18,10 +18,19 @@ pub fn log_line(outcome: &CycleOutcome, prompt_name: &str, backend_name: &str) -
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    format!(
+    let mut line = format!(
         "ts={ts} {verdict} prompt={prompt_name:?} backend={backend_name:?} reason={} capture_ms={} backend_ms={}",
         outcome.reason, outcome.captured_ms, outcome.backend_ms
-    )
+    );
+    // R5: this is the one place `CycleOutcome::detail` -- the real
+    // `BackendError`, not just the generic `reason` -- actually reaches
+    // anywhere a human can read it. `{detail:?}` (Debug, not Display) keeps
+    // a multi-line stderr blob or an embedded quote from breaking the log's
+    // one-line-per-entry shape.
+    if let Some(detail) = &outcome.detail {
+        line.push_str(&format!(" detail={detail:?}"));
+    }
+    line
 }
 
 pub fn summary(outcome: &CycleOutcome, prompt_name: &str) -> String {
@@ -53,7 +62,7 @@ mod tests {
     use crate::cycle::CycleOutcome;
 
     fn outcome(pasted: bool, reason: &'static str) -> CycleOutcome {
-        CycleOutcome { pasted, reason, captured_ms: 42, backend_ms: 1234 }
+        CycleOutcome { pasted, reason, detail: None, captured_ms: 42, backend_ms: 1234 }
     }
 
     #[test]
@@ -71,6 +80,29 @@ mod tests {
         let line = log_line(&outcome(false, "backend-error"), "Fix grammar", "Local Ollama");
         assert!(line.contains("backend-error"));
         assert!(line.contains("ABORTED"));
+    }
+
+    // R5: the log line is the one place `CycleOutcome::detail` -- the real
+    // `BackendError` behind a generic "backend-error" -- must actually
+    // surface, or the field is pointless plumbing.
+    #[test]
+    fn a_backend_error_detail_is_included_in_the_log_line() {
+        let mut o = outcome(false, "backend-error");
+        o.detail = Some("backend is misconfigured: apiKey is required".to_string());
+        let line = log_line(&o, "Fix grammar", "Claude API");
+        assert!(
+            line.contains("apiKey is required"),
+            "the real error must reach the log line, got: {line}"
+        );
+    }
+
+    #[test]
+    fn no_detail_field_appears_when_there_is_nothing_extra_to_say() {
+        let line = log_line(&outcome(true, "ok"), "Fix grammar", "Local Ollama");
+        assert!(
+            !line.contains("detail="),
+            "a successful outcome has no detail to append, got: {line}"
+        );
     }
 
     #[test]

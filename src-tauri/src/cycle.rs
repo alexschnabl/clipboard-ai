@@ -12,6 +12,17 @@ const RESTORE_DELAY_MS: u64 = 300;
 pub struct CycleOutcome {
     pub pasted: bool,
     pub reason: &'static str,
+    /// R5: `reason` is `&'static str` on purpose -- every caller (tests,
+    /// `status.rs`) matches or compares it by value, never by parsing free
+    /// text. That is exactly what makes it structurally unable to carry a
+    /// real error message: a wrong API key, Ollama not running, `claude`
+    /// missing from PATH, and a genuine timeout all used to collapse into
+    /// the identical `reason: "backend-error"`, with the actual cause
+    /// visible nowhere -- not the log, not the tray -- forcing a user to
+    /// guess. `detail` carries that cause alongside `reason` without
+    /// weakening `reason`'s own guarantee. `None` whenever there is nothing
+    /// more specific to say than `reason` already says.
+    pub detail: Option<String>,
     pub captured_ms: u64,
     pub backend_ms: u64,
 }
@@ -87,9 +98,18 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
     let abort = |reason: &'static str, captured_ms: u64, backend_ms: u64| CycleOutcome {
         pasted: false,
         reason,
+        detail: None,
         captured_ms,
         backend_ms,
     };
+    let abort_detail =
+        |reason: &'static str, detail: String, captured_ms: u64, backend_ms: u64| CycleOutcome {
+            pasted: false,
+            reason,
+            detail: Some(detail),
+            captured_ms,
+            backend_ms,
+        };
 
     if !wait_for_modifier_release(ops) {
         return abort("modifiers-stuck", 0, 0);
@@ -135,9 +155,21 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
         Ok(text) => text,
         // Minor: report the real elapsed time, not a hardcoded 0 -- a
         // 120-second Ollama timeout must not log as an instant failure.
-        Err(_) => {
+        //
+        // R5: this used to be `Err(_) =>`, discarding the real
+        // `BackendError` entirely -- a bad API key, Ollama not running, and
+        // `claude` missing from PATH all surfaced as the identical
+        // "backend-error" with nothing to tell them apart. `BackendError`'s
+        // `Display` (backend/mod.rs) never interpolates a request secret
+        // into any of its variants -- the API key only ever travels in an
+        // HTTP header (anthropic.rs, openai.rs) or the CLI's own
+        // subscription auth (claude_cli.rs), neither of which these
+        // strings ever carry -- so logging it here is safe. Losing it was
+        // an accident of pattern-matching, not a deliberate redaction;
+        // this keeps the safety and drops the accident.
+        Err(e) => {
             let backend_ms = ops.now_ms().saturating_sub(backend_start);
-            return abort("backend-error", captured_ms, backend_ms);
+            return abort_detail("backend-error", e.to_string(), captured_ms, backend_ms);
         }
     };
     let backend_ms = ops.now_ms().saturating_sub(backend_start);
@@ -163,7 +195,13 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
     }
 
     if ops.write_clipboard(&extracted).is_err() {
-        return abort("backend-error", captured_ms, backend_ms);
+        // R14: this used to also report "backend-error", contradicting the
+        // I1 comment on send_paste's failure path two lines below -- which
+        // argues against exactly this mislabelling, because "backend-error"
+        // sends the user to debug their AI backend when the fault is
+        // actually the clipboard/OS layer. Give it its own reason for the
+        // same reason I1 gave "paste-failed" its own.
+        return abort("clipboard-write-failed", captured_ms, backend_ms);
     }
     if ops.send_paste().is_err() {
         // I1: `WindowsOps::chord` dispatches Ctrl-down, the letter click
@@ -185,7 +223,7 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
     // The guard restores after this sleep, when it drops at end of scope.
     ops.sleep_ms(RESTORE_DELAY_MS);
 
-    CycleOutcome { pasted: true, reason: "ok", captured_ms, backend_ms }
+    CycleOutcome { pasted: true, reason: "ok", detail: None, captured_ms, backend_ms }
 }
 
 #[cfg(test)]
@@ -209,6 +247,12 @@ mod tests {
         read_should_fail: Mutex<bool>,
         clear_should_fail: Mutex<bool>,
         paste_should_fail: Mutex<bool>,
+        /// R14: fails exactly the next `write_clipboard` call, then clears
+        /// itself -- modelling a transient failure (e.g. another process
+        /// briefly holding the clipboard) so the guard's later restore call
+        /// can still be observed succeeding, the same way a real transient
+        /// failure would recover on its own moments later.
+        write_should_fail_once: Mutex<bool>,
     }
 
     impl FakeOps {
@@ -236,6 +280,11 @@ mod tests {
         }
         fn write_clipboard(&self, text: &str) -> Result<(), OsError> {
             self.log(&format!("write({text})"));
+            let mut fail_once = self.write_should_fail_once.lock().unwrap();
+            if *fail_once {
+                *fail_once = false;
+                return Err(OsError::Clipboard("clipboard is locked by another process".into()));
+            }
             *self.clipboard.lock().unwrap() = text.to_string();
             Ok(())
         }
@@ -295,6 +344,9 @@ mod tests {
         }
         fn failing() -> Self {
             Self { result: Err(BackendError::Timeout) }
+        }
+        fn failing_with(err: BackendError) -> Self {
+            Self { result: Err(err) }
         }
     }
     impl Backend for StubBackend {
@@ -369,6 +421,63 @@ mod tests {
         assert_eq!(outcome.reason, "backend-error");
         assert!(ops.pasted_content.lock().unwrap().is_none());
         assert_eq!(*ops.clipboard.lock().unwrap(), "ORIGINAL");
+    }
+
+    #[test]
+    fn backend_error_carries_the_real_error_as_detail_not_just_the_generic_reason() {
+        // R5: "backend-error" alone cannot distinguish a bad API key from
+        // Ollama being down from `claude` missing from PATH -- all three
+        // used to produce the identical outcome. `detail` must carry the
+        // real `BackendError` so the log (and eventually the tray/settings
+        // window) can actually say which one happened.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        let outcome = run(
+            &StubBackend::failing_with(BackendError::Misconfigured("apiKey is required".into())),
+            "Fix.",
+            &ops,
+        );
+        assert!(!outcome.pasted);
+        assert_eq!(outcome.reason, "backend-error");
+        let detail = outcome.detail.expect("a backend failure must carry a detail string");
+        assert!(
+            detail.contains("apiKey is required"),
+            "detail must carry the real backend error, got: {detail}"
+        );
+    }
+
+    #[test]
+    fn a_successful_outcome_carries_no_detail() {
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        let outcome = run(&StubBackend::ok("<output>Corrected.</output>"), "Fix.", &ops);
+        assert!(outcome.detail.is_none(), "a successful cycle has nothing extra to say");
+    }
+
+    #[test]
+    fn clipboard_write_failure_gets_its_own_reason_distinct_from_backend_error() {
+        // R14: this used to also report "backend-error" here, contradicting
+        // the I1 comment on send_paste's failure path a few lines below --
+        // which argues against exactly this mislabelling, because
+        // "backend-error" sends the user to debug their AI backend when the
+        // real fault is the clipboard/OS layer.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        *ops.write_should_fail_once.lock().unwrap() = true;
+        let outcome = run(&StubBackend::ok("<output>Corrected.</output>"), "Fix.", &ops);
+        assert!(!outcome.pasted);
+        assert_eq!(outcome.reason, "clipboard-write-failed");
+        assert_ne!(outcome.reason, "backend-error");
+        assert!(
+            ops.pasted_content.lock().unwrap().is_none(),
+            "send_paste must never be reached once the write itself failed"
+        );
+        assert!(
+            !ops.calls().iter().any(|c| c == "paste"),
+            "the failed write must abort before any paste is attempted"
+        );
+        assert_eq!(
+            *ops.clipboard.lock().unwrap(),
+            "ORIGINAL",
+            "the write failure was transient (see write_should_fail_once) -- the guard's later restore must still succeed"
+        );
     }
 
     #[test]

@@ -59,12 +59,18 @@ pub struct BackendConfig {
 ///
 /// A timeout is a failure bound, not a latency target: lowering it does not
 /// make a response arrive sooner, it only converts slow successes into
-/// failures. So the floor is set from this project's own measurements
-/// (`docs/superpowers/notes/2026-08-06-spike-results.md`) rather than being
-/// nominal -- the slowest *warm* backend measured is `claude -p` at
-/// 3,290-4,126 ms, and a cold local model took 16,036 ms. Anything below
-/// this floor is a value that could only ever produce false timeouts on a
-/// backend the user deliberately configured.
+/// failures. R16: this floor guarantees exactly one thing, from this
+/// project's own measurements
+/// (`docs/superpowers/notes/2026-08-06-spike-results.md`) -- below it, even
+/// a *warm* backend cannot succeed. The fastest measured warm response was
+/// `claude -p` at 3,290-4,126 ms, so anything under 5 s is a value that
+/// could only ever produce a false timeout, on any backend, under any
+/// conditions. It does *not* guarantee protection against a cold local
+/// model: that took 16,036 ms in the same measurements, well above this
+/// floor, so a user who configures exactly `MIN_TIMEOUT_MS` on a
+/// cold-starting Ollama backend will still hit the false timeout this floor
+/// does not catch -- only the much higher default (`default_timeout`,
+/// 120,000 ms) is sized for that case.
 ///
 /// Enforced here rather than only in the settings UI because hand-editing
 /// `config.json` remains a supported path, and validation is meant to have
