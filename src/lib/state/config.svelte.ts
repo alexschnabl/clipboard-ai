@@ -1,7 +1,14 @@
 // lib/state/config.svelte.ts — app config state: load/save via Tauri, plus in-memory backend edits
 
 import { invoke } from '@tauri-apps/api/core';
-import type { BackendConfig, CommandConfig, Config, SaveResult } from '$lib/types';
+import type {
+	BackendConfig,
+	CommandConfig,
+	Config,
+	ConfigLoadError,
+	GetConfigResult,
+	SaveResult
+} from '$lib/types';
 
 function emptyConfig(): Config {
 	return { version: 2, backends: [], commands: [] };
@@ -15,12 +22,22 @@ class ConfigState {
 	dirty = $state(false);
 	error = $state<string | null>(null);
 	problems = $state<string[]>([]);
+	/** Set by `load()` whenever the backend's real config.json failed to
+	 *  read at startup. Non-null means `config` above is the empty startup
+	 *  fallback, not the user's actual saved configuration -- the settings
+	 *  window must say so loudly rather than look like a fresh install
+	 *  (see review finding C2). Saving is still allowed while this is set:
+	 *  the original file has already been preserved on disk by the
+	 *  backend, so a fresh save here cannot lose anything. */
+	loadError = $state<ConfigLoadError | null>(null);
 
 	// ── Public API ────────────────────────────────────────────────────
 	async load(): Promise<void> {
 		this.loading = true;
 		try {
-			this.config = await invoke<Config>('get_config');
+			const result = await invoke<GetConfigResult>('get_config');
+			this.config = result.config;
+			this.loadError = result.loadError;
 			this.dirty = false;
 			this.error = null;
 		} catch (e) {

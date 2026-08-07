@@ -18,13 +18,40 @@ pub struct SaveResult {
     pub problems: Vec<String>,
 }
 
+/// Set once at startup if `config::load_or_create` failed to read the
+/// existing config.json -- see `AppState::config_load_error` in lib.rs.
+/// `get_config` hands this to the settings window so it can never mistake
+/// the empty startup fallback for the user's real, saved configuration
+/// (C2): the frontend has nothing else that would tell them apart, since
+/// an empty-but-successfully-loaded config and this fallback look
+/// identical once they're just a `Config` value.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigLoadError {
+    /// `ConfigError`'s `Display` text -- same text the log line uses.
+    pub reason: String,
+    /// Where the original, unreadable file was moved to (see
+    /// `config::preserve_unreadable`), so the user can recover it by hand.
+    /// `None` if there was nothing to preserve (fresh install) or the
+    /// preserve attempt itself failed (logged separately either way).
+    pub preserved_path: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetConfigResult {
+    pub config: config::Config,
+    pub load_error: Option<ConfigLoadError>,
+}
+
 #[tauri::command]
-pub fn get_config(state: State<'_, AppState>) -> Result<config::Config, String> {
-    state
+pub fn get_config(state: State<'_, AppState>) -> Result<GetConfigResult, String> {
+    let config = state
         .config
         .lock()
         .map(|c| c.clone())
-        .map_err(|_| "config lock poisoned".to_string())
+        .map_err(|_| "config lock poisoned".to_string())?;
+    Ok(GetConfigResult { config, load_error: state.config_load_error.clone() })
 }
 
 #[tauri::command]
@@ -44,8 +71,15 @@ pub fn save_config(
         Err(e) => return SaveResult { ok: false, error: Some(e.to_string()), problems: vec![] },
     };
 
+    // `write_atomic`, not `fs::write`: this handler is the single
+    // most-executed write path in the app (every settings-window Save goes
+    // through it), so it needs the same rename-over guarantee the v1->v2
+    // migration rewrite already relies on -- a failure partway through
+    // (disk full, process killed, an AV/cloud-sync tool holding a handle)
+    // must leave the previous config.json completely untouched rather than
+    // truncated or empty.
     let path = config::config_path(&app);
-    if let Err(e) = std::fs::write(&path, &json) {
+    if let Err(e) = config::write_atomic(&path, &validated) {
         return SaveResult { ok: false, error: Some(e.to_string()), problems: vec![] };
     }
 

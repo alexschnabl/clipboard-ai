@@ -8,7 +8,7 @@ mod status;
 
 use std::{
     collections::HashMap,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
@@ -73,6 +73,14 @@ struct AppState {
     /// Directory holding `config.json`; `clipboard-ai.log` lives alongside
     /// it — see `status::append_log`.
     config_dir: PathBuf,
+    /// Set once, here in `setup`, if `config::load_or_create` failed --
+    /// never written again afterwards (a load failure only happens at
+    /// startup), so unlike `config`/`commands` above this needs no `Mutex`
+    /// of its own. `commands::get_config` clones it out to the settings
+    /// window on every load, so a save-over-the-fallback (C2) is caught by
+    /// the UI itself rather than relying on the user to notice an
+    /// implausibly empty config.
+    config_load_error: Option<commands::ConfigLoadError>,
 }
 
 /// Writes `text` to both halves of the status hook: the `last_status`
@@ -296,6 +304,123 @@ fn show_settings(app: &tauri::AppHandle) {
     }
 }
 
+/// Handles a failed `config::load_or_create` at startup: logs it (same
+/// `STARTUP ...` style as every other startup line), preserves the original
+/// file so it survives the empty fallback below, and returns both that
+/// fallback and the details the settings window needs so it never mistakes
+/// the fallback for the user's real, saved configuration (C2).
+///
+/// Pulled out of `setup` as a free function -- rather than inlined where
+/// it's called, the only call site -- purely so it's unit-testable without
+/// standing up a Tauri `AppHandle`; `setup`'s closure itself cannot be.
+///
+/// `path` may or may not still exist: `load_or_create` fails before the
+/// file exists at all (its own directory couldn't be created, or the
+/// first-run default write failed) just as easily as it fails on a file
+/// that does exist but won't parse. Only the latter has anything to
+/// preserve, hence the `path.exists()` check -- attempting to "preserve" a
+/// path with nothing there would just fail the rename for an unrelated
+/// reason and log a confusing message.
+fn handle_config_load_failure(
+    path: &Path,
+    config_dir: &Path,
+    e: config::ConfigError,
+) -> (config::Config, commands::ConfigLoadError) {
+    let line = format!("STARTUP config-load-failed reason={e}");
+    eprintln!("{line}");
+    status::append_log(config_dir, &line);
+
+    let preserved_path = if path.exists() {
+        match config::preserve_unreadable(path) {
+            Ok(preserved) => {
+                let line = format!(
+                    "STARTUP config-preserved original={} preserved-as={}",
+                    path.display(),
+                    preserved.display()
+                );
+                eprintln!("{line}");
+                status::append_log(config_dir, &line);
+                Some(preserved.to_string_lossy().into_owned())
+            }
+            Err(preserve_err) => {
+                // Never panic, never block startup over this -- a failed
+                // preserve just means the user recovers less than they
+                // otherwise would have; it must not mean the app never
+                // reaches a tray icon.
+                let line = format!("STARTUP config-preserve-failed reason={preserve_err}");
+                eprintln!("{line}");
+                status::append_log(config_dir, &line);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    (
+        config::Config { version: 1, backends: Vec::new(), commands: Vec::new() },
+        commands::ConfigLoadError { reason: e.to_string(), preserved_path },
+    )
+}
+
+#[cfg(test)]
+mod config_load_failure_tests {
+    use super::*;
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("cai-test-load-failure-{}-{}", std::process::id(), tag));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn preserves_an_existing_unparseable_file_and_reports_where_it_went() {
+        let dir = temp_dir("existing");
+        let path = dir.join("config.json");
+        std::fs::write(&path, "{not valid json").unwrap();
+        let err = config::parse("{not valid json").unwrap_err();
+
+        let (fallback, load_error) = handle_config_load_failure(&path, &dir, err);
+
+        assert_eq!(fallback.backends.len(), 0);
+        assert_eq!(fallback.commands.len(), 0);
+        assert!(!path.exists(), "the unparseable file must be moved aside, not left in place");
+        let preserved = load_error
+            .preserved_path
+            .as_ref()
+            .expect("an existing file must be preserved and its path reported");
+        assert!(std::path::Path::new(preserved).exists());
+        assert!(
+            load_error.reason.contains("valid JSON") || !load_error.reason.is_empty(),
+            "reason should describe the parse failure, got: {}",
+            load_error.reason
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reports_no_preserved_path_when_there_was_nothing_to_preserve() {
+        // A fresh install where the first-run write itself failed: nothing
+        // ever landed at `path`, so there is nothing to move aside.
+        let dir = temp_dir("nothing-there");
+        let path = dir.join("config.json");
+        let err = config::parse("{not valid json").unwrap_err();
+
+        let (fallback, load_error) = handle_config_load_failure(&path, &dir, err);
+
+        assert_eq!(fallback.backends.len(), 0);
+        assert!(
+            load_error.preserved_path.is_none(),
+            "nothing existed at `path`, so there was nothing to preserve"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -326,14 +451,17 @@ pub fn run() {
             // guessing) so the app still reaches a tray icon, with the
             // failure surfaced in the log and the tray status text.
             let mut config_load_failed = false;
+            let mut config_load_error: Option<commands::ConfigLoadError> = None;
             let cfg = match config::load_or_create(&path) {
                 Ok(cfg) => cfg,
                 Err(e) => {
                     config_load_failed = true;
-                    let line = format!("STARTUP config-load-failed reason={e}");
-                    eprintln!("{line}");
-                    status::append_log(&config_dir, &line);
-                    config::Config { version: 1, backends: Vec::new(), commands: Vec::new() }
+                    // C2: preserve the unreadable file (if any) and carry
+                    // its whereabouts through to the settings window --
+                    // see `handle_config_load_failure`.
+                    let (fallback, load_error) = handle_config_load_failure(&path, &config_dir, e);
+                    config_load_error = Some(load_error);
+                    fallback
                 }
             };
 
@@ -379,6 +507,7 @@ pub fn run() {
                 last_status: Arc::new(Mutex::new("starting…".into())),
                 status_item: status_item.clone(),
                 config_dir: config_dir.clone(),
+                config_load_error,
             });
 
             // Hand Tauri's own state container a second *handle* onto this

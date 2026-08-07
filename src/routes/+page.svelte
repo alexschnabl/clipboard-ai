@@ -81,6 +81,29 @@
 		</div>
 	</div>
 
+	{#if configState.loadError}
+		<Alert.Root variant="destructive">
+			<Alert.Title>Your saved configuration could not be read</Alert.Title>
+			<Alert.Description>
+				<p>{configState.loadError.reason}</p>
+				{#if configState.loadError.preservedPath}
+					<p>
+						The original file was kept, unmodified, at
+						<code>{configState.loadError.preservedPath}</code>. Fix it by hand and restart the
+						app to recover your existing backends and prompts.
+					</p>
+				{:else}
+					<p>Clipboard AI could not preserve the original file either — check the log.</p>
+				{/if}
+				<p>
+					What you see below is a blank starting point, not your saved settings. You can still
+					save it — that only creates a fresh config.json and will not touch the preserved copy
+					above.
+				</p>
+			</Alert.Description>
+		</Alert.Root>
+	{/if}
+
 	{#if configState.error}
 		<Alert.Root variant="destructive">
 			<Alert.Title>Couldn’t save config</Alert.Title>

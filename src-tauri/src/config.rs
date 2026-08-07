@@ -180,7 +180,16 @@ pub fn load_or_create(path: &Path) -> Result<Config, ConfigError> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(path, serde_json::to_string_pretty(&default_config())?)?;
+        // Same reasoning as the migration rewrite below: `fs::write` opens
+        // the destination with truncation, so a failure partway through
+        // (disk full, an AV/cloud-sync tool grabbing the handle) could
+        // otherwise leave a half-written config.json behind. That's worse
+        // than leaving nothing: the *next* launch would see `path.exists()`
+        // as true, skip this first-run branch entirely, and hand the
+        // truncated JSON to `parse` below as if it were a real, if corrupt,
+        // user file. `write_atomic` either leaves a fully-written file or
+        // none at all, so a failed first run just retries cleanly next time.
+        write_atomic(path, &default_config())?;
     }
     let raw = fs::read_to_string(path)?;
     let config = parse(&raw)?;
@@ -211,7 +220,12 @@ pub fn load_or_create(path: &Path) -> Result<Config, ConfigError> {
 /// write fails partway through, a failed rename leaves the original file
 /// completely untouched. The temp file is best-effort cleaned up on any
 /// failure; its own removal failing is not itself an error worth reporting.
-fn write_atomic(path: &Path, config: &Config) -> Result<(), ConfigError> {
+///
+/// `pub(crate)`, not private: `commands::save_config` -- the settings
+/// window's Save button, the single most-executed write path in the app --
+/// needs this exact guarantee too, not just the once-off v1->v2 migration
+/// rewrite below.
+pub(crate) fn write_atomic(path: &Path, config: &Config) -> Result<(), ConfigError> {
     let tmp_name = match path.file_name() {
         Some(name) => format!("{}.tmp", name.to_string_lossy()),
         None => "config.json.tmp".to_string(),
@@ -228,6 +242,47 @@ fn write_atomic(path: &Path, config: &Config) -> Result<(), ConfigError> {
         return Err(e.into());
     }
     Ok(())
+}
+
+/// Moves an unreadable or unparseable config file aside instead of leaving
+/// it where a later save (`commands::save_config`) would silently overwrite
+/// it once the app falls back to an empty in-memory config -- see the C2
+/// finding: hand-editing is v1's only configuration mechanism, so a
+/// malformed-but-recoverable file (a stray trailing comma) is a likely
+/// state, not an exotic one, and it must survive the fallback.
+///
+/// Picks the first free `<name>.corrupt[.N]` sibling rather than always the
+/// bare `.corrupt` name, so a second failure -- this one recurring on a
+/// later launch, or the user managing to break the *preserved* copy too --
+/// can never clobber an earlier preserved copy. Every corrupt file the user
+/// ever produces stays recoverable, not just the most recent one.
+///
+/// Caller's responsibility to decide what "unreadable" means and whether
+/// `path` still exists at all; this only performs the move.
+pub(crate) fn preserve_unreadable(path: &Path) -> std::io::Result<PathBuf> {
+    let base = match path.file_name() {
+        Some(name) => name.to_string_lossy().into_owned(),
+        None => "config.json".to_string(),
+    };
+    let mut candidate = path.with_file_name(format!("{base}.corrupt"));
+    let mut suffix = 2;
+    while candidate.exists() {
+        if suffix > 1000 {
+            // Not a realistic count to actually hit -- it would mean a
+            // thousand prior unreadable configs never cleaned up -- but the
+            // alternative to giving up here is picking a name that might
+            // collide anyway, which is exactly the clobber this function
+            // exists to prevent.
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "no free <name>.corrupt[.N] slot found",
+            ));
+        }
+        candidate = path.with_file_name(format!("{base}.corrupt.{suffix}"));
+        suffix += 1;
+    }
+    fs::rename(path, &candidate)?;
+    Ok(candidate)
 }
 
 pub fn config_path(app: &tauri::AppHandle) -> PathBuf {
@@ -397,10 +452,15 @@ mod tests {
         assert_eq!(cfg.commands[0].id, "fix");
     }
 
-    // I1 part 2: the rewrite must be atomic -- a failure must never leave
-    // the destination truncated or partially written. Force the rename
-    // step specifically to fail (destination read-only) and confirm the
-    // pre-existing destination content is completely untouched.
+    // I1 part 2 / C1: `write_atomic` is the one function both the v1->v2
+    // migration rewrite *and* `commands::save_config` (the settings
+    // window's Save button, now that C1 is fixed) rely on for this
+    // guarantee -- there is no separate write path to test on the
+    // `save_config` side, since it calls this exact function. A failure
+    // must never leave the destination truncated or partially written.
+    // Force the rename step specifically to fail (destination read-only)
+    // and confirm the pre-existing destination content is completely
+    // untouched.
     #[test]
     fn write_atomic_leaves_the_destination_untouched_on_failure() {
         let dir = std::env::temp_dir().join(format!(
@@ -433,6 +493,99 @@ mod tests {
             "a failed atomic write must never modify the pre-existing destination"
         );
         assert!(!tmp_leaked, "the temp file should be cleaned up after a failed rename");
+    }
+
+    // C1 extension: `load_or_create`'s first-run write goes through
+    // `write_atomic` now too, rather than a separate `fs::write` call
+    // nothing here previously exercised at all. Confirm the ordinary,
+    // successful path still ends up with a valid, fully-written
+    // config.json and no leftover `.tmp` file.
+    #[test]
+    fn load_or_create_writes_a_valid_default_config_on_first_run() {
+        let dir = std::env::temp_dir().join(format!(
+            "cai-test-first-run-{}-{}",
+            std::process::id(),
+            "a"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let path = dir.join("config.json"); // parent doesn't exist yet either
+
+        let cfg = load_or_create(&path).expect("first run should succeed");
+
+        assert_eq!(cfg.commands.len(), 1);
+        assert!(path.exists(), "a default config.json should now exist on disk");
+        assert!(!dir.join("config.json.tmp").exists(), "no leftover temp file");
+        let raw = fs::read_to_string(&path).unwrap();
+        parse(&raw).expect("the written file must itself be valid, parseable config");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // C2: an unreadable/unparseable config file must be preserved, not
+    // lost, once the caller (lib.rs's `setup`) decides the load failed.
+    #[test]
+    fn preserve_unreadable_moves_the_file_aside_intact() {
+        let dir = std::env::temp_dir().join(format!(
+            "cai-test-preserve-{}-{}",
+            std::process::id(),
+            "a"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let original = "{ this is not valid json, trailing comma etc, }";
+        fs::write(&path, original).unwrap();
+
+        let preserved = preserve_unreadable(&path).expect("preserve should succeed");
+
+        assert!(!path.exists(), "the original path must no longer hold the unreadable file");
+        assert_eq!(preserved, dir.join("config.json.corrupt"));
+        assert_eq!(
+            fs::read_to_string(&preserved).unwrap(),
+            original,
+            "the preserved copy must be byte-for-byte the original content"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // C2: a second unreadable file (a later launch hitting the same
+    // failure again, or the user re-breaking the file after fixing it once)
+    // must not clobber the first preserved copy -- every corrupt file the
+    // user ever produces should stay recoverable.
+    #[test]
+    fn preserve_unreadable_does_not_clobber_an_earlier_preserved_copy() {
+        let dir = std::env::temp_dir().join(format!(
+            "cai-test-preserve-{}-{}",
+            std::process::id(),
+            "b"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+
+        fs::write(&path, "first broken file").unwrap();
+        let first_preserved = preserve_unreadable(&path).expect("first preserve should succeed");
+
+        // A fresh config.json reappears at the original path -- either a
+        // fresh default write, or (as here) the user hand-editing something
+        // back into place -- and breaks again.
+        fs::write(&path, "second broken file").unwrap();
+        let second_preserved =
+            preserve_unreadable(&path).expect("second preserve should succeed");
+
+        assert_ne!(
+            first_preserved, second_preserved,
+            "the second preserve must not reuse the first's destination"
+        );
+        assert_eq!(
+            fs::read_to_string(&first_preserved).unwrap(),
+            "first broken file",
+            "the first preserved copy must survive the second preserve untouched"
+        );
+        assert_eq!(fs::read_to_string(&second_preserved).unwrap(), "second broken file");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     // I2: a "version" key that is present but not a non-negative integer

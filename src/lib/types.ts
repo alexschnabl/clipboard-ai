@@ -29,3 +29,17 @@ export interface SaveResult {
 	error: string | null;
 	problems: string[];
 }
+
+/** Set once at startup if the real config.json failed to load -- see
+ *  `get_config` in commands.rs. Its presence means the config the settings
+ *  window is showing is the empty startup fallback, not the user's real,
+ *  saved configuration -- see `configState.loadError`. */
+export interface ConfigLoadError {
+	reason: string;
+	preservedPath: string | null;
+}
+
+export interface GetConfigResult {
+	config: Config;
+	loadError: ConfigLoadError | null;
+}
