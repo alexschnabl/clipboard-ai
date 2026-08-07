@@ -8,7 +8,19 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "windows": [],
+    "windows": [
+      {
+        "label": "settings",
+        "title": "Clipboard AI",
+        "width": 900,
+        "height": 640,
+        "minWidth": 720,
+        "minHeight": 520,
+        "visible": false,
+        "resizable": true,
+        "center": true
+      }
+    ],
     "security": {
       "csp": null
     }

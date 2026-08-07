@@ -17,7 +17,8 @@ use std::{
 
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
-    tray::TrayIconBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Manager,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -36,20 +37,34 @@ struct CommandEntry {
 /// string. See `build_command_map` for why: it avoids reconciling the
 /// config's hotkey spelling against the plugin's own textual rendering of
 /// the same shortcut.
+///
+/// `Clone`, with every mutable field individually `Arc`-wrapped rather than
+/// the whole struct behind one outer `Arc` (see `state` in `run`'s `setup`,
+/// which still keeps that outer `Arc` for the hotkey-handler closure).
+/// Both exist for one reason: a second, independent `AppState` *value* is
+/// handed to Tauri's own state container below (`app.manage`) so
+/// `tauri::State<'_, AppState>` in `commands.rs`'s `#[tauri::command]`s and
+/// `AppHandle::try_state::<AppState>()` (the settings-window close handler
+/// below) can find it. Cloning `AppState` must produce a second *handle*
+/// onto the same config/commands/busy/status -- not a second, independent
+/// copy of them -- otherwise a save reaching this state via a
+/// `tauri::command` and a read reaching it via the hotkey-handler closure
+/// would silently drift apart.
+#[derive(Clone)]
 struct AppState {
     /// The in-memory source of truth for the running config. `apply_config`
     /// is the only writer, at startup and (later) on every settings-window
     /// save; it replaces this wholesale rather than mutating it in place,
     /// the same way it replaces `commands` below wholesale rather than
     /// patching it.
-    config: Mutex<config::Config>,
-    commands: Mutex<HashMap<Shortcut, CommandEntry>>,
+    config: Arc<Mutex<config::Config>>,
+    commands: Arc<Mutex<HashMap<Shortcut, CommandEntry>>>,
     ops: Arc<dyn osops::OsOps>,
-    busy: AtomicBool,
+    busy: Arc<AtomicBool>,
     /// The last status line, mirrored onto the disabled "status" tray menu
     /// item below. This is the only console a release build has — see
     /// `set_status`.
-    last_status: Mutex<String>,
+    last_status: Arc<Mutex<String>>,
     /// Handle to the disabled tray menu item that always shows
     /// `last_status`. Kept as a live handle (not rebuilt) because
     /// `MenuItem::set_text` can update it in place from any thread — it
@@ -268,6 +283,19 @@ fn apply_config(app: &tauri::AppHandle, state: &AppState, config: config::Config
     problems
 }
 
+/// Shows, restores and focuses the single `settings` webview window declared
+/// in `tauri.conf.json`. Never creates one -- `get_webview_window` only ever
+/// looks up the existing window by its label, so no caller of this function
+/// (the tray menu item, the tray left click) can cause a second settings
+/// window to come into existence.
+fn show_settings(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -340,18 +368,27 @@ pub fn run() {
             // `commands` and `config`, at startup here and (later) on every
             // settings-window save.
             let state = Arc::new(AppState {
-                config: Mutex::new(config::Config {
+                config: Arc::new(Mutex::new(config::Config {
                     version: 1,
                     backends: Vec::new(),
                     commands: Vec::new(),
-                }),
-                commands: Mutex::new(HashMap::new()),
+                })),
+                commands: Arc::new(Mutex::new(HashMap::new())),
                 ops,
-                busy: AtomicBool::new(false),
-                last_status: Mutex::new("starting…".into()),
+                busy: Arc::new(AtomicBool::new(false)),
+                last_status: Arc::new(Mutex::new("starting…".into())),
                 status_item: status_item.clone(),
                 config_dir: config_dir.clone(),
             });
+
+            // Hand Tauri's own state container a second *handle* onto this
+            // exact AppState -- not a second, independent one; see the
+            // struct's doc comment. Without this, `tauri::State<'_,
+            // AppState>` in commands.rs and `try_state::<AppState>()` in the
+            // settings-window close handler below would both silently find
+            // nothing managed, no matter how the rest of this function is
+            // wired.
+            app.manage((*state).clone());
 
             let handler_state = state.clone();
             app.handle().plugin(
@@ -447,16 +484,22 @@ pub fn run() {
             };
             set_status(&state, initial_status);
 
+            let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
             let open_config =
                 MenuItem::with_id(app, "open-config", "Open config file", true, None::<&str>)?;
             let reload = MenuItem::with_id(app, "reload", "Reload config", true, None::<&str>)?;
             let show_log = MenuItem::with_id(app, "show-log", "Show log", true, None::<&str>)?;
             let sep_after_status = PredefinedMenuItem::separator(app)?;
+            let sep_after_settings = PredefinedMenuItem::separator(app)?;
             let sep_after_commands = PredefinedMenuItem::separator(app)?;
             let sep_before_quit = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
-            let mut items: Vec<&dyn IsMenuItem<_>> = vec![&status_item, &sep_after_status];
+            // `Settings` is the first actionable entry, right after the
+            // (disabled) status line -- before the per-hotkey list, which
+            // can be empty or long depending on config.
+            let mut items: Vec<&dyn IsMenuItem<_>> =
+                vec![&status_item, &sep_after_status, &settings, &sep_after_settings];
             for item in &command_items {
                 items.push(item);
             }
@@ -476,7 +519,15 @@ pub fn run() {
                 .icon(app.default_window_icon().unwrap().clone())
                 .tooltip("Clipboard AI")
                 .menu(&menu)
+                // The tray-icon crate shows its own native context menu on a
+                // left click by default (true), independent of the
+                // on_tray_icon_event handler below. Left click on Windows is
+                // conventionally "open the app", not "open the app AND also
+                // pop the menu" -- without turning this off, both would
+                // happen on every left click.
+                .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
+                    "settings" => show_settings(app),
                     "open-config" => {
                         let _ = std::process::Command::new("cmd")
                             .args(["/C", "start", "", &menu_path.to_string_lossy()])
@@ -502,7 +553,51 @@ pub fn run() {
                     "quit" => app.exit(0),
                     _ => {}
                 })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
+                        show_settings(tray.app_handle());
+                    }
+                })
                 .build(app)?;
+
+            // Hide, don't close: the settings window is a panel the user
+            // summons from the tray, not a document with its own lifecycle.
+            // `prevent_close` stops the close from ever happening at all, so
+            // this is not "close, but immediately reopen hidden" -- the
+            // window is simply never destroyed, and the app (tray-resident,
+            // no other windows) never sees a last-window-closed exit either.
+            //
+            // This handler is the single choke point for every route that
+            // can request a close on this window -- the X button, Alt+F4,
+            // the system menu's Close, and (once the frontend exists) a
+            // programmatic `window.close()` -- all of them surface as the
+            // same `CloseRequested` event; there is no route that hides this
+            // window other than through here.
+            if let Some(window) = app.get_webview_window("settings") {
+                let handle = handle.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        if let Some(w) = handle.get_webview_window("settings") {
+                            let _ = w.hide();
+                        }
+                        // Defensive: if the user closed the window
+                        // mid-recording (Task 8's hotkey capture suspends
+                        // the app's global shortcuts while it listens), the
+                        // app would otherwise be left with no registered
+                        // shortcuts and no visible reason why -- this is the
+                        // one exit path the frontend cannot reliably
+                        // intercept to call resume_hotkeys itself. Restoring
+                        // here makes that unrecoverable state impossible to
+                        // reach by closing the window.
+                        if let Some(state) = handle.try_state::<AppState>() {
+                            if let Ok(config) = state.config.lock().map(|c| c.clone()) {
+                                let _ = apply_config(&handle, &state, config);
+                            }
+                        }
+                    }
+                });
+            }
 
             Ok(())
         })
