@@ -1,7 +1,9 @@
 use std::{
-    io::Write,
+    io::{Read, Write},
     process::{Command, Stdio},
     sync::Arc,
+    thread,
+    time::{Duration, Instant},
 };
 
 use crate::backend::{Backend, BackendError};
@@ -25,7 +27,7 @@ impl CommandRunner for ProcessRunner {
         program: &str,
         args: &[String],
         stdin: &str,
-        _timeout_ms: u64,
+        timeout_ms: u64,
     ) -> Result<String, BackendError> {
         let mut child = Command::new(program)
             .args(args)
@@ -35,26 +37,99 @@ impl CommandRunner for ProcessRunner {
             .spawn()
             .map_err(|e| BackendError::Transport(format!("could not start {program}: {e}")))?;
 
-        child
-            .stdin
-            .as_mut()
-            .ok_or_else(|| BackendError::Transport("no stdin handle".into()))?
-            .write_all(stdin.as_bytes())
-            .map_err(|e| BackendError::Transport(e.to_string()))?;
-        drop(child.stdin.take());
+        let (Some(mut stdin_handle), Some(mut stdout_handle), Some(mut stderr_handle)) =
+            (child.stdin.take(), child.stdout.take(), child.stderr.take())
+        else {
+            let _ = child.kill();
+            return Err(BackendError::Transport("missing a stdio handle".into()));
+        };
 
-        let output = child
-            .wait_with_output()
-            .map_err(|e| BackendError::Transport(e.to_string()))?;
+        // Writing all of stdin before reading any of stdout/stderr can deadlock:
+        // if the child starts producing output before it has consumed all of
+        // stdin, and either OS pipe buffer fills before its far end is drained,
+        // both sides block forever (this is called out in the std::process
+        // docs). Doing the write and both reads on their own threads means the
+        // parent (this thread) never blocks any one of them on another.
+        let stdin_payload = stdin.to_string();
+        let stdin_thread = thread::spawn(move || {
+            let result = stdin_handle.write_all(stdin_payload.as_bytes());
+            drop(stdin_handle); // close stdin so the child sees EOF
+            result
+        });
+        let stdout_thread = thread::spawn(move || {
+            let mut buf = Vec::new();
+            stdout_handle.read_to_end(&mut buf).map(|_| buf)
+        });
+        let stderr_thread = thread::spawn(move || {
+            let mut buf = Vec::new();
+            stderr_handle.read_to_end(&mut buf).map(|_| buf)
+        });
 
-        if !output.status.success() {
+        // Poll for exit against a deadline so a hang is bounded rather than
+        // permanent. `Child` has no wait-with-timeout in std, so we poll.
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms);
+        let wait_result = loop {
+            match child.try_wait() {
+                Ok(Some(status)) => break Ok(status),
+                Ok(None) => {
+                    if Instant::now() >= deadline {
+                        break Err(BackendError::Timeout);
+                    }
+                    thread::sleep(Duration::from_millis(20));
+                }
+                Err(e) => break Err(BackendError::Transport(e.to_string())),
+            }
+        };
+
+        let status = match wait_result {
+            Ok(status) => status,
+            Err(err) => {
+                // Kill the immediate child so it can't survive as an orphan.
+                // This does not kill any of ITS descendants -- Windows does
+                // not tear down a process tree on TerminateProcess without a
+                // job object -- so a grandchild (e.g. `cmd /C ping ...`'s
+                // `ping.exe`) can keep the stdout/stderr pipes open long after
+                // the child we spawned is gone. The reader/writer threads are
+                // therefore deliberately abandoned here rather than joined:
+                // joining would block for as long as that grandchild lives,
+                // turning a bounded timeout back into an unbounded hang.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(err);
+            }
+        };
+
+        let stdin_write = stdin_thread
+            .join()
+            .map_err(|_| BackendError::Transport("stdin writer thread panicked".into()))?;
+        if let Err(e) = stdin_write {
+            let _ = child.kill();
+            return Err(BackendError::Transport(format!("failed writing stdin: {e}")));
+        }
+
+        let stdout_bytes = stdout_thread
+            .join()
+            .map_err(|_| BackendError::Transport("stdout reader thread panicked".into()))?
+            .map_err(|e| {
+                let _ = child.kill();
+                BackendError::Transport(e.to_string())
+            })?;
+        let stderr_bytes = stderr_thread
+            .join()
+            .map_err(|_| BackendError::Transport("stderr reader thread panicked".into()))?
+            .map_err(|e| {
+                let _ = child.kill();
+                BackendError::Transport(e.to_string())
+            })?;
+
+        if !status.success() {
             return Err(BackendError::BadResponse(format!(
                 "{program} exited with {}: {}",
-                output.status,
-                String::from_utf8_lossy(&output.stderr)
+                status,
+                String::from_utf8_lossy(&stderr_bytes)
             )));
         }
-        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        Ok(String::from_utf8_lossy(&stdout_bytes).to_string())
     }
 }
 
@@ -170,5 +245,84 @@ mod tests {
     fn a_runner_timeout_propagates_as_a_backend_error() {
         let backend = ClaudeCli::new(&cfg(), FakeRunner::failing(BackendError::Timeout));
         assert!(matches!(backend.transform("s", "t"), Err(BackendError::Timeout)));
+    }
+}
+
+/// These tests exercise the real `ProcessRunner`, spawning actual child processes
+/// via `cmd.exe`. They are Windows-specific by construction (the commands used are
+/// `cmd.exe` builtins), which matches the platform this app ships on.
+#[cfg(test)]
+mod process_runner_tests {
+    use std::time::Instant;
+
+    use super::*;
+
+    /// A payload comfortably larger than any OS pipe buffer, built as many CRLF-
+    /// terminated lines (not one giant line) so `findstr /r ".*"` -- which matches
+    /// and re-emits input line by line -- interleaves reading stdin with writing
+    /// stdout, which is what makes the write-then-read deadlock reachable.
+    fn big_payload() -> String {
+        let line = "x".repeat(200);
+        let mut payload = String::with_capacity(600_000);
+        for i in 0..3000 {
+            payload.push_str(&line);
+            payload.push('-');
+            payload.push_str(&i.to_string());
+            payload.push_str("\r\n");
+        }
+        payload
+    }
+
+    #[test]
+    fn large_payload_does_not_deadlock() {
+        let payload = big_payload();
+        assert!(payload.len() > 256 * 1024, "fixture must exceed 256 KB, got {}", payload.len());
+
+        let args = vec!["/C".to_string(), "findstr".to_string(), "/r".to_string(), ".*".to_string()];
+        let out = ProcessRunner
+            .run("cmd", &args, &payload, 20_000)
+            .expect("large payload round-trip should succeed, not deadlock");
+        assert_eq!(out, payload, "output must come back byte-for-byte intact");
+    }
+
+    #[test]
+    fn a_hanging_process_is_killed_and_returns_timeout() {
+        // `timeout.exe` refuses to run at all when stdin is redirected ("Input
+        // redirection is not supported"), which `ProcessRunner` always does. `ping`
+        // has no such restriction and reliably takes ~30s for 31 pings.
+        let args = vec![
+            "/C".to_string(),
+            "ping".to_string(),
+            "-n".to_string(),
+            "31".to_string(),
+            "127.0.0.1".to_string(),
+        ];
+        let start = Instant::now();
+        let result = ProcessRunner.run("cmd", &args, "", 500);
+        let elapsed = start.elapsed();
+
+        assert!(matches!(result, Err(BackendError::Timeout)), "expected Timeout, got {result:?}");
+        assert!(
+            elapsed.as_secs() < 10,
+            "expected the timeout to be enforced promptly, took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn a_nonzero_exit_is_a_bad_response_carrying_stderr() {
+        let args = vec![
+            "/C".to_string(),
+            "echo boom-detail 1>&2 & exit 7".to_string(),
+        ];
+        let result = ProcessRunner.run("cmd", &args, "", 5_000);
+        match result {
+            Err(BackendError::BadResponse(message)) => {
+                assert!(
+                    message.contains("boom-detail"),
+                    "error should carry the child's stderr, got: {message}"
+                );
+            }
+            other => panic!("expected BadResponse, got {other:?}"),
+        }
     }
 }
