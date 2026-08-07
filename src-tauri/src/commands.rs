@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Mutex,
@@ -8,14 +9,14 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-use crate::{apply_config, config, AppState};
+use crate::{apply_config, config, AppState, Problem};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveResult {
     pub ok: bool,
     pub error: Option<String>,
-    pub problems: Vec<String>,
+    pub problems: Vec<Problem>,
 }
 
 /// Set once at startup if `config::load_or_create` failed to read the
@@ -54,21 +55,35 @@ pub fn get_config(state: State<'_, AppState>) -> Result<GetConfigResult, String>
     Ok(GetConfigResult { config, load_error: state.config_load_error.clone() })
 }
 
-#[tauri::command]
-pub fn save_config(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    config: config::Config,
-) -> SaveResult {
+/// The outcome of `decide_save`: either the config was rejected before
+/// anything happened -- nothing was written to disk, and (since only
+/// `apply_config` ever mutates it -- see `AppState::config`'s doc comment
+/// in lib.rs) `state.config` was never touched -- or it was validated *and*
+/// durably written, ready for `apply_config` to take live.
+enum SaveDecision {
+    Rejected(String),
+    Ready(config::Config),
+}
+
+/// The validate-then-write half of `save_config`, pulled out as a pure
+/// function of its arguments so the ordering is unit-testable without a
+/// live `AppHandle`: this is the only version-testable Tauri
+/// integration point where I attempted it (see `save_config_tests` below).
+/// `apply_config` -- the OS-registration half, and the only thing that ever
+/// mutates `state.config` -- genuinely needs an `AppHandle` and stays out
+/// of this function entirely, which is itself the guarantee: a caller
+/// holding a `Rejected` result has structurally no way to reach
+/// `state.config`, because it never had a `state` to reach.
+fn decide_save(config: &config::Config, path: &Path) -> SaveDecision {
     // Validate through the same path the file loader uses, so the UI cannot
     // persist something a restart would then reject.
-    let json = match serde_json::to_string_pretty(&config) {
+    let json = match serde_json::to_string_pretty(config) {
         Ok(j) => j,
-        Err(e) => return SaveResult { ok: false, error: Some(e.to_string()), problems: vec![] },
+        Err(e) => return SaveDecision::Rejected(e.to_string()),
     };
     let validated = match config::parse(&json) {
         Ok(c) => c,
-        Err(e) => return SaveResult { ok: false, error: Some(e.to_string()), problems: vec![] },
+        Err(e) => return SaveDecision::Rejected(e.to_string()),
     };
 
     // `write_atomic`, not `fs::write`: this handler is the single
@@ -78,13 +93,121 @@ pub fn save_config(
     // (disk full, process killed, an AV/cloud-sync tool holding a handle)
     // must leave the previous config.json completely untouched rather than
     // truncated or empty.
-    let path = config::config_path(&app);
-    if let Err(e) = config::write_atomic(&path, &validated) {
-        return SaveResult { ok: false, error: Some(e.to_string()), problems: vec![] };
+    if let Err(e) = config::write_atomic(path, &validated) {
+        return SaveDecision::Rejected(e.to_string());
     }
 
-    let problems = apply_config(&app, state.inner(), validated);
-    SaveResult { ok: true, error: None, problems }
+    SaveDecision::Ready(validated)
+}
+
+#[tauri::command]
+pub fn save_config(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    config: config::Config,
+) -> SaveResult {
+    let path = config::config_path(&app);
+    match decide_save(&config, &path) {
+        SaveDecision::Rejected(e) => SaveResult { ok: false, error: Some(e), problems: vec![] },
+        SaveDecision::Ready(validated) => {
+            let problems = apply_config(&app, state.inner(), validated);
+            SaveResult { ok: true, error: None, problems }
+        }
+    }
+}
+
+#[cfg(test)]
+mod save_config_tests {
+    use super::*;
+    use std::fs;
+
+    fn temp_dir(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("cai-test-save-config-{}-{}", std::process::id(), tag));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    // 4b (spec Testing section): validate-then-apply ordering. A config
+    // that is well-typed as `config::Config` but semantically invalid (a
+    // command naming a backend that doesn't exist) must be rejected before
+    // anything reaches disk -- the write in `decide_save` only ever runs on
+    // the `Ready` branch.
+    #[test]
+    fn an_invalid_config_is_rejected_before_anything_is_written_to_disk() {
+        let dir = temp_dir("rejected");
+        let path = dir.join("config.json");
+        let mut bad = config::default_config();
+        bad.commands[0].backend_id = "does-not-exist".into();
+
+        let decision = decide_save(&bad, &path);
+
+        assert!(
+            matches!(decision, SaveDecision::Rejected(_)),
+            "a command naming an unknown backend must be rejected"
+        );
+        assert!(!path.exists(), "a rejected config must never be written to disk");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // 4c: the in-memory config invariant. `state.config` is only ever
+    // mutated inside `apply_config` (see its doc comment in lib.rs), and
+    // `save_config` only calls `apply_config` on the `Ready` branch -- so a
+    // `Rejected` decision structurally cannot reach it. This test stands in
+    // an `Arc<Mutex<Config>>` for `state.config` and confirms directly that
+    // nothing here would have touched it.
+    #[test]
+    fn a_rejected_config_leaves_a_stand_in_for_the_in_memory_config_untouched() {
+        let dir = temp_dir("in-memory");
+        let path = dir.join("config.json");
+        let state_config = std::sync::Arc::new(Mutex::new(config::default_config()));
+        let original_commands = state_config.lock().unwrap().commands.len();
+
+        let mut bad = config::default_config();
+        bad.commands.push(bad.commands[0].clone()); // duplicate id -> rejected
+
+        match decide_save(&bad, &path) {
+            SaveDecision::Rejected(_) => {
+                // Mirrors save_config's own control flow: on `Rejected` it
+                // returns immediately and never calls `apply_config`, the
+                // only function that ever locks and overwrites
+                // `state.config`.
+            }
+            SaveDecision::Ready(_) => panic!("a duplicate id must be rejected"),
+        }
+
+        assert_eq!(
+            state_config.lock().unwrap().commands.len(),
+            original_commands,
+            "a rejected save must never mutate the in-memory config"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // The other half of the ordering: a valid config really is written to
+    // disk (so `apply_config` has a `Ready` value to work with), not just
+    // accepted in memory.
+    #[test]
+    fn a_valid_config_is_validated_and_then_written_to_disk() {
+        let dir = temp_dir("accepted");
+        let path = dir.join("config.json");
+        let cfg = config::default_config();
+
+        match decide_save(&cfg, &path) {
+            SaveDecision::Ready(validated) => {
+                assert_eq!(validated.commands.len(), cfg.commands.len());
+            }
+            SaveDecision::Rejected(e) => panic!("expected a valid config to be accepted, got: {e}"),
+        }
+        assert!(path.exists(), "a validated config must be written to disk");
+        let on_disk = fs::read_to_string(&path).unwrap();
+        config::parse(&on_disk).expect("the written file must itself be valid config");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
 
 #[tauri::command]
@@ -93,10 +216,12 @@ pub fn suspend_hotkeys(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn resume_hotkeys(app: AppHandle, state: State<'_, AppState>) -> Vec<String> {
+pub fn resume_hotkeys(app: AppHandle, state: State<'_, AppState>) -> Vec<Problem> {
     let config = match state.config.lock() {
         Ok(c) => c.clone(),
-        Err(_) => return vec!["config lock poisoned".into()],
+        Err(_) => {
+            return vec![Problem { command_id: None, message: "config lock poisoned".into() }]
+        }
     };
     apply_config(&app, &state, config)
 }
@@ -193,9 +318,20 @@ pub fn ack_close_prompt() {
 /// by the config-reapply half: `AppState` is `.manage()`d before any window
 /// event can fire in practice, so `None` should be unreachable, but if it
 /// somehow isn't, the window must still be able to close.
+///
+/// Emits `settings://window-hidden` right after the hide -- this, not
+/// `document.visibilitychange` (WebView2 firing that on a native window
+/// hide isn't guaranteed), is what tells the frontend to drop every piece
+/// of transient UI state a background webview would otherwise carry
+/// straight through the hide: a `HotkeyRecorder` stuck mid-recording (still
+/// showing "Press a combination…" over hotkeys this same call just
+/// re-registered), and a `BackendForm`/`CommandForm` dialog left open with
+/// a stale draft that Discard's reload wouldn't otherwise touch. See
+/// `+page.svelte`'s listener and `configState.revision`.
 fn hide_and_reapply(app: &AppHandle, state: Option<&AppState>) {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.hide();
+        let _ = app.emit("settings://window-hidden", ());
     }
     if let Some(state) = state {
         if let Ok(config) = state.config.lock().map(|c| c.clone()) {

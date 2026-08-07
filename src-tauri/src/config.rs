@@ -202,6 +202,22 @@ pub fn load_or_create(path: &Path) -> Result<Config, ConfigError> {
         // migration doesn't re-run on every launch, not a precondition for
         // returning the config at all. Log and carry on with `config`
         // either way; the migration will simply be retried next launch.
+        //
+        // The spec says migration "happens once, silently, and is logged" —
+        // silently means no UI prompt, not no log line. Log the successful
+        // case too (same `STARTUP ...` style used elsewhere), not just the
+        // rewrite-failure case below: without this line there is no way to
+        // tell, after the fact, whether a given install's config.json was
+        // ever on v1.
+        let line = format!(
+            "STARTUP config-migrated-v1-to-v2 backends={} commands={}",
+            config.backends.len(),
+            config.commands.len()
+        );
+        eprintln!("{line}");
+        if let Some(dir) = path.parent() {
+            crate::status::append_log(dir, &line);
+        }
         if let Err(e) = write_atomic(path, &config) {
             let line = format!("CONFIG migration-rewrite-failed reason={e}");
             eprintln!("{line}");
@@ -450,6 +466,61 @@ mod tests {
         assert_eq!(cfg.version, CURRENT_VERSION);
         assert_eq!(cfg.commands.len(), 1);
         assert_eq!(cfg.commands[0].id, "fix");
+    }
+
+    // Spec: migration "happens once, silently, and is logged." Silent means
+    // no UI prompt -- it does not mean no log line. Confirm the *successful*
+    // migration path writes a log line a maintainer could later grep for,
+    // not just the already-covered rewrite-failure path above.
+    #[test]
+    fn a_successful_v1_to_v2_migration_is_logged() {
+        let dir = std::env::temp_dir().join(format!(
+            "cai-test-migration-logged-{}-{}",
+            std::process::id(),
+            "a"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, v1_json()).unwrap();
+
+        let cfg = load_or_create(&path).expect("v1 file should migrate");
+        assert_eq!(cfg.version, CURRENT_VERSION);
+
+        let log = fs::read_to_string(dir.join("clipboard-ai.log"))
+            .expect("a migration should have logged something");
+        assert!(
+            log.contains("config-migrated-v1-to-v2"),
+            "expected a migration log line, got: {log}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // A file that is already v2 must not log a migration line -- there was
+    // no migration to report.
+    #[test]
+    fn a_native_v2_file_does_not_log_a_migration() {
+        let dir = std::env::temp_dir().join(format!(
+            "cai-test-no-migration-logged-{}-{}",
+            std::process::id(),
+            "a"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, valid_json()).unwrap();
+
+        load_or_create(&path).expect("v2 file should load");
+
+        let log_path = dir.join("clipboard-ai.log");
+        let log = fs::read_to_string(&log_path).unwrap_or_default();
+        assert!(
+            !log.contains("config-migrated-v1-to-v2"),
+            "a native v2 file must not be reported as migrated, got: {log}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     // I1 part 2 / C1: `write_atomic` is the one function both the v1->v2

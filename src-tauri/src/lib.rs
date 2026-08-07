@@ -15,6 +15,7 @@ use std::{
     },
 };
 
+use serde::Serialize;
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -22,13 +23,34 @@ use tauri::{
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
-/// A single hotkey's dispatch data: the display name (used in the log and
-/// tray status), the system prompt to send, and the backend to send it to.
+/// A single hotkey's dispatch data: the command's id (needed only to
+/// attribute a later OS-registration failure back to this command -- see
+/// `register_hotkeys`), the display name (used in the log and tray status),
+/// the system prompt to send, and the backend to send it to.
 #[derive(Clone)]
 struct CommandEntry {
+    id: String,
     name: String,
     system_prompt: String,
     backend: Arc<dyn backend::Backend>,
+}
+
+/// A problem surfaced to the settings window: something in the config
+/// didn't apply cleanly, but didn't prevent the rest of the config from
+/// applying either.
+///
+/// `command_id` is `Some` whenever the problem is attributable to one
+/// command, so the frontend can show it on that command's own row
+/// (`CommandList.svelte`'s `problemsFor`) instead of matching against
+/// `message`'s wording -- see `register_hotkeys`'s doc comment for why that
+/// used to be impossible for OS-registration failures specifically. `None`
+/// for a problem that isn't about any single command (e.g. the OS/input
+/// layer failing to initialize, or a swallowed `unregister_all` failure).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Problem {
+    pub command_id: Option<String>,
+    pub message: String,
 }
 
 /// Per-hotkey dispatch table plus the machinery a cycle needs to run.
@@ -129,27 +151,34 @@ impl Drop for BusyGuard<'_> {
 /// normalization entirely: the plugin always hands the handler back the
 /// exact value that was registered, and `Shortcut` derives `Eq`/`Hash`, so
 /// lookup is structural rather than string-based.
-fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, Vec<String>) {
+fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, Vec<Problem>) {
     let mut map = HashMap::new();
     let mut problems = Vec::new();
     for command in &cfg.commands {
         let Some(backend_cfg) = cfg.backend(&command.backend_id) else {
-            problems.push(format!("{}: unknown backend", command.name));
+            problems.push(Problem {
+                command_id: Some(command.id.clone()),
+                message: format!("{}: unknown backend", command.name),
+            });
             continue;
         };
         let shortcut = match command.hotkey.parse::<Shortcut>() {
             Ok(s) => s,
             Err(e) => {
-                problems.push(format!(
-                    "{}: unparseable hotkey {:?} ({e})",
-                    command.name, command.hotkey
-                ));
+                problems.push(Problem {
+                    command_id: Some(command.id.clone()),
+                    message: format!(
+                        "{}: unparseable hotkey {:?} ({e})",
+                        command.name, command.hotkey
+                    ),
+                });
                 continue;
             }
         };
         match backend::build(backend_cfg) {
             Ok(backend) => {
                 let entry = CommandEntry {
+                    id: command.id.clone(),
                     name: command.name.clone(),
                     system_prompt: command.system_prompt.clone(),
                     backend,
@@ -162,14 +191,20 @@ fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, 
                 // would silently drop one command's binding with no signal
                 // anywhere; report it as a problem instead.
                 if let Some(previous) = map.insert(shortcut, entry) {
-                    problems.push(format!(
-                        "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing ({shortcut}); \
-                         only \"{}\" is registered",
-                        command.name, command.hotkey, previous.name, previous.name
-                    ));
+                    problems.push(Problem {
+                        command_id: Some(command.id.clone()),
+                        message: format!(
+                            "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing ({shortcut}); \
+                             only \"{}\" is registered",
+                            command.name, command.hotkey, previous.name, previous.name
+                        ),
+                    });
                 }
             }
-            Err(e) => problems.push(format!("{}: {e}", command.name)),
+            Err(e) => problems.push(Problem {
+                command_id: Some(command.id.clone()),
+                message: format!("{}: {e}", command.name),
+            }),
         }
     }
     (map, problems)
@@ -225,8 +260,12 @@ mod build_command_map_tests {
             "both config entries parse to the same Shortcut, so only one hotkey can ever fire"
         );
         assert!(
-            problems.iter().any(|p| p.contains("Second")),
+            problems.iter().any(|p| p.message.contains("Second")),
             "the dropped command's collision must be reported as a problem, got: {problems:?}"
+        );
+        assert!(
+            problems.iter().any(|p| p.command_id.as_deref() == Some("two")),
+            "the collision problem must carry the dropped command's id, got: {problems:?}"
         );
     }
 
@@ -243,14 +282,84 @@ mod build_command_map_tests {
     }
 }
 
-fn register_hotkeys(app: &tauri::AppHandle, shortcuts: &[Shortcut]) -> Vec<String> {
+/// Attempts to register every `(shortcut, command_id)` pair with the OS,
+/// reporting a `Problem` attributed to that command's id for each one the OS
+/// refuses (e.g. already owned by another application).
+///
+/// Thin wrapper around `register_hotkeys_with` -- the actual OS call is the
+/// one part of this that needs a live `AppHandle` and so cannot run in a
+/// unit test; `register_hotkeys_with` is the attribution logic pulled out
+/// so it can be exercised with a fake, always-failing registration function
+/// instead. See `register_hotkeys_tests` below.
+fn register_hotkeys(app: &tauri::AppHandle, shortcuts: &[(Shortcut, String)]) -> Vec<Problem> {
+    register_hotkeys_with(shortcuts, |shortcut| app.global_shortcut().register(*shortcut))
+}
+
+fn register_hotkeys_with<F, E>(shortcuts: &[(Shortcut, String)], mut register: F) -> Vec<Problem>
+where
+    F: FnMut(&Shortcut) -> Result<(), E>,
+    E: std::fmt::Display,
+{
     let mut problems = Vec::new();
-    for shortcut in shortcuts {
-        if let Err(e) = app.global_shortcut().register(*shortcut) {
-            problems.push(format!("{shortcut}: already in use ({e})"));
+    for (shortcut, command_id) in shortcuts {
+        if let Err(e) = register(shortcut) {
+            problems.push(Problem {
+                command_id: Some(command_id.clone()),
+                message: format!("{shortcut}: already in use ({e})"),
+            });
         }
     }
     problems
+}
+
+#[cfg(test)]
+mod register_hotkeys_tests {
+    use super::*;
+
+    // The headline fix: `register_hotkeys` used to take a bare `&[Shortcut]`
+    // and format problems with `Shortcut`'s own `Display` impl, which
+    // renders lowercase and in a fixed modifier order that never matches
+    // the config's spelling -- so `CommandList.svelte`'s row-matching could
+    // never succeed for this problem type. Attributing by `command_id`
+    // instead sidesteps string matching entirely.
+    #[test]
+    fn a_hotkey_that_fails_to_register_is_attributed_to_its_command_id() {
+        let shortcut: Shortcut = "Ctrl+Alt+J".parse().unwrap();
+        let shortcuts = vec![(shortcut, "cmd-1".to_string())];
+
+        let problems = register_hotkeys_with(&shortcuts, |_| Err("already registered by another app"));
+
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].command_id.as_deref(), Some("cmd-1"));
+        assert!(
+            problems[0].message.contains("already in use"),
+            "got: {}",
+            problems[0].message
+        );
+    }
+
+    #[test]
+    fn a_hotkey_that_registers_successfully_produces_no_problem() {
+        let shortcut: Shortcut = "Ctrl+Alt+K".parse().unwrap();
+        let shortcuts = vec![(shortcut, "cmd-2".to_string())];
+
+        let problems = register_hotkeys_with::<_, &str>(&shortcuts, |_| Ok(()));
+
+        assert!(problems.is_empty(), "expected no problems, got: {problems:?}");
+    }
+
+    #[test]
+    fn only_the_failing_shortcut_in_a_batch_is_attributed() {
+        let ok: Shortcut = "Ctrl+Alt+K".parse().unwrap();
+        let bad: Shortcut = "Ctrl+Alt+J".parse().unwrap();
+        let shortcuts = vec![(ok, "cmd-ok".to_string()), (bad, "cmd-bad".to_string())];
+
+        let problems =
+            register_hotkeys_with(&shortcuts, |s| if *s == bad { Err("in use") } else { Ok(()) });
+
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].command_id.as_deref(), Some("cmd-bad"));
+    }
 }
 
 /// Unregisters every hotkey, rebuilds the command map from `config`, swaps
@@ -258,7 +367,9 @@ fn register_hotkeys(app: &tauri::AppHandle, shortcuts: &[Shortcut]) -> Vec<Strin
 /// re-registers with the OS. Returns per-command problems that did not
 /// prevent the apply (an unparseable hotkey, an unknown backend, a hotkey
 /// collision -- see `build_command_map` -- or a hotkey the OS refused to
-/// register, e.g. one already owned by another application).
+/// register, e.g. one already owned by another application), plus an
+/// unattributed one (`command_id: None`) if the initial unregister itself
+/// failed.
 ///
 /// Called once at startup below, and later by a settings-window save on
 /// every save -- that's why `config` arrives as an owned, already-loaded
@@ -274,11 +385,30 @@ fn register_hotkeys(app: &tauri::AppHandle, shortcuts: &[Shortcut]) -> Vec<Strin
 /// while a cycle is mid-flight, cannot reach it: a save during a
 /// 16-second cold-model cycle takes effect starting with the *next* press,
 /// not the one already running.
-fn apply_config(app: &tauri::AppHandle, state: &AppState, config: config::Config) -> Vec<String> {
-    let _ = app.global_shortcut().unregister_all();
+fn apply_config(app: &tauri::AppHandle, state: &AppState, config: config::Config) -> Vec<Problem> {
+    let mut problems = Vec::new();
+    // `suspend_hotkeys` (commands.rs) propagates this same call's Result;
+    // this one used to discard it. The plugin clears its own bookkeeping
+    // via `mem::take` *before* the OS-level unregister loop, and that loop
+    // aborts on the first OS-level failure -- so a partial failure here
+    // leaves stale OS registrations that `register_hotkeys` below would
+    // then see as ordinary "already in use" collisions, with nothing
+    // distinguishing them from a genuinely external app holding the key.
+    // Surfacing it here at least tells whoever reads `problems` that the
+    // unregister step itself was the one that went wrong.
+    if let Err(e) = app.global_shortcut().unregister_all() {
+        problems.push(Problem {
+            command_id: None,
+            message: format!(
+                "failed to clear previous hotkeys ({e}); a hotkey reported as \"already in use\" \
+                 below may actually be this app's own stale registration"
+            ),
+        });
+    }
 
-    let (map, mut problems) = build_command_map(&config);
-    let shortcuts: Vec<Shortcut> = map.keys().copied().collect();
+    let (map, build_problems) = build_command_map(&config);
+    problems.extend(build_problems);
+    let shortcuts: Vec<(Shortcut, String)> = map.iter().map(|(s, e)| (*s, e.id.clone())).collect();
 
     if let Ok(mut guard) = state.commands.lock() {
         *guard = map;
@@ -465,7 +595,7 @@ pub fn run() {
                 }
             };
 
-            let mut problems: Vec<String> = Vec::new();
+            let mut problems: Vec<Problem> = Vec::new();
 
             // Same treatment for a failed OS layer (no clipboard or input
             // subsystem available, e.g. a non-interactive session): fall
@@ -481,10 +611,13 @@ pub fn run() {
                     let line = format!("STARTUP osops-init-failed reason={e}");
                     eprintln!("{line}");
                     status::append_log(&config_dir, &line);
-                    problems.push(format!(
-                        "input/clipboard system failed to initialize ({e}); hotkeys will do \
-                         nothing until the app is restarted"
-                    ));
+                    problems.push(Problem {
+                        command_id: None,
+                        message: format!(
+                            "input/clipboard system failed to initialize ({e}); hotkeys will do \
+                             nothing until the app is restarted"
+                        ),
+                    });
                     Arc::new(osops::NullOps::new())
                 }
             };
@@ -545,7 +678,7 @@ pub fn run() {
                                 .lock()
                                 .ok()
                                 .and_then(|m| m.get(&key).cloned());
-                            if let Some(CommandEntry { name, system_prompt, backend }) = entry {
+                            if let Some(CommandEntry { name, system_prompt, backend, .. }) = entry {
                                 let outcome = cycle::run(
                                     backend.as_ref(),
                                     &system_prompt,
@@ -600,7 +733,7 @@ pub fn run() {
                 ),
             );
             for problem in &problems {
-                let line = format!("STARTUP problem: {problem}");
+                let line = format!("STARTUP problem: {}", problem.message);
                 eprintln!("{line}");
                 status::append_log(&config_dir, &line);
             }
