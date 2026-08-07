@@ -119,19 +119,98 @@ fn build_prompt_map(cfg: &config::Config) -> (HashMap<Shortcut, PromptEntry>, Ve
         };
         match backend::build(backend_cfg) {
             Ok(backend) => {
-                map.insert(
-                    shortcut,
-                    PromptEntry {
-                        name: prompt.name.clone(),
-                        system_prompt: prompt.system_prompt.clone(),
-                        backend,
-                    },
-                );
+                let entry = PromptEntry {
+                    name: prompt.name.clone(),
+                    system_prompt: prompt.system_prompt.clone(),
+                    backend,
+                };
+                // `config::validate` dedups hotkeys case-insensitively but
+                // stores the raw spelling, so two entries that spell the
+                // same modifier differently (e.g. "Ctrl+Alt+J" and
+                // "Control+Alt+J") both pass validation even though they
+                // parse to the identical `Shortcut`. An unchecked insert
+                // would silently drop one prompt's binding with no signal
+                // anywhere; report it as a problem instead.
+                if let Some(previous) = map.insert(shortcut, entry) {
+                    problems.push(format!(
+                        "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing ({shortcut}); \
+                         only \"{}\" is registered",
+                        prompt.name, prompt.hotkey, previous.name, previous.name
+                    ));
+                }
             }
             Err(e) => problems.push(format!("{}: {e}", prompt.name)),
         }
     }
     (map, problems)
+}
+
+#[cfg(test)]
+mod build_prompt_map_tests {
+    use super::*;
+    use crate::config::{BackendConfig, Config, PromptConfig, KIND_CLAUDE_CLI};
+
+    fn backend_cfg() -> BackendConfig {
+        BackendConfig {
+            id: "b".into(),
+            name: "Backend".into(),
+            kind: KIND_CLAUDE_CLI.into(),
+            base_url: None,
+            model: None,
+            api_key: None,
+            timeout_ms: 120_000,
+        }
+    }
+
+    fn prompt(id: &str, name: &str, hotkey: &str) -> PromptConfig {
+        PromptConfig {
+            id: id.into(),
+            name: name.into(),
+            backend_id: "b".into(),
+            hotkey: hotkey.into(),
+            system_prompt: "x".into(),
+        }
+    }
+
+    #[test]
+    fn colliding_hotkeys_that_differ_only_in_modifier_spelling_are_reported_not_silently_dropped() {
+        // Minor: config::validate dedups hotkeys case-insensitively but
+        // stores the raw spelling, so "Ctrl+Alt+J" and "Control+Alt+J"
+        // both pass validation even though `Shortcut::parse` normalizes
+        // both to the identical value. Without an is_some() check on
+        // insert, the second prompt's hotkey would silently replace the
+        // first's in the map with no signal anywhere that it happened.
+        let cfg = Config {
+            version: 1,
+            backends: vec![backend_cfg()],
+            prompts: vec![
+                prompt("one", "First", "Ctrl+Alt+J"),
+                prompt("two", "Second", "Control+Alt+J"),
+            ],
+        };
+        let (map, problems) = build_prompt_map(&cfg);
+        assert_eq!(
+            map.len(),
+            1,
+            "both config entries parse to the same Shortcut, so only one hotkey can ever fire"
+        );
+        assert!(
+            problems.iter().any(|p| p.contains("Second")),
+            "the dropped prompt's collision must be reported as a problem, got: {problems:?}"
+        );
+    }
+
+    #[test]
+    fn non_colliding_hotkeys_register_cleanly_with_no_problems() {
+        let cfg = Config {
+            version: 1,
+            backends: vec![backend_cfg()],
+            prompts: vec![prompt("one", "First", "Ctrl+Alt+J"), prompt("two", "Second", "Ctrl+Alt+K")],
+        };
+        let (map, problems) = build_prompt_map(&cfg);
+        assert_eq!(map.len(), 2);
+        assert!(problems.is_empty(), "expected no problems, got: {problems:?}");
+    }
 }
 
 fn register_hotkeys(app: &tauri::AppHandle, shortcuts: &[Shortcut]) -> Vec<String> {
@@ -161,34 +240,74 @@ pub fn run() {
                 .map(|p| p.to_path_buf())
                 .unwrap_or_else(|| PathBuf::from("."));
 
-            // A config-load failure is otherwise the most silent failure
-            // mode there is: `setup` returns `Err`, and `.run()` below
-            // turns that into a panic message that a windowed release
-            // build has no console to show. The log line is the only
-            // record of it that survives.
-            let cfg = config::load_or_create(&path).map_err(|e| {
-                let line = format!("STARTUP config-load-failed reason={e}");
-                eprintln!("{line}");
-                status::append_log(&config_dir, &line);
-                e
-            })?;
+            // I5: a config-load failure is otherwise the most silent
+            // failure mode there is. `setup` returning `Err` makes
+            // `.run()` below `.expect()`-panic, and `windows_subsystem =
+            // "windows"` means a release build has no console to show that
+            // panic message on -- the user double-clicks the exe and
+            // *nothing happens*. Hand-editing config.json is the only
+            // configuration mechanism in v1, so a trailing comma is a
+            // likely outcome, not an exotic one. Do not propagate `?` here:
+            // fall through with an empty config (no backends, no prompts --
+            // `build_prompt_map` below then registers nothing rather than
+            // guessing) so the app still reaches a tray icon, with the
+            // failure surfaced in the log and the tray status text.
+            let mut config_load_failed = false;
+            let cfg = match config::load_or_create(&path) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    config_load_failed = true;
+                    let line = format!("STARTUP config-load-failed reason={e}");
+                    eprintln!("{line}");
+                    status::append_log(&config_dir, &line);
+                    config::Config { version: 1, backends: Vec::new(), prompts: Vec::new() }
+                }
+            };
 
             let (prompt_map, mut problems) = build_prompt_map(&cfg);
             let hotkeys: Vec<Shortcut> = prompt_map.keys().copied().collect();
 
-            let ops = osops::WindowsOps::new().map_err(|e| {
-                let line = format!("STARTUP osops-init-failed reason={e}");
-                eprintln!("{line}");
-                status::append_log(&config_dir, &line);
-                e
-            })?;
+            // Same treatment for a failed OS layer (no clipboard or input
+            // subsystem available, e.g. a non-interactive session): fall
+            // back to `NullOps` rather than take `?` and kill the app
+            // before it ever shows a tray icon. Every cycle run against
+            // `NullOps` reports `foreground_window() == 0`, which the I2
+            // guard rejects immediately, before any clipboard mutation or
+            // synthetic input -- so hotkeys harmlessly do nothing rather
+            // than the process not existing at all.
+            let ops: Arc<dyn osops::OsOps> = match osops::WindowsOps::new() {
+                Ok(ops) => Arc::new(ops),
+                Err(e) => {
+                    let line = format!("STARTUP osops-init-failed reason={e}");
+                    eprintln!("{line}");
+                    status::append_log(&config_dir, &line);
+                    problems.push(format!(
+                        "input/clipboard system failed to initialize ({e}); hotkeys will do \
+                         nothing until the app is restarted"
+                    ));
+                    Arc::new(osops::NullOps::new())
+                }
+            };
 
             let status_item =
                 MenuItem::with_id(app, "status", "starting…", false, None::<&str>)?;
 
+            // One disabled, informational entry per successfully-registered
+            // prompt, built from `prompt_map` rather than all of
+            // `cfg.prompts` -- a prompt whose hotkey didn't parse, whose
+            // backend is unknown, or whose hotkey collided with another
+            // (see build_prompt_map) is not in this map, and the tray must
+            // not advertise a hotkey that does nothing.
+            let mut prompt_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
+            for (i, (shortcut, entry)) in prompt_map.iter().enumerate() {
+                let label = format!("{} \u{2014} {shortcut}", entry.name);
+                let id = format!("prompt-{i}");
+                prompt_items.push(MenuItem::with_id(app, id, label, false, None::<&str>)?);
+            }
+
             let state = Arc::new(AppState {
                 prompts: Mutex::new(prompt_map),
-                ops: Arc::new(ops),
+                ops,
                 busy: AtomicBool::new(false),
                 last_status: Mutex::new("starting…".into()),
                 status_item: status_item.clone(),
@@ -262,22 +381,14 @@ pub fn run() {
                 eprintln!("{line}");
                 status::append_log(&config_dir, &line);
             }
-            let initial_status = if problems.is_empty() {
-                "ready".to_string()
-            } else {
+            let initial_status = if config_load_failed {
+                "config error \u{2014} see log".to_string()
+            } else if !problems.is_empty() {
                 format!("{} startup problem(s) \u{2014} see log", problems.len())
+            } else {
+                "ready".to_string()
             };
             set_status(&state, initial_status);
-
-            // One disabled, informational entry per configured prompt, so
-            // the user can see what hotkey is supposed to do what without
-            // opening the config file.
-            let mut prompt_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
-            for prompt in &cfg.prompts {
-                let label = format!("{} \u{2014} {}", prompt.name, prompt.hotkey);
-                let id = format!("prompt-{}", prompt.id);
-                prompt_items.push(MenuItem::with_id(app, id, label, false, None::<&str>)?);
-            }
 
             let open_config =
                 MenuItem::with_id(app, "open-config", "Open config file", true, None::<&str>)?;

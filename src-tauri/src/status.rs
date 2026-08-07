@@ -2,6 +2,7 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::Path,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::cycle::CycleOutcome;
@@ -10,8 +11,15 @@ const MAX_LOG_BYTES: u64 = 1_048_576;
 
 pub fn log_line(outcome: &CycleOutcome, prompt_name: &str, backend_name: &str) -> String {
     let verdict = if outcome.pasted { "PASTED" } else { "ABORTED" };
+    // Unix seconds, not a formatted date: no new dependency needed, and a
+    // log line with no timestamp at all is useless for correlating a
+    // failure with what the user was doing at the time.
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     format!(
-        "{verdict} prompt={prompt_name:?} backend={backend_name:?} reason={} capture_ms={} backend_ms={}",
+        "ts={ts} {verdict} prompt={prompt_name:?} backend={backend_name:?} reason={} capture_ms={} backend_ms={}",
         outcome.reason, outcome.captured_ms, outcome.backend_ms
     )
 }
@@ -69,6 +77,17 @@ mod tests {
     fn the_tray_summary_names_the_reason_on_failure() {
         let text = summary(&outcome(false, "capture-timeout"), "Fix grammar");
         assert!(text.contains("capture-timeout"));
+    }
+
+    #[test]
+    fn a_log_line_carries_a_unix_timestamp() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let before = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let line = log_line(&outcome(true, "ok"), "Fix grammar", "Local Ollama");
+        assert!(line.contains("ts="), "expected a ts= field, got: {line}");
+        let ts_field = line.split("ts=").nth(1).unwrap().split_whitespace().next().unwrap();
+        let ts: u64 = ts_field.parse().expect("timestamp should be a plain number");
+        assert!(ts >= before, "timestamp should be current, got {ts} vs baseline {before}");
     }
 
     #[test]

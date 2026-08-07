@@ -101,6 +101,15 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
     // miss a focus change that happens during the copy/capture step itself.
     let focus_at_capture = ops.foreground_window();
 
+    // I2: GetForegroundWindow() returns 0 (NULL) when no window currently
+    // has focus. If the baseline sample is 0 and the pre-paste sample is
+    // also 0, a plain equality check reports "unchanged" and the cycle
+    // would go on to paste with no known target window at all. Reject a
+    // zero baseline outright instead of trusting it.
+    if focus_at_capture == 0 {
+        return abort("focus-changed", 0, 0);
+    }
+
     // A failed clear is not harmless: if it fails, the clipboard still
     // holds the user's previous content, `wait_for_clipboard` below reads
     // that stale content on its very first poll, and the cycle silently
@@ -124,7 +133,12 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
     let backend_start = ops.now_ms();
     let raw = match backend.transform(&wrapped, &captured) {
         Ok(text) => text,
-        Err(_) => return abort("backend-error", captured_ms, 0),
+        // Minor: report the real elapsed time, not a hardcoded 0 -- a
+        // 120-second Ollama timeout must not log as an instant failure.
+        Err(_) => {
+            let backend_ms = ops.now_ms().saturating_sub(backend_start);
+            return abort("backend-error", captured_ms, backend_ms);
+        }
     };
     let backend_ms = ops.now_ms().saturating_sub(backend_start);
 
@@ -152,7 +166,20 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
         return abort("backend-error", captured_ms, backend_ms);
     }
     if ops.send_paste().is_err() {
-        return abort("backend-error", captured_ms, backend_ms);
+        // I1: `WindowsOps::chord` dispatches Ctrl-down, the letter click
+        // and Ctrl-up before checking any of them, then returns Err if any
+        // failed -- so a chord where 'v' landed but the Ctrl release
+        // failed returns Err with the paste already in flight. Once a
+        // paste has been *attempted* we cannot know whether it landed, so
+        // we cannot skip the restore delay: doing so lets the guard write
+        // the original clipboard back microseconds later, and the target
+        // app (which reads the clipboard on its own schedule) can end up
+        // pasting the user's old clipboard contents over their selection.
+        // A distinct reason string is used deliberately: "backend-error"
+        // would send the user to debug their AI backend when the real
+        // problem is synthetic input.
+        ops.sleep_ms(RESTORE_DELAY_MS);
+        return abort("paste-failed", captured_ms, backend_ms);
     }
 
     // The guard restores after this sleep, when it drops at end of scope.
@@ -181,6 +208,7 @@ mod tests {
         focus_after_capture: Mutex<Option<isize>>,
         read_should_fail: Mutex<bool>,
         clear_should_fail: Mutex<bool>,
+        paste_should_fail: Mutex<bool>,
     }
 
     impl FakeOps {
@@ -237,7 +265,13 @@ mod tests {
             Ok(())
         }
         fn send_paste(&self) -> Result<(), OsError> {
+            // Mirrors WindowsOps::chord: Ctrl-down, the letter click and
+            // Ctrl-up are dispatched (logged) before failure is reported,
+            // so a "failed" paste may already be in flight -- see I1.
             self.log("paste");
+            if *self.paste_should_fail.lock().unwrap() {
+                return Err(OsError::Input("ctrl release failed".into()));
+            }
             *self.pasted_content.lock().unwrap() = Some(self.clipboard.lock().unwrap().clone());
             Ok(())
         }
@@ -436,6 +470,67 @@ mod tests {
             !ops.calls().iter().any(|c| c.starts_with("write(")),
             "the guard must not write anything when the original clipboard could not be read; calls were: {:?}",
             ops.calls()
+        );
+    }
+
+    #[test]
+    fn failing_send_paste_still_sleeps_before_the_guard_restores() {
+        // I1: WindowsOps::chord dispatches Ctrl-down, the letter click and
+        // Ctrl-up before checking any of them, then returns Err if any
+        // failed -- so a chord where 'v' landed but the Ctrl release failed
+        // returns Err with the paste already in flight. Skipping the
+        // restore delay on this path lets the guard overwrite the
+        // clipboard with the original before the target app (which reads
+        // on its own schedule) has picked up the pasted text. The delay
+        // must run on this abort just like it does on the happy path.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        *ops.paste_should_fail.lock().unwrap() = true;
+        let outcome = run(&StubBackend::ok("<output>Corrected.</output>"), "Fix.", &ops);
+        assert!(!outcome.pasted);
+        assert_eq!(outcome.reason, "paste-failed");
+        assert_eq!(
+            ops.calls(),
+            vec![
+                "clear".to_string(),
+                "copy".to_string(),
+                "write(Corrected.)".to_string(),
+                "paste".to_string(),
+                "sleep".to_string(),
+                "write(ORIGINAL)".to_string(),
+            ],
+            "the restore delay must still run before the guard restores"
+        );
+    }
+
+    #[test]
+    fn foreground_window_zero_at_capture_aborts_before_any_clipboard_change() {
+        // I2: GetForegroundWindow() returns 0 (NULL) when no window has
+        // focus. If the baseline sample is 0 and a later sample is also 0
+        // (still no foreground window), `0 == 0` reports "unchanged" and
+        // the cycle would paste with no known target. The baseline sample
+        // itself must be rejected.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        *ops.focus.lock().unwrap() = 0;
+        let outcome = run(&StubBackend::ok("<output>x</output>"), "Fix.", &ops);
+        assert!(!outcome.pasted);
+        assert_eq!(outcome.reason, "focus-changed");
+        assert!(!ops.calls().contains(&"clear".to_string()));
+        assert!(!ops.calls().contains(&"copy".to_string()));
+        assert_eq!(*ops.clipboard.lock().unwrap(), "ORIGINAL");
+    }
+
+    #[test]
+    fn backend_error_reports_the_real_elapsed_backend_ms_not_zero() {
+        // Minor: a hardcoded 0 here means a 120-second Ollama timeout logs
+        // as an instant failure, hiding exactly the information needed to
+        // diagnose it.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        let outcome = run(&StubBackend::failing(), "Fix.", &ops);
+        assert_eq!(outcome.reason, "backend-error");
+        assert!(
+            outcome.backend_ms > 0,
+            "expected a nonzero elapsed backend_ms, got {}",
+            outcome.backend_ms
         );
     }
 

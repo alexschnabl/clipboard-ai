@@ -19,6 +19,37 @@ pub trait CommandRunner: Send + Sync {
     ) -> Result<String, BackendError>;
 }
 
+/// Joins `handle`, but abandons it and returns `Timeout` if it has not
+/// finished by `deadline`.
+///
+/// `JoinHandle::join` blocks unconditionally until the thread returns.
+/// For the reader/writer threads here that means `read_to_end` /
+/// `write_all` completing -- which does not happen until every handle to
+/// the pipe's far end is closed, including ones inherited by descendants
+/// of the child that outlive it. Polling `is_finished()` against the same
+/// deadline used to wait for the child's exit keeps that bounded: on
+/// expiry the thread is abandoned (dropping an unfinished `JoinHandle`
+/// does not block) rather than joined, exactly like the existing timeout
+/// branch above abandons its reader/writer threads and for the same
+/// reason.
+fn join_with_deadline<T: Send + 'static>(
+    handle: thread::JoinHandle<T>,
+    deadline: Instant,
+    label: &str,
+) -> Result<T, BackendError> {
+    loop {
+        if handle.is_finished() {
+            return handle
+                .join()
+                .map_err(|_| BackendError::Transport(format!("{label} thread panicked")));
+        }
+        if Instant::now() >= deadline {
+            return Err(BackendError::Timeout);
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+}
+
 pub struct ProcessRunner;
 
 impl CommandRunner for ProcessRunner {
@@ -99,24 +130,23 @@ impl CommandRunner for ProcessRunner {
             }
         };
 
-        let stdin_write = stdin_thread
-            .join()
-            .map_err(|_| BackendError::Transport("stdin writer thread panicked".into()))?;
+        // I3: the child has exited, but that says nothing about whether a
+        // descendant it spawned is still holding a pipe handle open. Carry
+        // the same `deadline` used above into these joins so a lingering
+        // descendant bounds the wait instead of hanging `run` -- and with
+        // it `BusyGuard` -- forever.
+        let stdin_write = join_with_deadline(stdin_thread, deadline, "stdin writer")?;
         if let Err(e) = stdin_write {
             let _ = child.kill();
             return Err(BackendError::Transport(format!("failed writing stdin: {e}")));
         }
 
-        let stdout_bytes = stdout_thread
-            .join()
-            .map_err(|_| BackendError::Transport("stdout reader thread panicked".into()))?
+        let stdout_bytes = join_with_deadline(stdout_thread, deadline, "stdout reader")?
             .map_err(|e| {
                 let _ = child.kill();
                 BackendError::Transport(e.to_string())
             })?;
-        let stderr_bytes = stderr_thread
-            .join()
-            .map_err(|_| BackendError::Transport("stderr reader thread panicked".into()))?
+        let stderr_bytes = join_with_deadline(stderr_thread, deadline, "stderr reader")?
             .map_err(|e| {
                 let _ = child.kill();
                 BackendError::Transport(e.to_string())
@@ -245,6 +275,59 @@ mod tests {
     fn a_runner_timeout_propagates_as_a_backend_error() {
         let backend = ClaudeCli::new(&cfg(), FakeRunner::failing(BackendError::Timeout));
         assert!(matches!(backend.transform("s", "t"), Err(BackendError::Timeout)));
+    }
+}
+
+/// I3: the success path's reader-thread joins must be bounded by the same
+/// deadline used to wait for the child to exit, exactly like the existing
+/// timeout branch. Otherwise a descendant of `claude` that outlives it and
+/// keeps holding a pipe's write end open makes `read_to_end` -- and so
+/// `join()` -- block forever, `run` never returns, `BusyGuard` never drops,
+/// and every subsequent hotkey press does nothing.
+#[cfg(test)]
+mod join_with_deadline_tests {
+    use std::{
+        thread,
+        time::{Duration, Instant},
+    };
+
+    use super::*;
+
+    #[test]
+    fn abandons_a_hung_thread_and_returns_timeout_promptly() {
+        let deadline = Instant::now() + Duration::from_millis(150);
+        let handle = thread::spawn(|| {
+            // Stands in for a reader thread blocked in `read_to_end`
+            // because a lingering grandchild process still holds the
+            // pipe's write end open.
+            thread::sleep(Duration::from_secs(30));
+            42
+        });
+        let start = Instant::now();
+        let result = join_with_deadline(handle, deadline, "test");
+        let elapsed = start.elapsed();
+
+        assert!(matches!(result, Err(BackendError::Timeout)), "expected Timeout, got {result:?}");
+        assert!(
+            elapsed.as_secs() < 5,
+            "the join must be bounded by the deadline, not the hung thread's lifetime; took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn returns_the_value_when_the_thread_finishes_before_the_deadline() {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let handle = thread::spawn(|| 42);
+        let result = join_with_deadline(handle, deadline, "test");
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[test]
+    fn a_panicking_thread_is_reported_as_a_transport_error() {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let handle = thread::spawn(|| -> i32 { panic!("boom") });
+        let result = join_with_deadline(handle, deadline, "test");
+        assert!(matches!(result, Err(BackendError::Transport(_))), "got {result:?}");
     }
 }
 

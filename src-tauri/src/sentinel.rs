@@ -14,11 +14,28 @@ pub fn wrap_system_prompt(system_prompt: &str) -> String {
 /// Returns `None` when the tags are absent, unbalanced, or wrap only
 /// whitespace. Callers must treat `None` as a refusal and paste nothing —
 /// never as empty text.
+///
+/// C1: pairing the *first* `<output>` with the first `</output>` after it
+/// assumes those two tags belong to each other, which is not true whenever
+/// `<output>` is merely mentioned before the real block. The sentinel
+/// instruction we append to every system prompt contains the literal token
+/// `<output>`, and a reasoning model restating it inside a `<think>` block
+/// (or a plain model prefacing its answer with "wrapped in <output> tags:")
+/// is ordinary output, not an edge case. Instead, once the first closing
+/// tag is found, take the *innermost* opening tag that precedes it — i.e.
+/// the one closest to the content — so an earlier mention of the literal
+/// string `<output>` is treated as prose, not as the start of the block.
 pub fn extract(raw: &str) -> Option<String> {
     let start = raw.find(OPEN)? + OPEN.len();
     let rest = &raw[start..];
     let end = rest.find(CLOSE)?;
-    let content = rest[..end].trim();
+    let inner = &rest[..end];
+    // An echoed or nested `<output>` means the real block starts later.
+    let content = match inner.rfind(OPEN) {
+        Some(i) => &inner[i + OPEN.len()..],
+        None => inner,
+    };
+    let content = content.trim();
     if content.is_empty() {
         return None;
     }
@@ -89,5 +106,30 @@ mod tests {
         let wrapped = wrap_system_prompt("Fix grammar.");
         assert!(wrapped.starts_with("Fix grammar."));
         assert!(wrapped.contains(SENTINEL_INSTRUCTION));
+    }
+
+    // C1: the sentinel instruction we append to every system prompt itself
+    // contains the literal token `<output>`. A reasoning model restating
+    // that instruction inside a `<think>` block is ordinary output, not an
+    // edge case -- and the old `find(OPEN)` / `find(CLOSE)` pairing landed
+    // on that mention, extracting the tail of the think block plus the
+    // real opening tag instead of the real content.
+    #[test]
+    fn a_think_block_that_mentions_output_does_not_leak_into_the_result() {
+        let raw = "<think>I need to wrap the result in <output> tags.</think>\n\
+                   <output>This sentence has two mistakes.</output>";
+        assert_eq!(extract(raw).as_deref(), Some("This sentence has two mistakes."));
+    }
+
+    #[test]
+    fn a_preamble_mentioning_output_before_the_real_block_is_discarded() {
+        let raw = "Here is the text in <output> tags:\n\n<output>Corrected.</output>";
+        assert_eq!(extract(raw).as_deref(), Some("Corrected."));
+    }
+
+    #[test]
+    fn nested_output_tags_take_the_innermost_open_before_the_first_close() {
+        let raw = "<output>a<output>b</output>";
+        assert_eq!(extract(raw).as_deref(), Some("b"));
     }
 }
