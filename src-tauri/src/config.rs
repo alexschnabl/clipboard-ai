@@ -11,18 +11,22 @@ pub const KIND_OPENAI: &str = "openai-compatible";
 pub const KIND_ANTHROPIC: &str = "anthropic-api";
 pub const KIND_CLAUDE_CLI: &str = "claude-cli";
 
+pub const CURRENT_VERSION: u32 = 2;
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("config is not valid JSON: {0}")]
     Parse(#[from] serde_json::Error),
-    #[error("prompt {prompt} names unknown backend {backend}")]
-    UnknownBackend { prompt: String, backend: String },
+    #[error("command {command} names unknown backend {backend}")]
+    UnknownBackend { command: String, backend: String },
     #[error("duplicate id: {id}")]
     DuplicateId { id: String },
     #[error("duplicate hotkey: {hotkey}")]
     DuplicateHotkey { hotkey: String },
     #[error("unknown backend kind: {kind}")]
     UnknownKind { kind: String },
+    #[error("config version {version} is newer than this app understands")]
+    UnsupportedVersion { version: u32 },
     #[error("could not read or write config: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -49,7 +53,7 @@ fn default_timeout() -> u64 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PromptConfig {
+pub struct CommandConfig {
     pub id: String,
     pub name: String,
     pub backend_id: String,
@@ -61,7 +65,7 @@ pub struct PromptConfig {
 pub struct Config {
     pub version: u32,
     pub backends: Vec<BackendConfig>,
-    pub prompts: Vec<PromptConfig>,
+    pub commands: Vec<CommandConfig>,
 }
 
 impl Config {
@@ -71,7 +75,24 @@ impl Config {
 }
 
 pub fn parse(json: &str) -> Result<Config, ConfigError> {
-    let config: Config = serde_json::from_str(json)?;
+    let mut value: serde_json::Value = serde_json::from_str(json)?;
+    let version = value.get("version").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+
+    match version {
+        1 => {
+            // v1 called them prompts. Move the key, then type it as v2.
+            if let Some(obj) = value.as_object_mut() {
+                if let Some(prompts) = obj.remove("prompts") {
+                    obj.insert("commands".to_string(), prompts);
+                }
+                obj.insert("version".to_string(), serde_json::json!(CURRENT_VERSION));
+            }
+        }
+        v if v == CURRENT_VERSION => {}
+        other => return Err(ConfigError::UnsupportedVersion { version: other }),
+    }
+
+    let config: Config = serde_json::from_value(value)?;
     validate(&config)?;
     Ok(config)
 }
@@ -88,19 +109,19 @@ fn validate(config: &Config) -> Result<(), ConfigError> {
         }
     }
 
-    let mut prompt_ids = HashSet::new();
+    let mut command_ids = HashSet::new();
     let mut hotkeys = HashSet::new();
-    for prompt in &config.prompts {
-        if !prompt_ids.insert(&prompt.id) {
-            return Err(ConfigError::DuplicateId { id: prompt.id.clone() });
+    for command in &config.commands {
+        if !command_ids.insert(&command.id) {
+            return Err(ConfigError::DuplicateId { id: command.id.clone() });
         }
-        if !hotkeys.insert(prompt.hotkey.to_lowercase()) {
-            return Err(ConfigError::DuplicateHotkey { hotkey: prompt.hotkey.clone() });
+        if !hotkeys.insert(command.hotkey.to_lowercase()) {
+            return Err(ConfigError::DuplicateHotkey { hotkey: command.hotkey.clone() });
         }
-        if config.backend(&prompt.backend_id).is_none() {
+        if config.backend(&command.backend_id).is_none() {
             return Err(ConfigError::UnknownBackend {
-                prompt: prompt.id.clone(),
-                backend: prompt.backend_id.clone(),
+                command: command.id.clone(),
+                backend: command.backend_id.clone(),
             });
         }
     }
@@ -109,7 +130,7 @@ fn validate(config: &Config) -> Result<(), ConfigError> {
 
 pub fn default_config() -> Config {
     Config {
-        version: 1,
+        version: CURRENT_VERSION,
         backends: vec![
             BackendConfig {
                 id: "ollama-local".into(),
@@ -130,7 +151,7 @@ pub fn default_config() -> Config {
                 timeout_ms: 120_000,
             },
         ],
-        prompts: vec![PromptConfig {
+        commands: vec![CommandConfig {
             id: "fix-grammar".into(),
             name: "Fix grammar".into(),
             backend_id: "ollama-local".into(),
@@ -145,10 +166,15 @@ pub fn load_or_create(path: &Path) -> Result<Config, ConfigError> {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let json = serde_json::to_string_pretty(&default_config())?;
-        fs::write(path, json)?;
+        fs::write(path, serde_json::to_string_pretty(&default_config())?)?;
     }
-    parse(&fs::read_to_string(path)?)
+    let raw = fs::read_to_string(path)?;
+    let config = parse(&raw)?;
+    if !raw.contains("\"commands\"") {
+        // Migrated from v1 — persist it so this happens once.
+        fs::write(path, serde_json::to_string_pretty(&config)?)?;
+    }
+    Ok(config)
 }
 
 pub fn config_path(app: &tauri::AppHandle) -> PathBuf {
@@ -165,11 +191,25 @@ mod tests {
 
     fn valid_json() -> &'static str {
         r#"{
-          "version": 1,
+          "version": 2,
           "backends": [
             {"id":"ollama","name":"Local","kind":"openai-compatible",
              "baseUrl":"http://localhost:11434/v1","model":"qwen2.5:32b-instruct",
              "apiKey":null,"timeoutMs":120000}
+          ],
+          "commands": [
+            {"id":"fix","name":"Fix grammar","backendId":"ollama",
+             "hotkey":"Ctrl+Alt+J","systemPrompt":"Fix grammar."}
+          ]
+        }"#
+    }
+
+    fn v1_json() -> &'static str {
+        r#"{
+          "version": 1,
+          "backends": [
+            {"id":"ollama","name":"Local","kind":"openai-compatible",
+             "baseUrl":"http://localhost:11434/v1","model":"m","apiKey":null,"timeoutMs":120000}
           ],
           "prompts": [
             {"id":"fix","name":"Fix grammar","backendId":"ollama",
@@ -182,12 +222,12 @@ mod tests {
     fn parses_a_valid_config() {
         let cfg = parse(valid_json()).expect("should parse");
         assert_eq!(cfg.backends.len(), 1);
-        assert_eq!(cfg.prompts[0].backend_id, "ollama");
+        assert_eq!(cfg.commands[0].backend_id, "ollama");
         assert_eq!(cfg.backends[0].timeout_ms, 120_000);
     }
 
     #[test]
-    fn rejects_a_prompt_naming_an_unknown_backend() {
+    fn rejects_a_command_naming_an_unknown_backend() {
         let json = valid_json().replace(r#""backendId":"ollama""#, r#""backendId":"nope""#);
         assert!(matches!(parse(&json), Err(ConfigError::UnknownBackend { .. })));
     }
@@ -195,8 +235,8 @@ mod tests {
     #[test]
     fn rejects_duplicate_backend_ids() {
         let json = valid_json().replace(
-            r#""prompts""#,
-            r#""_unused":0,"prompts""#,
+            r#""commands""#,
+            r#""_unused":0,"commands""#,
         );
         // duplicate the single backend entry
         let json = json.replace(
@@ -234,5 +274,36 @@ mod tests {
     fn the_default_config_is_valid() {
         let json = serde_json::to_string(&default_config()).unwrap();
         parse(&json).expect("default config must round-trip through validation");
+    }
+
+    #[test]
+    fn migrates_a_v1_file_by_reading_prompts_as_commands() {
+        let cfg = parse(v1_json()).expect("v1 should migrate");
+        assert_eq!(cfg.version, CURRENT_VERSION);
+        assert_eq!(cfg.commands.len(), 1);
+        assert_eq!(cfg.commands[0].id, "fix");
+        assert_eq!(cfg.commands[0].hotkey, "Ctrl+Alt+J");
+    }
+
+    #[test]
+    fn a_migrated_v1_config_is_still_validated() {
+        let json = v1_json().replace(r#""backendId":"ollama""#, r#""backendId":"nope""#);
+        assert!(matches!(parse(&json), Err(ConfigError::UnknownBackend { .. })));
+    }
+
+    #[test]
+    fn rejects_a_version_from_the_future() {
+        // valid_json() is a v2 fixture ("version": 2); replacing a
+        // "version": 1 literal here would silently no-op and this test
+        // would fail for the wrong reason (an Ok instead of an Err).
+        let json = valid_json().replace(r#""version": 2"#, r#""version": 99"#);
+        assert!(matches!(parse(&json), Err(ConfigError::UnsupportedVersion { version: 99 })));
+    }
+
+    #[test]
+    fn a_v2_file_round_trips_unchanged() {
+        let cfg = parse(&serde_json::to_string(&default_config()).unwrap()).unwrap();
+        assert_eq!(cfg.version, CURRENT_VERSION);
+        assert_eq!(cfg.commands.len(), 1);
     }
 }

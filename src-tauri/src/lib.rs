@@ -23,7 +23,7 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 /// A single hotkey's dispatch data: the display name (used in the log and
 /// tray status), the system prompt to send, and the backend to send it to.
 #[derive(Clone)]
-struct PromptEntry {
+struct CommandEntry {
     name: String,
     system_prompt: String,
     backend: Arc<dyn backend::Backend>,
@@ -31,12 +31,12 @@ struct PromptEntry {
 
 /// Per-hotkey dispatch table plus the machinery a cycle needs to run.
 ///
-/// `prompts` is keyed by the parsed [`Shortcut`] struct rather than by a
-/// string. See `build_prompt_map` for why: it avoids reconciling the
+/// `commands` is keyed by the parsed [`Shortcut`] struct rather than by a
+/// string. See `build_command_map` for why: it avoids reconciling the
 /// config's hotkey spelling against the plugin's own textual rendering of
 /// the same shortcut.
 struct AppState {
-    prompts: Mutex<HashMap<Shortcut, PromptEntry>>,
+    commands: Mutex<HashMap<Shortcut, CommandEntry>>,
     ops: Arc<dyn osops::OsOps>,
     busy: AtomicBool,
     /// The last status line, mirrored onto the disabled "status" tray menu
@@ -83,11 +83,11 @@ impl Drop for BusyGuard<'_> {
     }
 }
 
-/// Build the hotkey -> prompt-entry map from config.
+/// Build the hotkey -> command-entry map from config.
 ///
-/// A prompt whose hotkey will not parse, or whose backend will not build, is
+/// A command whose hotkey will not parse, or whose backend will not build, is
 /// skipped with a message rather than aborting the whole load — one bad
-/// entry must not take the other prompts down with it.
+/// entry must not take the other commands down with it.
 ///
 /// The map is keyed by the parsed `Shortcut`, not the raw config string.
 /// `config::validate` dedups hotkeys case-insensitively but stores the raw
@@ -99,29 +99,29 @@ impl Drop for BusyGuard<'_> {
 /// normalization entirely: the plugin always hands the handler back the
 /// exact value that was registered, and `Shortcut` derives `Eq`/`Hash`, so
 /// lookup is structural rather than string-based.
-fn build_prompt_map(cfg: &config::Config) -> (HashMap<Shortcut, PromptEntry>, Vec<String>) {
+fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, Vec<String>) {
     let mut map = HashMap::new();
     let mut problems = Vec::new();
-    for prompt in &cfg.prompts {
-        let Some(backend_cfg) = cfg.backend(&prompt.backend_id) else {
-            problems.push(format!("{}: unknown backend", prompt.name));
+    for command in &cfg.commands {
+        let Some(backend_cfg) = cfg.backend(&command.backend_id) else {
+            problems.push(format!("{}: unknown backend", command.name));
             continue;
         };
-        let shortcut = match prompt.hotkey.parse::<Shortcut>() {
+        let shortcut = match command.hotkey.parse::<Shortcut>() {
             Ok(s) => s,
             Err(e) => {
                 problems.push(format!(
                     "{}: unparseable hotkey {:?} ({e})",
-                    prompt.name, prompt.hotkey
+                    command.name, command.hotkey
                 ));
                 continue;
             }
         };
         match backend::build(backend_cfg) {
             Ok(backend) => {
-                let entry = PromptEntry {
-                    name: prompt.name.clone(),
-                    system_prompt: prompt.system_prompt.clone(),
+                let entry = CommandEntry {
+                    name: command.name.clone(),
+                    system_prompt: command.system_prompt.clone(),
                     backend,
                 };
                 // `config::validate` dedups hotkeys case-insensitively but
@@ -129,26 +129,26 @@ fn build_prompt_map(cfg: &config::Config) -> (HashMap<Shortcut, PromptEntry>, Ve
                 // same modifier differently (e.g. "Ctrl+Alt+J" and
                 // "Control+Alt+J") both pass validation even though they
                 // parse to the identical `Shortcut`. An unchecked insert
-                // would silently drop one prompt's binding with no signal
+                // would silently drop one command's binding with no signal
                 // anywhere; report it as a problem instead.
                 if let Some(previous) = map.insert(shortcut, entry) {
                     problems.push(format!(
                         "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing ({shortcut}); \
                          only \"{}\" is registered",
-                        prompt.name, prompt.hotkey, previous.name, previous.name
+                        command.name, command.hotkey, previous.name, previous.name
                     ));
                 }
             }
-            Err(e) => problems.push(format!("{}: {e}", prompt.name)),
+            Err(e) => problems.push(format!("{}: {e}", command.name)),
         }
     }
     (map, problems)
 }
 
 #[cfg(test)]
-mod build_prompt_map_tests {
+mod build_command_map_tests {
     use super::*;
-    use crate::config::{BackendConfig, Config, PromptConfig, KIND_CLAUDE_CLI};
+    use crate::config::{BackendConfig, CommandConfig, Config, KIND_CLAUDE_CLI};
 
     fn backend_cfg() -> BackendConfig {
         BackendConfig {
@@ -162,8 +162,8 @@ mod build_prompt_map_tests {
         }
     }
 
-    fn prompt(id: &str, name: &str, hotkey: &str) -> PromptConfig {
-        PromptConfig {
+    fn command(id: &str, name: &str, hotkey: &str) -> CommandConfig {
+        CommandConfig {
             id: id.into(),
             name: name.into(),
             backend_id: "b".into(),
@@ -178,17 +178,17 @@ mod build_prompt_map_tests {
         // stores the raw spelling, so "Ctrl+Alt+J" and "Control+Alt+J"
         // both pass validation even though `Shortcut::parse` normalizes
         // both to the identical value. Without an is_some() check on
-        // insert, the second prompt's hotkey would silently replace the
+        // insert, the second command's hotkey would silently replace the
         // first's in the map with no signal anywhere that it happened.
         let cfg = Config {
             version: 1,
             backends: vec![backend_cfg()],
-            prompts: vec![
-                prompt("one", "First", "Ctrl+Alt+J"),
-                prompt("two", "Second", "Control+Alt+J"),
+            commands: vec![
+                command("one", "First", "Ctrl+Alt+J"),
+                command("two", "Second", "Control+Alt+J"),
             ],
         };
-        let (map, problems) = build_prompt_map(&cfg);
+        let (map, problems) = build_command_map(&cfg);
         assert_eq!(
             map.len(),
             1,
@@ -196,7 +196,7 @@ mod build_prompt_map_tests {
         );
         assert!(
             problems.iter().any(|p| p.contains("Second")),
-            "the dropped prompt's collision must be reported as a problem, got: {problems:?}"
+            "the dropped command's collision must be reported as a problem, got: {problems:?}"
         );
     }
 
@@ -205,9 +205,9 @@ mod build_prompt_map_tests {
         let cfg = Config {
             version: 1,
             backends: vec![backend_cfg()],
-            prompts: vec![prompt("one", "First", "Ctrl+Alt+J"), prompt("two", "Second", "Ctrl+Alt+K")],
+            commands: vec![command("one", "First", "Ctrl+Alt+J"), command("two", "Second", "Ctrl+Alt+K")],
         };
-        let (map, problems) = build_prompt_map(&cfg);
+        let (map, problems) = build_command_map(&cfg);
         assert_eq!(map.len(), 2);
         assert!(problems.is_empty(), "expected no problems, got: {problems:?}");
     }
@@ -248,8 +248,8 @@ pub fn run() {
             // *nothing happens*. Hand-editing config.json is the only
             // configuration mechanism in v1, so a trailing comma is a
             // likely outcome, not an exotic one. Do not propagate `?` here:
-            // fall through with an empty config (no backends, no prompts --
-            // `build_prompt_map` below then registers nothing rather than
+            // fall through with an empty config (no backends, no commands --
+            // `build_command_map` below then registers nothing rather than
             // guessing) so the app still reaches a tray icon, with the
             // failure surfaced in the log and the tray status text.
             let mut config_load_failed = false;
@@ -260,12 +260,12 @@ pub fn run() {
                     let line = format!("STARTUP config-load-failed reason={e}");
                     eprintln!("{line}");
                     status::append_log(&config_dir, &line);
-                    config::Config { version: 1, backends: Vec::new(), prompts: Vec::new() }
+                    config::Config { version: 1, backends: Vec::new(), commands: Vec::new() }
                 }
             };
 
-            let (prompt_map, mut problems) = build_prompt_map(&cfg);
-            let hotkeys: Vec<Shortcut> = prompt_map.keys().copied().collect();
+            let (command_map, mut problems) = build_command_map(&cfg);
+            let hotkeys: Vec<Shortcut> = command_map.keys().copied().collect();
 
             // Same treatment for a failed OS layer (no clipboard or input
             // subsystem available, e.g. a non-interactive session): fall
@@ -293,20 +293,20 @@ pub fn run() {
                 MenuItem::with_id(app, "status", "starting…", false, None::<&str>)?;
 
             // One disabled, informational entry per successfully-registered
-            // prompt, built from `prompt_map` rather than all of
-            // `cfg.prompts` -- a prompt whose hotkey didn't parse, whose
+            // command, built from `command_map` rather than all of
+            // `cfg.commands` -- a command whose hotkey didn't parse, whose
             // backend is unknown, or whose hotkey collided with another
-            // (see build_prompt_map) is not in this map, and the tray must
+            // (see build_command_map) is not in this map, and the tray must
             // not advertise a hotkey that does nothing.
-            let mut prompt_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
-            for (i, (shortcut, entry)) in prompt_map.iter().enumerate() {
+            let mut command_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
+            for (i, (shortcut, entry)) in command_map.iter().enumerate() {
                 let label = format!("{} \u{2014} {shortcut}", entry.name);
-                let id = format!("prompt-{i}");
-                prompt_items.push(MenuItem::with_id(app, id, label, false, None::<&str>)?);
+                let id = format!("command-{i}");
+                command_items.push(MenuItem::with_id(app, id, label, false, None::<&str>)?);
             }
 
             let state = Arc::new(AppState {
-                prompts: Mutex::new(prompt_map),
+                commands: Mutex::new(command_map),
                 ops,
                 busy: AtomicBool::new(false),
                 last_status: Mutex::new("starting…".into()),
@@ -336,11 +336,11 @@ pub fn run() {
                         std::thread::spawn(move || {
                             let _busy_guard = BusyGuard(&state.busy);
                             let entry = state
-                                .prompts
+                                .commands
                                 .lock()
                                 .ok()
                                 .and_then(|m| m.get(&key).cloned());
-                            if let Some(PromptEntry { name, system_prompt, backend }) = entry {
+                            if let Some(CommandEntry { name, system_prompt, backend }) = entry {
                                 let outcome = cycle::run(
                                     backend.as_ref(),
                                     &system_prompt,
@@ -369,9 +369,9 @@ pub fn run() {
             status::append_log(
                 &config_dir,
                 &format!(
-                    "STARTUP backends={} prompts-configured={} hotkeys-attempted={} problems={}",
+                    "STARTUP backends={} commands-configured={} hotkeys-attempted={} problems={}",
                     cfg.backends.len(),
-                    cfg.prompts.len(),
+                    cfg.commands.len(),
                     hotkeys.len(),
                     problems.len()
                 ),
@@ -395,16 +395,16 @@ pub fn run() {
             let reload = MenuItem::with_id(app, "reload", "Reload config", true, None::<&str>)?;
             let show_log = MenuItem::with_id(app, "show-log", "Show log", true, None::<&str>)?;
             let sep_after_status = PredefinedMenuItem::separator(app)?;
-            let sep_after_prompts = PredefinedMenuItem::separator(app)?;
+            let sep_after_commands = PredefinedMenuItem::separator(app)?;
             let sep_before_quit = PredefinedMenuItem::separator(app)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
             let mut items: Vec<&dyn IsMenuItem<_>> = vec![&status_item, &sep_after_status];
-            for item in &prompt_items {
+            for item in &command_items {
                 items.push(item);
             }
-            if !prompt_items.is_empty() {
-                items.push(&sep_after_prompts);
+            if !command_items.is_empty() {
+                items.push(&sep_after_commands);
             }
             items.push(&open_config);
             items.push(&reload);
