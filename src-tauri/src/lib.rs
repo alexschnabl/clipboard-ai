@@ -3,6 +3,7 @@ use tauri::{
     tray::TrayIconBuilder,
 };
 
+mod backend;
 mod config;
 mod sentinel;
 
