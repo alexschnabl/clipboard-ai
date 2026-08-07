@@ -1,3 +1,5 @@
+pub mod anthropic;
+pub mod claude_cli;
 pub mod openai;
 
 use std::{sync::Arc, time::Duration};
@@ -74,4 +76,18 @@ impl HttpClient for ReqwestClient {
 
 pub fn shared_http() -> Arc<dyn HttpClient> {
     Arc::new(ReqwestClient)
+}
+
+use crate::config::{BackendConfig, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_OPENAI};
+
+pub fn build(config: &BackendConfig) -> Result<Arc<dyn Backend>, BackendError> {
+    match config.kind.as_str() {
+        KIND_OPENAI => Ok(Arc::new(openai::OpenAiCompatible::new(config, shared_http()))),
+        KIND_ANTHROPIC => Ok(Arc::new(anthropic::AnthropicApi::new(config, shared_http()))),
+        KIND_CLAUDE_CLI => Ok(Arc::new(claude_cli::ClaudeCli::new(
+            config,
+            Arc::new(claude_cli::ProcessRunner),
+        ))),
+        other => Err(BackendError::Misconfigured(format!("unknown kind: {other}"))),
+    }
 }
