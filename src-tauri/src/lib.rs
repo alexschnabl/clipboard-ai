@@ -573,28 +573,31 @@ pub fn run() {
             // programmatic `window.close()` -- all of them surface as the
             // same `CloseRequested` event; there is no route that hides this
             // window other than through here.
+            //
+            // `prevent_close` always runs, unconditionally -- native close
+            // must never proceed on its own. What happens next is
+            // `commands::handle_close_request`'s call: hide immediately if
+            // there is nothing unsaved (which is also the path a frontend
+            // that never mounted takes -- see that function's doc comment),
+            // otherwise ask the frontend first and hide anyway if it never
+            // answers. Either way that function is also where the
+            // Task-4 defensive config re-apply now lives (hotkey recording,
+            // Task 8, suspends global shortcuts while it listens; this is
+            // the one exit path the frontend cannot reliably intercept to
+            // resume them itself), run on every route that actually hides
+            // the window, never on a route that doesn't.
             if let Some(window) = app.get_webview_window("settings") {
                 let handle = handle.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
-                        if let Some(w) = handle.get_webview_window("settings") {
-                            let _ = w.hide();
-                        }
-                        // Defensive: if the user closed the window
-                        // mid-recording (Task 8's hotkey capture suspends
-                        // the app's global shortcuts while it listens), the
-                        // app would otherwise be left with no registered
-                        // shortcuts and no visible reason why -- this is the
-                        // one exit path the frontend cannot reliably
-                        // intercept to call resume_hotkeys itself. Restoring
-                        // here makes that unrecoverable state impossible to
-                        // reach by closing the window.
-                        if let Some(state) = handle.try_state::<AppState>() {
-                            if let Ok(config) = state.config.lock().map(|c| c.clone()) {
-                                let _ = apply_config(&handle, &state, config);
-                            }
-                        }
+                        // `AppState` is `.manage()`d before any window event
+                        // can fire in practice, so `None` here should be
+                        // unreachable -- but `handle_close_request` treats it
+                        // as optional precisely so that a failure to look it
+                        // up still cannot prevent the window from hiding.
+                        let state = handle.try_state::<AppState>().map(|s| (*s).clone());
+                        commands::handle_close_request(handle.clone(), state);
                     }
                 });
             }
@@ -606,6 +609,9 @@ pub fn run() {
             commands::save_config,
             commands::suspend_hotkeys,
             commands::resume_hotkeys,
+            commands::set_dirty,
+            commands::ack_close_prompt,
+            commands::force_close_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
