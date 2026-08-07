@@ -27,6 +27,8 @@ pub enum ConfigError {
     UnknownKind { kind: String },
     #[error("config version {version} is newer than this app understands")]
     UnsupportedVersion { version: u32 },
+    #[error("config version field is malformed: {found}")]
+    MalformedVersion { found: String },
     #[error("could not read or write config: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -76,7 +78,19 @@ impl Config {
 
 pub fn parse(json: &str) -> Result<Config, ConfigError> {
     let mut value: serde_json::Value = serde_json::from_str(json)?;
-    let version = value.get("version").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+    // A missing "version" key is a defensible default of 1 (a v1 file might
+    // predate the field), but a key that is *present* and not a
+    // non-negative integer -- a string, null, a negative number, a float --
+    // must not silently take the v1 migration path. That would bypass the
+    // "reject unknown versions rather than guess" guarantee for what might
+    // be a corrupted or hand-mangled future-version file.
+    let version = match value.get("version") {
+        None => 1u32,
+        Some(v) => match v.as_u64() {
+            Some(n) => n as u32,
+            None => return Err(ConfigError::MalformedVersion { found: v.to_string() }),
+        },
+    };
 
     match version {
         1 => {
@@ -171,10 +185,49 @@ pub fn load_or_create(path: &Path) -> Result<Config, ConfigError> {
     let raw = fs::read_to_string(path)?;
     let config = parse(&raw)?;
     if !raw.contains("\"commands\"") {
-        // Migrated from v1 — persist it so this happens once.
-        fs::write(path, serde_json::to_string_pretty(&config)?)?;
+        // Migrated from v1 — persist it so this happens once. A failure
+        // here (locked file, disk full, permission denied, an antivirus or
+        // cloud-sync tool holding a handle -- all routine on Windows) must
+        // never lose a config that already parsed successfully one line
+        // above: the rewrite is only a once-off optimisation so the
+        // migration doesn't re-run on every launch, not a precondition for
+        // returning the config at all. Log and carry on with `config`
+        // either way; the migration will simply be retried next launch.
+        if let Err(e) = write_atomic(path, &config) {
+            let line = format!("CONFIG migration-rewrite-failed reason={e}");
+            eprintln!("{line}");
+            if let Some(dir) = path.parent() {
+                crate::status::append_log(dir, &line);
+            }
+        }
     }
     Ok(config)
+}
+
+/// Write `config` to `path` atomically: serialize to a sibling `.tmp` file,
+/// then `rename` it over `path`. A same-directory rename is atomic on
+/// Windows (and POSIX) -- unlike `fs::write`, which opens the destination
+/// with truncation and can leave a half-written or empty file behind if the
+/// write fails partway through, a failed rename leaves the original file
+/// completely untouched. The temp file is best-effort cleaned up on any
+/// failure; its own removal failing is not itself an error worth reporting.
+fn write_atomic(path: &Path, config: &Config) -> Result<(), ConfigError> {
+    let tmp_name = match path.file_name() {
+        Some(name) => format!("{}.tmp", name.to_string_lossy()),
+        None => "config.json.tmp".to_string(),
+    };
+    let tmp_path = path.with_file_name(tmp_name);
+
+    let json = serde_json::to_string_pretty(config)?;
+    if let Err(e) = fs::write(&tmp_path, json) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
+    if let Err(e) = fs::rename(&tmp_path, path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(e.into());
+    }
+    Ok(())
 }
 
 pub fn config_path(app: &tauri::AppHandle) -> PathBuf {
@@ -305,5 +358,116 @@ mod tests {
         let cfg = parse(&serde_json::to_string(&default_config()).unwrap()).unwrap();
         assert_eq!(cfg.version, CURRENT_VERSION);
         assert_eq!(cfg.commands.len(), 1);
+    }
+
+    // I1: a failed migration rewrite must never discard a config that
+    // already parsed successfully. Mark the on-disk file read-only so the
+    // rewrite attempt inside `load_or_create` fails, then assert the
+    // command survives anyway.
+    #[test]
+    fn a_migration_rewrite_failure_still_returns_the_parsed_config() {
+        let dir = std::env::temp_dir().join(format!(
+            "cai-test-rewrite-fail-{}-{}",
+            std::process::id(),
+            "a"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        fs::write(&path, v1_json()).unwrap();
+
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&path, perms).unwrap();
+
+        let result = load_or_create(&path);
+
+        // Restore write access before cleanup regardless of the outcome,
+        // so a failing assertion below doesn't leak a read-only temp dir.
+        let mut perms2 = fs::metadata(&path).unwrap().permissions();
+        perms2.set_readonly(false);
+        let _ = fs::set_permissions(&path, perms2);
+        let _ = fs::remove_dir_all(&dir);
+
+        let cfg = result.expect(
+            "a failed migration rewrite must not lose an already-parsed config",
+        );
+        assert_eq!(cfg.version, CURRENT_VERSION);
+        assert_eq!(cfg.commands.len(), 1);
+        assert_eq!(cfg.commands[0].id, "fix");
+    }
+
+    // I1 part 2: the rewrite must be atomic -- a failure must never leave
+    // the destination truncated or partially written. Force the rename
+    // step specifically to fail (destination read-only) and confirm the
+    // pre-existing destination content is completely untouched.
+    #[test]
+    fn write_atomic_leaves_the_destination_untouched_on_failure() {
+        let dir = std::env::temp_dir().join(format!(
+            "cai-test-atomic-{}-{}",
+            std::process::id(),
+            "b"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.json");
+        let original = "not valid config json, just a marker of pre-existing content";
+        fs::write(&path, original).unwrap();
+
+        let mut perms = fs::metadata(&path).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(&path, perms).unwrap();
+
+        let result = write_atomic(&path, &default_config());
+
+        let mut perms2 = fs::metadata(&path).unwrap().permissions();
+        perms2.set_readonly(false);
+        let _ = fs::set_permissions(&path, perms2);
+        let on_disk = fs::read_to_string(&path).unwrap();
+        let tmp_leaked = dir.join("config.json.tmp").exists();
+        let _ = fs::remove_dir_all(&dir);
+
+        assert!(result.is_err(), "expected the rename-over-read-only-destination to fail");
+        assert_eq!(
+            on_disk, original,
+            "a failed atomic write must never modify the pre-existing destination"
+        );
+        assert!(!tmp_leaked, "the temp file should be cleaned up after a failed rename");
+    }
+
+    // I2: a "version" key that is present but not a non-negative integer
+    // must not silently be treated as v1 -- see missing vs malformed below.
+    fn missing_version_json() -> &'static str {
+        r#"{
+          "backends": [
+            {"id":"ollama","name":"Local","kind":"openai-compatible",
+             "baseUrl":"http://localhost:11434/v1","model":"m","apiKey":null,"timeoutMs":120000}
+          ],
+          "prompts": [
+            {"id":"fix","name":"Fix grammar","backendId":"ollama",
+             "hotkey":"Ctrl+Alt+J","systemPrompt":"Fix grammar."}
+          ]
+        }"#
+    }
+
+    #[test]
+    fn a_missing_version_key_migrates_as_v1() {
+        let cfg = parse(missing_version_json())
+            .expect("a missing version key should default to v1 and migrate");
+        assert_eq!(cfg.version, CURRENT_VERSION);
+        assert_eq!(cfg.commands.len(), 1);
+        assert_eq!(cfg.commands[0].id, "fix");
+    }
+
+    #[test]
+    fn rejects_a_string_version_instead_of_silently_migrating() {
+        let json = valid_json().replace(r#""version": 2"#, r#""version": "2""#);
+        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
+    }
+
+    #[test]
+    fn rejects_a_null_version_instead_of_silently_migrating() {
+        let json = valid_json().replace(r#""version": 2"#, r#""version": null"#);
+        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
     }
 }
