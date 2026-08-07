@@ -5,6 +5,7 @@
 	import * as Alert from '$lib/components/shadcn/alert/index.js';
 	import { Badge } from '$lib/components/shadcn/badge/index.js';
 	import BackendList from '$lib/components/BackendList.svelte';
+	import CommandList from '$lib/components/CommandList.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { onMount } from 'svelte';
 
@@ -65,7 +66,11 @@
 			{/if}
 		</Tabs.Content>
 		<Tabs.Content value="commands">
-			<p class="text-sm text-muted-foreground">Commands — coming soon.</p>
+			{#if configState.loading}
+				<p class="text-sm text-muted-foreground">Loading…</p>
+			{:else}
+				<CommandList />
+			{/if}
 		</Tabs.Content>
 	</Tabs.Root>
 </div>

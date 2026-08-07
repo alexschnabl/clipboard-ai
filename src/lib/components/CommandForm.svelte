@@ -1,0 +1,129 @@
+<!-- lib/components/CommandForm.svelte — add/edit dialog for a single command -->
+<script lang="ts">
+	import * as Dialog from '$lib/components/shadcn/dialog/index.js';
+	import * as Select from '$lib/components/shadcn/select/index.js';
+	import { Button } from '$lib/components/shadcn/button/index.js';
+	import { Input } from '$lib/components/shadcn/input/index.js';
+	import { Label } from '$lib/components/shadcn/label/index.js';
+	import { Textarea } from '$lib/components/shadcn/textarea/index.js';
+	import HotkeyRecorder from './HotkeyRecorder.svelte';
+	import { configState } from '$lib/state/config.svelte.js';
+	import type { CommandConfig } from '$lib/types';
+
+	let {
+		open = $bindable(false),
+		command = null
+	}: {
+		open: boolean;
+		/** The command being edited, or null when adding a new one. */
+		command?: CommandConfig | null;
+	} = $props();
+
+	let name = $state('');
+	let backendId = $state('');
+	let hotkey = $state('');
+	let systemPrompt = $state('');
+
+	const isEdit = $derived(command !== null);
+	const canSave = $derived(name.trim().length > 0 && backendId.length > 0);
+	const backendName = $derived(
+		configState.config.backends.find((b) => b.id === backendId)?.name ?? 'Select a backend'
+	);
+
+	// Seed the form whenever the dialog opens.
+	$effect(() => {
+		if (open) {
+			name = command?.name ?? '';
+			backendId = command?.backendId ?? configState.config.backends[0]?.id ?? '';
+			hotkey = command?.hotkey ?? '';
+			systemPrompt = command?.systemPrompt ?? '';
+		}
+	});
+
+	function handleBackendChange(value: string | undefined): void {
+		if (typeof value !== 'string') return;
+		backendId = value;
+	}
+
+	function handleHotkeyChange(next: string): void {
+		hotkey = next;
+	}
+
+	function handleSave(): void {
+		if (!canSave) return;
+		const next: CommandConfig = {
+			id: command?.id ?? crypto.randomUUID(),
+			name: name.trim(),
+			backendId,
+			hotkey,
+			systemPrompt: systemPrompt.trim()
+		};
+		if (command) {
+			configState.updateCommand(next);
+		} else {
+			configState.addCommand(next);
+		}
+		open = false;
+	}
+</script>
+
+<Dialog.Root bind:open>
+	<Dialog.Content class="sm:max-w-md">
+		<Dialog.Header>
+			<Dialog.Title>{isEdit ? 'Edit command' : 'Add command'}</Dialog.Title>
+			<Dialog.Description>
+				{isEdit
+					? 'Update this command’s backend, hotkey and prompt.'
+					: 'Configure a new command.'}
+			</Dialog.Description>
+		</Dialog.Header>
+
+		<div class="flex flex-col gap-4 py-2">
+			<div class="flex flex-col gap-1.5">
+				<Label for="command-name">Name</Label>
+				<Input id="command-name" bind:value={name} placeholder="Fix grammar" autocomplete="off" />
+			</div>
+
+			<div class="flex flex-col gap-1.5">
+				<Label for="command-backend">Backend</Label>
+				<Select.Root type="single" value={backendId} onValueChange={handleBackendChange}>
+					<Select.Trigger id="command-backend" class="w-full">
+						{backendName}
+					</Select.Trigger>
+					<Select.Content>
+						{#each configState.config.backends as backend (backend.id)}
+							<Select.Item value={backend.id} label={backend.name} />
+						{/each}
+					</Select.Content>
+				</Select.Root>
+				{#if configState.config.backends.length === 0}
+					<p class="text-xs text-muted-foreground">
+						No backends yet — add one on the Backends tab first.
+					</p>
+				{/if}
+			</div>
+
+			<div class="flex flex-col gap-1.5">
+				<Label for="command-hotkey">Hotkey</Label>
+				<HotkeyRecorder id="command-hotkey" value={hotkey} onchange={handleHotkeyChange} />
+			</div>
+
+			<div class="flex flex-col gap-1.5">
+				<Label for="command-prompt">System prompt</Label>
+				<Textarea
+					id="command-prompt"
+					bind:value={systemPrompt}
+					placeholder="Fix grammar and spelling. Keep the meaning."
+					rows={4}
+				/>
+			</div>
+		</div>
+
+		<Dialog.Footer>
+			<Button variant="outline" onclick={() => (open = false)}>Cancel</Button>
+			<Button onclick={handleSave} disabled={!canSave}>
+				{isEdit ? 'Save changes' : 'Add command'}
+			</Button>
+		</Dialog.Footer>
+	</Dialog.Content>
+</Dialog.Root>

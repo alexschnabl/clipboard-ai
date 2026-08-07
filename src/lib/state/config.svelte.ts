@@ -40,6 +40,7 @@ class ConfigState {
 			return result.ok;
 		} catch (e) {
 			this.error = String(e);
+			this.problems = [];
 			return false;
 		} finally {
 			this.saving = false;
@@ -72,6 +73,23 @@ class ConfigState {
 		this.config.backends = this.config.backends.filter((b) => b.id !== id);
 		this.touch();
 		return { ok: true, usedBy: [] };
+	}
+
+	addCommand(command: CommandConfig): void {
+		this.config.commands.push(command);
+		this.touch();
+	}
+
+	updateCommand(command: CommandConfig): void {
+		const i = this.config.commands.findIndex((c) => c.id === command.id);
+		if (i < 0) return;
+		this.config.commands[i] = command;
+		this.touch();
+	}
+
+	deleteCommand(id: string): void {
+		this.config.commands = this.config.commands.filter((c) => c.id !== id);
+		this.touch();
 	}
 }
 
