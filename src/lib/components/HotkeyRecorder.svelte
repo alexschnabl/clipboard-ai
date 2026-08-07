@@ -3,6 +3,8 @@
 	import { invoke } from '@tauri-apps/api/core';
 	import { onDestroy } from 'svelte';
 	import { hotkeyFromEvent } from '$lib/utils/hotkey';
+	import { configState } from '$lib/state/config.svelte.js';
+	import type { Problem } from '$lib/types';
 
 	let {
 		value,
@@ -56,22 +58,54 @@
 	 * including when suspend_hotkeys itself failed: resume_hotkeys just
 	 * re-applies the saved config, which is safe whether or not the suspend
 	 * actually took effect, and it is the only way back to working hotkeys.
+	 *
+	 * `resume_hotkeys` returns `Vec<Problem>` directly, not a `Result` — it
+	 * essentially never rejects, so a re-registration failure (e.g. rediscovering
+	 * an already-in-use hotkey) was previously discarded silently. Routing it
+	 * into `configState.problems`, the same channel `save()` uses, is what makes
+	 * it visible: unlike the local `hint` below, it survives this component
+	 * unmounting, which matters because the onDestroy backstop calls this too.
 	 */
 	async function resume(): Promise<void> {
 		if (suspending) await suspending;
-		await invoke('resume_hotkeys').catch((e) => (hint = String(e)));
+		try {
+			configState.problems = await invoke<Problem[]>('resume_hotkeys');
+		} catch (e) {
+			hint = String(e);
+		}
 	}
 
+	/**
+	 * This component is nested inside `CommandForm`'s `Dialog.Content`. bits-ui's
+	 * `EscapeLayer` listens for Escape on `document`, in the bubble phase, and
+	 * doesn't stopPropagation itself (verified in
+	 * node_modules/bits-ui/dist/bits/utilities/escape-layer/use-escape-layer.svelte.js) --
+	 * so a listener added here via `<svelte:window>` runs too late: `document`
+	 * is reached before `window` on the way back up, meaning EscapeLayer's own
+	 * unconditional `handleClose()` fires first and closes the whole dialog,
+	 * discarding whatever the user has typed. Attaching directly to `document`,
+	 * and in the *capture* phase, puts this handler ahead of EscapeLayer's in
+	 * the event's path (capture runs root-to-target before bubble runs back up),
+	 * so `stopPropagation()` below can retire the event before EscapeLayer's
+	 * listener ever sees it.
+	 *
+	 * Only unmapped/mapped keys the recorder actually consumes get
+	 * `preventDefault`/`stopPropagation` -- everything else (most notably Tab)
+	 * is left alone so native focus navigation still works; the button's
+	 * `onblur` handler ends recording cleanly once focus actually leaves it.
+	 */
 	function onkeydown(event: KeyboardEvent) {
 		if (!recording) return;
-		event.preventDefault();
-		event.stopPropagation();
 		if (event.key === 'Escape') {
+			event.preventDefault();
+			event.stopPropagation();
 			void stop(false);
 			return;
 		}
 		const mapped = hotkeyFromEvent(event);
 		if (mapped) {
+			event.preventDefault();
+			event.stopPropagation();
 			captured = mapped;
 			hint = null;
 			void stop(true);
@@ -79,6 +113,16 @@
 			hint = 'Hold a modifier (Ctrl, Alt, Shift or Win) and press a key.';
 		}
 	}
+
+	// Scoped to the recording lifecycle rather than a persistent listener: attaches
+	// only while `recording` is true, and the cleanup below runs both on the next
+	// effect re-run (recording flips false) and on unmount, so it can never leak
+	// past this component being torn down.
+	$effect(() => {
+		if (!recording) return;
+		document.addEventListener('keydown', onkeydown, { capture: true });
+		return () => document.removeEventListener('keydown', onkeydown, { capture: true });
+	});
 
 	// Backstop for the one exit path the handlers above cannot see: the
 	// component being torn down mid-recording. The settings window is only
@@ -88,16 +132,16 @@
 	// live window, e.g. the surrounding CommandForm dialog closing (Cancel,
 	// its own close button, or an Escape that a nested dismissable layer
 	// consumes before this component's own keydown handler sees it). If that
-	// happens, `resume()` still runs; it just cannot update `hint`, since
-	// there is no UI left to show it on.
+	// happens, `resume()` still runs; any problems it resolves with still
+	// reach `configState.problems` (see `resume()` above), though an
+	// IPC-level failure can only fall back to the local `hint`, and there is
+	// no UI left to show that on.
 	onDestroy(() => {
 		if (!recording) return;
 		recording = false;
 		void resume();
 	});
 </script>
-
-<svelte:window on:keydown={recording ? onkeydown : undefined} />
 
 <button
 	{id}
@@ -106,9 +150,20 @@
 	class:ring-2={recording}
 	onclick={start}
 	onblur={() => void stop(false)}
+	aria-pressed={recording}
+	aria-label={recording
+		? 'Recording hotkey. Press a key combination, or Escape to cancel.'
+		: value
+			? `Hotkey: ${value}. Click to change.`
+			: 'No hotkey set. Click to record one.'}
 >
 	{recording ? 'Press a combination…' : value || 'Click to set a hotkey'}
 </button>
+{#if recording}
+	<p class="sr-only" role="status">
+		Recording hotkey. Press a key combination, or Escape to cancel.
+	</p>
+{/if}
 {#if hint}
-	<p class="mt-1 text-xs text-muted-foreground">{hint}</p>
+	<p class="mt-1 text-xs text-muted-foreground" role="status">{hint}</p>
 {/if}

@@ -155,13 +155,3 @@
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
-
-/* Sonner renders its close button on the leading (left) side in LTR layouts, on top of the
-   leading status icon. Move it to the top-right corner — the conventional dismiss position,
-   clear of the icon. Overrides sonner's own close-button variables (set on the toaster) at
-   slightly higher specificity, so no !important is needed. */
-html [data-sonner-toaster][dir='ltr'] {
-  --toast-close-button-start: unset;
-  --toast-close-button-end: 0;
-  --toast-close-button-transform: translate(35%, -35%);
-}

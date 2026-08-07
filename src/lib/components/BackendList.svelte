@@ -88,9 +88,15 @@
 		<Table.Body>
 			{#each configState.config.backends as backend (backend.id)}
 				<Table.Row>
-					<Table.Cell class="font-medium">{backend.name}</Table.Cell>
+					<Table.Cell class="max-w-48 font-medium">
+						<span class="block truncate" title={backend.name}>{backend.name}</span>
+					</Table.Cell>
 					<Table.Cell>{KIND_LABELS[backend.kind]}</Table.Cell>
-					<Table.Cell>{backend.model ?? '—'}</Table.Cell>
+					<Table.Cell class="max-w-48">
+						<span class="block truncate" title={backend.model ?? undefined}
+							>{backend.model ?? '—'}</span
+						>
+					</Table.Cell>
 					<Table.Cell class="text-right">
 						<div class="flex justify-end gap-2">
 							<Button

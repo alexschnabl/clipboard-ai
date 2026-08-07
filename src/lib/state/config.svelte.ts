@@ -22,6 +22,11 @@ export class ConfigState {
 	saving = $state(false);
 	dirty = $state(false);
 	error = $state<string | null>(null);
+	/** Which operation produced `error` above, so `+page.svelte` can title its
+	 *  Alert correctly instead of always assuming a save failed -- `error` is
+	 *  set from both `load()` and `save()` below, and a poisoned-mutex or
+	 *  IPC-level rejection on the very first `get_config` is not a save. */
+	errorSource = $state<'load' | 'save' | null>(null);
 	problems = $state<Problem[]>([]);
 	/** Set by `load()` whenever the backend's real config.json failed to
 	 *  read at startup. Non-null means `config` above is the empty startup
@@ -51,9 +56,11 @@ export class ConfigState {
 			this.loadError = result.loadError;
 			this.dirty = false;
 			this.error = null;
+			this.errorSource = null;
 			this.revision++;
 		} catch (e) {
 			this.error = String(e);
+			this.errorSource = 'load';
 		} finally {
 			this.loading = false;
 		}
@@ -64,11 +71,13 @@ export class ConfigState {
 		try {
 			const result = await invoke<SaveResult>('save_config', { config: this.config });
 			this.error = result.error;
+			this.errorSource = result.error ? 'save' : null;
 			this.problems = result.problems;
 			if (result.ok) this.dirty = false;
 			return result.ok;
 		} catch (e) {
 			this.error = String(e);
+			this.errorSource = 'save';
 			this.problems = [];
 			return false;
 		} finally {

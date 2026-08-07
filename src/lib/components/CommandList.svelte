@@ -78,10 +78,10 @@
 			{#each configState.config.commands as command (command.id)}
 				{@const problems = problemsFor(command)}
 				<Table.Row>
-					<Table.Cell class="font-medium">
-						{command.name}
+					<Table.Cell class="max-w-48 font-medium">
+						<span class="block truncate" title={command.name}>{command.name}</span>
 						{#if problems.length > 0}
-							<p class="mt-1 text-xs font-normal text-destructive">
+							<p class="mt-1 text-xs font-normal whitespace-normal text-destructive">
 								{problems.map((p) => p.message).join(' ')}
 							</p>
 						{/if}
@@ -93,7 +93,11 @@
 							<span class="text-muted-foreground">—</span>
 						{/if}
 					</Table.Cell>
-					<Table.Cell>{backendName(command.backendId)}</Table.Cell>
+					<Table.Cell class="max-w-48">
+						<span class="block truncate" title={backendName(command.backendId)}
+							>{backendName(command.backendId)}</span
+						>
+					</Table.Cell>
 					<Table.Cell class="text-right">
 						<div class="flex justify-end gap-2">
 							<Button

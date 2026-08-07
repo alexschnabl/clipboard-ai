@@ -178,6 +178,10 @@
 						oninput={handleTimeoutInput}
 						aria-invalid={timeoutTooLow}
 					/>
+					<p class="text-xs text-muted-foreground">
+						A cold local model can take ~16,000 ms on its first request of the day — the
+						{DEFAULT_TIMEOUT_MS.toLocaleString()} ms default avoids a false timeout then.
+					</p>
 					{#if timeoutTooLow}
 						<p class="text-xs text-destructive">
 							Timeout must be at least {MIN_TIMEOUT_MS} ms.

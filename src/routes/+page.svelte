@@ -127,7 +127,9 @@
 
 	{#if configState.error}
 		<Alert.Root variant="destructive">
-			<Alert.Title>Couldn’t save config</Alert.Title>
+			<Alert.Title>
+				{configState.errorSource === 'load' ? 'Couldn’t load config' : 'Couldn’t save config'}
+			</Alert.Title>
 			<Alert.Description>{configState.error}</Alert.Description>
 		</Alert.Root>
 	{/if}
@@ -183,7 +185,9 @@
 
 		{#if configState.error}
 			<Alert.Root variant="destructive">
-				<Alert.Title>Couldn’t save config</Alert.Title>
+				<Alert.Title>
+					{configState.errorSource === 'load' ? 'Couldn’t load config' : 'Couldn’t save config'}
+				</Alert.Title>
 				<Alert.Description>{configState.error}</Alert.Description>
 			</Alert.Root>
 		{/if}
