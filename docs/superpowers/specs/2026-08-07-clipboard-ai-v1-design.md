@@ -1,7 +1,9 @@
 # Clipboard AI v1 — Tray App (Rust / Tauri)
 
 **Date:** 2026-08-07
-**Status:** Approved, not yet implemented
+**Status:** Implemented and shipped 2026-08-07 (see `src-tauri/`; verification checklist in
+`docs/superpowers/notes/2026-08-07-v1-verification.md`). Superseded by v2 (see
+`2026-08-07-clipboard-ai-v2-settings-design.md`).
 **Supersedes:** nothing. Builds on the findings in `docs/superpowers/notes/2026-08-06-spike-results.md`.
 
 ## Context

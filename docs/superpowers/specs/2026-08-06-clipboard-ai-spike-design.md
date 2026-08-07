@@ -1,7 +1,10 @@
 # Clipboard AI — Capture/Paste Spike
 
 **Date:** 2026-08-06
-**Status:** Approved, not yet implemented
+**Status:** Implemented and shipped 2026-08-06 (57 tests passing; results in
+`docs/superpowers/notes/2026-08-06-spike-results.md`). Superseded by v1 (see
+`2026-08-07-clipboard-ai-v1-design.md`); the throwaway `spike/`/`tests/` code was deleted
+2026-08-07 as planned and is recoverable from git history.
 **Scope:** Sub-project 1 of Clipboard AI. Throwaway code.
 
 ## Context

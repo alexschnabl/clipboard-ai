@@ -1,7 +1,9 @@
 # Clipboard AI v2 — Settings UI
 
 **Date:** 2026-08-07
-**Status:** Approved, not yet implemented
+**Status:** Implemented and shipped 2026-08-07 (see `src-tauri/` and `src/`; verification checklist
+in `docs/superpowers/notes/2026-08-07-v2-verification.md`). Current design — nothing supersedes it
+as of this writing.
 **Builds on:** `2026-08-07-clipboard-ai-v1-design.md`. v1 is verified working — Ollama and the Claude
 subscription both confirmed end to end.
 
