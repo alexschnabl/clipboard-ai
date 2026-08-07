@@ -4,7 +4,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-use crate::{apply_config, config, AppState, Problem};
+use crate::{config, hotkeys::apply_config, AppState, Problem};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,16 +63,6 @@ pub fn get_config(state: State<'_, AppState>) -> GetConfigResult {
     GetConfigResult { config, load_error: state.config_load_error.clone(), startup_problems }
 }
 
-/// The outcome of `decide_save`: either the config was rejected before
-/// anything happened -- nothing was written to disk, and (since only
-/// `apply_config` ever mutates it -- see `AppState::config`'s doc comment
-/// in lib.rs) `state.config` was never touched -- or it was validated *and*
-/// durably written, ready for `apply_config` to take live.
-enum SaveDecision {
-    Rejected(String),
-    Ready(config::Config),
-}
-
 /// The validate-then-write half of `save_config`, pulled out as a pure
 /// function of its arguments so the ordering is unit-testable without a
 /// live `AppHandle`: this is the only version-testable Tauri
@@ -80,19 +70,16 @@ enum SaveDecision {
 /// `apply_config` -- the OS-registration half, and the only thing that ever
 /// mutates `state.config` -- genuinely needs an `AppHandle` and stays out
 /// of this function entirely, which is itself the guarantee: a caller
-/// holding a `Rejected` result has structurally no way to reach
-/// `state.config`, because it never had a `state` to reach.
-fn decide_save(config: &config::Config, path: &Path) -> SaveDecision {
+/// holding an `Err` result has structurally no way to reach `state.config`,
+/// because it never had a `state` to reach. `Err` means the config was
+/// rejected before anything happened -- nothing was written to disk, and
+/// `state.config` was never touched; `Ok` means it was validated *and*
+/// durably written, ready for `apply_config` to take live.
+fn decide_save(config: &config::Config, path: &Path) -> Result<config::Config, String> {
     // Validate through the same path the file loader uses, so the UI cannot
     // persist something a restart would then reject.
-    let json = match serde_json::to_string_pretty(config) {
-        Ok(j) => j,
-        Err(e) => return SaveDecision::Rejected(e.to_string()),
-    };
-    let validated = match config::parse(&json) {
-        Ok(c) => c,
-        Err(e) => return SaveDecision::Rejected(e.to_string()),
-    };
+    let json = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
+    let validated = config::parse(&json).map_err(|e| e.to_string())?;
 
     // `write_atomic`, not `fs::write`: this handler is the single
     // most-executed write path in the app (every settings-window Save goes
@@ -101,11 +88,9 @@ fn decide_save(config: &config::Config, path: &Path) -> SaveDecision {
     // (disk full, process killed, an AV/cloud-sync tool holding a handle)
     // must leave the previous config.json completely untouched rather than
     // truncated or empty.
-    if let Err(e) = config::write_atomic(path, &validated) {
-        return SaveDecision::Rejected(e.to_string());
-    }
+    config::write_atomic(path, &validated).map_err(|e| e.to_string())?;
 
-    SaveDecision::Ready(validated)
+    Ok(validated)
 }
 
 #[tauri::command]
@@ -116,8 +101,8 @@ pub fn save_config(
 ) -> SaveResult {
     let path = config::config_path(&app);
     match decide_save(&config, &path) {
-        SaveDecision::Rejected(e) => SaveResult { ok: false, error: Some(e), problems: vec![] },
-        SaveDecision::Ready(validated) => {
+        Err(e) => SaveResult { ok: false, error: Some(e), problems: vec![] },
+        Ok(validated) => {
             let problems = apply_config(&app, state.inner(), validated);
             SaveResult { ok: true, error: None, problems }
         }
@@ -153,7 +138,7 @@ mod save_config_tests {
         let decision = decide_save(&bad, &path);
 
         assert!(
-            matches!(decision, SaveDecision::Rejected(_)),
+            matches!(decision, Err(_)),
             "a command naming an unknown backend must be rejected"
         );
         assert!(!path.exists(), "a rejected config must never be written to disk");
@@ -178,13 +163,13 @@ mod save_config_tests {
         bad.commands.push(bad.commands[0].clone()); // duplicate id -> rejected
 
         match decide_save(&bad, &path) {
-            SaveDecision::Rejected(_) => {
-                // Mirrors save_config's own control flow: on `Rejected` it
+            Err(_) => {
+                // Mirrors save_config's own control flow: on `Err` it
                 // returns immediately and never calls `apply_config`, the
                 // only function that ever locks and overwrites
                 // `state.config`.
             }
-            SaveDecision::Ready(_) => panic!("a duplicate id must be rejected"),
+            Ok(_) => panic!("a duplicate id must be rejected"),
         }
 
         assert_eq!(
@@ -206,10 +191,10 @@ mod save_config_tests {
         let cfg = config::default_config();
 
         match decide_save(&cfg, &path) {
-            SaveDecision::Ready(validated) => {
+            Ok(validated) => {
                 assert_eq!(validated.commands.len(), cfg.commands.len());
             }
-            SaveDecision::Rejected(e) => panic!("expected a valid config to be accepted, got: {e}"),
+            Err(e) => panic!("expected a valid config to be accepted, got: {e}"),
         }
         assert!(path.exists(), "a validated config must be written to disk");
         let on_disk = fs::read_to_string(&path).unwrap();
@@ -233,13 +218,21 @@ pub fn resume_hotkeys(app: AppHandle, state: State<'_, AppState>) -> Vec<Problem
     apply_config(&app, &state, config)
 }
 
-/// Hides the settings window and re-applies config, unconditionally. This
-/// is the function `handle_close_request` below funnels every close
-/// through -- the X button, Alt+F4, the system menu's Close all end up
-/// here (there is nothing left to ask the user first: see that function's
-/// doc comment). Re-applying keeps Task 4's guarantee intact: recording a
-/// hotkey (Task 8) suspends global shortcuts, and this is what restores
-/// them whenever the window closes.
+/// The single entry point the settings window's `CloseRequested` handler
+/// calls, after `api.prevent_close()`, for every route that can request
+/// closing it -- the X button, Alt+F4, the system menu's Close. Hides the
+/// window and re-applies config, unconditionally. Re-applying keeps Task
+/// 4's guarantee intact: recording a hotkey (Task 8) suspends global
+/// shortcuts, and this is what restores them whenever the window closes.
+///
+/// Every mutation to the config now persists immediately and durably (see
+/// `ConfigState`'s `commit` helper in `config.svelte.ts`) -- there is no
+/// such thing as an unsaved edit by the time this fires, so there is
+/// nothing left to ask the user about. This used to branch on a
+/// frontend-reported dirty flag and, if set, block briefly for a
+/// confirmation round trip before hiding regardless; that whole guard is
+/// gone along with the state it existed to protect. Closing is just hiding
+/// the window and re-applying whatever's already on disk.
 ///
 /// `state` is optional so the hide half of this can never be held hostage
 /// by the config-reapply half: `AppState` is `.manage()`d before any window
@@ -264,12 +257,12 @@ pub fn resume_hotkeys(app: AppHandle, state: State<'_, AppState>) -> Vec<Problem
 /// internal `shortcuts` mutex *before* the blocking main-thread round-trip
 /// and holds it across the whole wait -- unlike `unregister_multiple` a few
 /// lines above it in that same file, which deliberately scopes the
-/// round-trip before taking the lock. `hide_and_reapply`'s only caller runs
-/// on the main thread today (window events do), but an earlier version of
-/// this function also had a close-confirmation wait that ran on a *spawned*
-/// thread instead -- calling `apply_config` from there directly held that
-/// lock while blocked waiting for the main thread's event loop to service
-/// the round-trip; if the main thread was ever itself blocked trying to
+/// round-trip before taking the lock. This function's only caller runs on
+/// the main thread today (window events do), but an earlier version of it
+/// also had a close-confirmation wait that ran on a *spawned* thread
+/// instead -- calling `apply_config` from there directly held that lock
+/// while blocked waiting for the main thread's event loop to service the
+/// round-trip; if the main thread was ever itself blocked trying to
 /// acquire that same lock (any other apply_config call reaching the plugin
 /// -- a settings save, `resume_hotkeys`), neither side could make progress
 /// and the app hung forever. `run_on_main_thread` sidesteps this on both
@@ -281,13 +274,12 @@ pub fn resume_hotkeys(app: AppHandle, state: State<'_, AppState>) -> Vec<Problem
 /// dispatch here (rather than inlining now that there's only one, main-
 /// thread caller) means a future second caller off the main thread stays
 /// safe by construction instead of by remembering to re-add this.
-fn hide_and_reapply(app: &AppHandle, state: Option<&AppState>) {
+pub(crate) fn handle_close_request(app: AppHandle, state: Option<AppState>) {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.hide();
         let _ = app.emit("settings://window-hidden", ());
     }
     if let Some(state) = state {
-        let state = state.clone();
         let app_for_task = app.clone();
         if let Err(e) = app.run_on_main_thread(move || {
             // R8: recover rather than silently skip the reapply on a
@@ -310,20 +302,4 @@ fn hide_and_reapply(app: &AppHandle, state: Option<&AppState>) {
             eprintln!("failed to schedule config re-apply on settings close: {e}");
         }
     }
-}
-
-/// The single entry point the settings window's `CloseRequested` handler
-/// calls, after `api.prevent_close()`, for every route that can request
-/// closing it -- the X button, Alt+F4, the system menu's Close.
-///
-/// Every mutation to the config now persists immediately and durably (see
-/// `ConfigState`'s `commit` helper in `config.svelte.ts`) -- there is no
-/// such thing as an unsaved edit by the time this fires, so there is
-/// nothing left to ask the user about. This used to branch on a
-/// frontend-reported dirty flag and, if set, block briefly for a
-/// confirmation round trip before hiding regardless; that whole guard is
-/// gone along with the state it existed to protect. Closing is just hiding
-/// the window and re-applying whatever's already on disk.
-pub(crate) fn handle_close_request(app: AppHandle, state: Option<AppState>) {
-    hide_and_reapply(&app, state.as_ref());
 }

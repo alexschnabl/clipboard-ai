@@ -64,8 +64,15 @@ impl WindowsOps {
         // to recover short of a restart. There is no invariant of ours to
         // protect here -- `Enigo` holds no partially-mutated state of ours
         // across calls -- so recover the guard instead of propagating the
-        // poison.
-        let mut enigo = self.enigo.lock().unwrap_or_else(|e| e.into_inner());
+        // poison. Logged, matching `lib.rs`'s `recover_lock` (its own doc
+        // comment states that logging every recovery, not just performing
+        // it silently, was the intent) -- `status::append_log` isn't
+        // reachable from here without threading a path through `OsOps`, but
+        // the console line costs nothing.
+        let mut enigo = self.enigo.lock().unwrap_or_else(|e| {
+            eprintln!("enigo mutex was poisoned by an earlier panic; recovering");
+            e.into_inner()
+        });
         enigo
             .key(Key::Control, Direction::Press)
             .map_err(|e| OsError::Input(e.to_string()))?;
@@ -107,10 +114,13 @@ impl WindowsOps {
 impl OsOps for WindowsOps {
     fn read_clipboard(&self) -> Result<String, OsError> {
         // See the comment on `chord`: recover a poisoned lock rather than
-        // propagate it. Losing one in-flight clipboard operation to a
-        // panic is not an invariant violation worth permanently disabling
-        // every future cycle over.
-        let mut cb = self.clipboard.lock().unwrap_or_else(|e| e.into_inner());
+        // propagate it, and log it, matching `chord`. Losing one in-flight
+        // clipboard operation to a panic is not an invariant violation worth
+        // permanently disabling every future cycle over.
+        let mut cb = self.clipboard.lock().unwrap_or_else(|e| {
+            eprintln!("clipboard mutex was poisoned by an earlier panic; recovering");
+            e.into_inner()
+        });
         // Do not flatten a read failure into `Ok(String::new())`: a non-text
         // clipboard (an image, a file list) and a locked/unreadable one both
         // fail here, and the caller must be able to tell that apart from a
@@ -121,7 +131,11 @@ impl OsOps for WindowsOps {
     }
 
     fn write_clipboard(&self, text: &str) -> Result<(), OsError> {
-        let mut cb = self.clipboard.lock().unwrap_or_else(|e| e.into_inner());
+        // See `read_clipboard`: recover a poisoned lock and log it.
+        let mut cb = self.clipboard.lock().unwrap_or_else(|e| {
+            eprintln!("clipboard mutex was poisoned by an earlier panic; recovering");
+            e.into_inner()
+        });
         cb.set_text(text.to_string()).map_err(|e| OsError::Clipboard(e.to_string()))
     }
 
@@ -173,12 +187,6 @@ pub struct NullOps {
 impl NullOps {
     pub fn new() -> Self {
         Self { start: Instant::now() }
-    }
-}
-
-impl Default for NullOps {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

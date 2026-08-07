@@ -5,10 +5,16 @@ use serde_json::json;
 use crate::backend::{Backend, BackendError, HttpClient};
 use crate::config::BackendConfig;
 
+/// Talks the OpenAI Chat Completions wire format -- `POST
+/// {baseUrl}/chat/completions` with a `messages` array and a `choices[0]`
+/// response -- which is also what every "OpenAI-compatible" local server
+/// (Ollama, LM Studio, llama.cpp's server mode, ...) implements. That's the
+/// entire reason this backend kind exists as one implementation rather than
+/// one per local-model server: they all speak this same shape.
 pub struct OpenAiCompatible {
     name: String,
     base_url: Option<String>,
-    model: String,
+    model: Option<String>,
     api_key: Option<String>,
     timeout_ms: u64,
     http: Arc<dyn HttpClient>,
@@ -19,7 +25,7 @@ impl OpenAiCompatible {
         Self {
             name: config.name.clone(),
             base_url: config.base_url.clone(),
-            model: config.model.clone().unwrap_or_default(),
+            model: config.model.clone(),
             api_key: config.api_key.clone(),
             timeout_ms: config.timeout_ms,
             http,
@@ -33,19 +39,45 @@ impl Backend for OpenAiCompatible {
     }
 
     fn transform(&self, system_prompt: &str, text: &str) -> Result<String, BackendError> {
+        // `filter` before `ok_or_else`: a blank string is as unusable as an
+        // absent one, and hand-editing config.json can produce either. The
+        // settings UI already trims empties to null, so this covers the
+        // hand-edited path the UI cannot.
         let base = self
             .base_url
             .as_deref()
+            .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| BackendError::Misconfigured("baseUrl is required".into()))?;
         let url = format!("{}/chat/completions", base.trim_end_matches('/'));
 
+        // Matches the `base_url` check above: a missing model must fail
+        // clearly here, not ship as `"model": ""` and fail opaquely once it
+        // reaches the remote server (an unrecognized-model HTTP error, or a
+        // provider that silently falls back to whatever it treats as
+        // "default").
+        let model = self
+            .model
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .ok_or_else(|| BackendError::Misconfigured("model is required".into()))?;
+
+        // Unlike `anthropic.rs`'s `x-api-key`, this is a bearer token in the
+        // standard `Authorization` header -- the OpenAI convention every
+        // compatible server also follows. Sent only when configured: a
+        // local server (Ollama, ...) typically has no auth at all, and
+        // sending an empty/absent key as a header some servers would still
+        // parse is worse than omitting the header entirely.
         let mut headers = Vec::new();
         if let Some(key) = &self.api_key {
             headers.push(("Authorization".to_string(), format!("Bearer {key}")));
         }
 
+        // `"stream": false` is not the wire format's default -- omitting it
+        // would get an SSE chunk stream back instead of one JSON object, and
+        // `post_json`'s `HttpClient` contract only ever returns a single
+        // parsed `Value`, not an event stream.
         let body = json!({
-            "model": self.model,
+            "model": model,
             "stream": false,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -55,6 +87,15 @@ impl Backend for OpenAiCompatible {
 
         let response = self.http.post_json(&url, &headers, &body, self.timeout_ms)?;
 
+        // `choices[0]` only: with `"n"` left unset (its default is 1) and no
+        // multi-completion feature this app exposes, a compliant server
+        // never returns more than one choice anyway. The whole chain is one
+        // `.and_then()` collapsing every way a compliant-looking response
+        // can still fail to carry usable text -- an empty `choices` array,
+        // a `null` `message` (seen from at least one real Ollama build), a
+        // `null` `content` -- into the same `BadResponse` rather than a
+        // `.unwrap()`/index panic on a field a malformed or unusual server
+        // response left out.
         let content = response
             .get("choices")
             .and_then(|c| c.get(0))
@@ -163,30 +204,58 @@ mod tests {
         assert!(matches!(backend.transform("s", "t"), Err(BackendError::Transport(_))));
     }
 
+    // Same code path (`transform`'s `.and_then()` chain over
+    // `choices[0].message.content`), exercised with a different link of
+    // that chain missing/null each time -- all three must fail cleanly as
+    // a `BadResponse`, never panic.
     #[test]
-    fn a_response_with_no_choices_is_a_backend_error() {
-        let backend = OpenAiCompatible::new(&cfg(), FakeHttp::ok(json!({"choices": []})));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::BadResponse(_))));
-    }
-
-    #[test]
-    fn a_null_message_is_a_backend_error_not_a_panic() {
-        let body = json!({"choices":[{"message": null}]});
-        let backend = OpenAiCompatible::new(&cfg(), FakeHttp::ok(body));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::BadResponse(_))));
-    }
-
-    #[test]
-    fn a_null_content_is_a_backend_error() {
-        let body = json!({"choices":[{"message":{"content": null}}]});
-        let backend = OpenAiCompatible::new(&cfg(), FakeHttp::ok(body));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::BadResponse(_))));
+    fn malformed_choices_are_a_backend_error_not_a_panic() {
+        for body in [
+            json!({"choices": []}),
+            json!({"choices":[{"message": null}]}),
+            json!({"choices":[{"message":{"content": null}}]}),
+        ] {
+            let backend = OpenAiCompatible::new(&cfg(), FakeHttp::ok(body.clone()));
+            assert!(
+                matches!(backend.transform("s", "t"), Err(BackendError::BadResponse(_))),
+                "body: {body}"
+            );
+        }
     }
 
     #[test]
     fn missing_base_url_is_a_backend_error() {
         let mut config = cfg();
         config.base_url = None;
+        let backend = OpenAiCompatible::new(&config, FakeHttp::ok(chat("ok")));
+        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+    }
+
+    // Only hand-editing config.json can produce these -- the settings UI
+    // trims empty fields to null -- but a blank value is exactly as unusable
+    // as an absent one and must fail the same way, not ship to the server.
+    #[test]
+    fn a_blank_base_url_is_treated_as_missing() {
+        let mut config = cfg();
+        config.base_url = Some("   ".into());
+        let backend = OpenAiCompatible::new(&config, FakeHttp::ok(chat("ok")));
+        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+    }
+
+    #[test]
+    fn a_blank_model_is_treated_as_missing() {
+        let mut config = cfg();
+        config.model = Some("".into());
+        let backend = OpenAiCompatible::new(&config, FakeHttp::ok(chat("ok")));
+        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+    }
+
+    // A missing model must fail the same clear way a missing base_url does,
+    // rather than silently shipping `"model": ""` to the remote server.
+    #[test]
+    fn missing_model_is_a_backend_error() {
+        let mut config = cfg();
+        config.model = None;
         let backend = OpenAiCompatible::new(&config, FakeHttp::ok(chat("ok")));
         assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
     }

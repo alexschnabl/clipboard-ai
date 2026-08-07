@@ -4,7 +4,6 @@
   "description": "Capability for the settings window",
   "windows": ["settings"],
   "permissions": [
-    "core:default",
-    "opener:default"
+    "core:default"
   ]
 }

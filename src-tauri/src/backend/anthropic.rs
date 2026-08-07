@@ -8,6 +8,15 @@ use crate::config::BackendConfig;
 const DEFAULT_MODEL: &str = "claude-opus-5";
 const API_URL: &str = "https://api.anthropic.com/v1/messages";
 
+/// Talks the Anthropic Messages API directly (`POST /v1/messages`), as
+/// distinct from `claude_cli.rs`'s `ClaudeCli`, which shells out to the
+/// `claude` CLI instead -- this backend is for a user's own API key rather
+/// than a Claude subscription's local CLI auth. `model` defaults to a named
+/// constant rather than erroring on a missing value (contrast
+/// `openai.rs`'s `OpenAiCompatible`, which treats a missing `model` as
+/// `Misconfigured`): unlike an arbitrary local server's model name, there
+/// is one sane default Anthropic model to fall back to, so defaulting is
+/// strictly more useful here than forcing the user to fill it in.
 pub struct AnthropicApi {
     name: String,
     model: String,
@@ -20,7 +29,15 @@ impl AnthropicApi {
     pub fn new(config: &BackendConfig, http: Arc<dyn HttpClient>) -> Self {
         Self {
             name: config.name.clone(),
-            model: config.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+            // A blank model falls back to the default rather than shipping
+            // `"model": ""`, matching how a missing one is treated -- the two
+            // are indistinguishable in intent, and only hand-editing
+            // config.json can produce the blank.
+            model: config
+                .model
+                .clone()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
             api_key: config.api_key.clone(),
             timeout_ms: config.timeout_ms,
             http,
@@ -37,8 +54,16 @@ impl Backend for AnthropicApi {
         let key = self
             .api_key
             .as_deref()
+            .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| BackendError::Misconfigured("apiKey is required".into()))?;
 
+        // Anthropic's auth header is its own `x-api-key`, not the
+        // `Authorization: Bearer` shape `openai.rs` uses -- these are two
+        // genuinely different wire conventions, not an inconsistency to fix.
+        // `anthropic-version` is a required, literal API-version header (not
+        // a client library version); pinned to a fixed date rather than
+        // "latest" so a future Anthropic API revision can't silently change
+        // this backend's response shape out from under `transform` below.
         let headers = vec![
             ("x-api-key".to_string(), key.to_string()),
             ("anthropic-version".to_string(), "2023-06-01".to_string()),
@@ -53,6 +78,13 @@ impl Backend for AnthropicApi {
 
         let response = self.http.post_json(API_URL, &headers, &body, self.timeout_ms)?;
 
+        // Checked before the content blocks are even looked at: a refusal
+        // response still carries a well-formed (often empty) `content`
+        // array, so extracting text first and only checking `stop_reason`
+        // afterwards would either silently return an empty string or fall
+        // through to the "no text blocks" error below with a message that
+        // has nothing to do with the real cause -- the model declining the
+        // request, not a malformed response.
         if response.get("stop_reason").and_then(|s| s.as_str()) == Some("refusal") {
             return Err(BackendError::BadResponse("model declined the request".into()));
         }
@@ -62,12 +94,23 @@ impl Backend for AnthropicApi {
             .and_then(|c| c.as_array())
             .ok_or_else(|| BackendError::BadResponse(format!("no content in {response}")))?;
 
+        // `content` can hold block types other than `"text"` -- most
+        // notably `"thinking"`, extended-thinking output that is not the
+        // answer this app pastes. Filtering to `"text"` blocks and joining
+        // them (a real response can split one answer across more than one
+        // text block) is what keeps a thinking block's contents out of the
+        // clipboard.
         let joined: String = blocks
             .iter()
             .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
             .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
             .collect();
 
+        // Distinct from the `stop_reason` refusal check above: this is a
+        // response that was not a refusal but still carried no usable text
+        // (e.g. only thinking blocks, no text block at all) -- a different
+        // failure mode that deserves its own message rather than being
+        // folded into either the refusal case or the missing-`content` case.
         if joined.trim().is_empty() {
             return Err(BackendError::BadResponse("no text blocks in response".into()));
         }
@@ -173,5 +216,24 @@ mod tests {
         config.api_key = None;
         let backend = AnthropicApi::new(&config, FakeHttp::new(json!({})));
         assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+    }
+
+    // Reachable only by hand-editing config.json; the settings UI trims
+    // empties to null. A blank key would otherwise be sent as an empty
+    // `x-api-key` header and come back as an opaque 401.
+    #[test]
+    fn a_blank_api_key_is_treated_as_missing() {
+        let mut config = cfg();
+        config.api_key = Some("  ".into());
+        let backend = AnthropicApi::new(&config, FakeHttp::new(json!({})));
+        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+    }
+
+    #[test]
+    fn a_blank_model_falls_back_to_the_default() {
+        let mut config = cfg();
+        config.model = Some("".into());
+        let backend = AnthropicApi::new(&config, FakeHttp::new(json!({})));
+        assert_eq!(backend.model, DEFAULT_MODEL);
     }
 }

@@ -91,7 +91,13 @@ pub struct CommandConfig {
     pub system_prompt: String,
 }
 
+// Every field here is currently a single lowercase word, so this attribute
+// is a no-op today -- it's added defensively, to match every sibling wire
+// struct (`BackendConfig`, `CommandConfig`, ...), so a future multi-word
+// field can't silently serialize as snake_case and break the frontend
+// contract with no compiler warning.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Config {
     pub version: u32,
     pub backends: Vec<BackendConfig>,
@@ -434,12 +440,8 @@ mod tests {
 
     #[test]
     fn rejects_duplicate_backend_ids() {
-        let json = valid_json().replace(
-            r#""commands""#,
-            r#""_unused":0,"commands""#,
-        );
         // duplicate the single backend entry
-        let json = json.replace(
+        let json = valid_json().replace(
             r#""apiKey":null,"timeoutMs":120000}"#,
             r#""apiKey":null,"timeoutMs":120000},
                {"id":"ollama","name":"Dup","kind":"openai-compatible",
