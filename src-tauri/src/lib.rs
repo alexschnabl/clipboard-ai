@@ -31,8 +31,27 @@ use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 struct CommandEntry {
     id: String,
     name: String,
+    /// The hotkey exactly as the config spells it. Kept alongside the parsed
+    /// `Shortcut` because the two do not render the same: `Shortcut`'s
+    /// `Display` goes through `global-hotkey`'s `HotKey::into_string()`,
+    /// which lowercases the modifiers, emits them in its own fixed order and
+    /// prints the raw key code -- so `"Ctrl+Alt+J"` comes back out as
+    /// `"control+alt+KeyJ"`. Anything the user reads (the tray menu, a
+    /// problem message) must use this field, never the parsed form, or it
+    /// shows a spelling they never typed.
+    hotkey: String,
     system_prompt: String,
     backend: Arc<dyn backend::Backend>,
+}
+
+/// One command's hotkey, ready to hand to the OS. Carries the command's
+/// identity so a registration failure can be attributed to it without
+/// matching on message text.
+struct Registration {
+    shortcut: Shortcut,
+    command_id: String,
+    command_name: String,
+    hotkey: String,
 }
 
 /// A problem surfaced to the settings window: something in the config
@@ -180,6 +199,7 @@ fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, 
                 let entry = CommandEntry {
                     id: command.id.clone(),
                     name: command.name.clone(),
+                    hotkey: command.hotkey.clone(),
                     system_prompt: command.system_prompt.clone(),
                     backend,
                 };
@@ -282,30 +302,39 @@ mod build_command_map_tests {
     }
 }
 
-/// Attempts to register every `(shortcut, command_id)` pair with the OS,
-/// reporting a `Problem` attributed to that command's id for each one the OS
-/// refuses (e.g. already owned by another application).
+/// Attempts to register every `Registration` with the OS, reporting a
+/// `Problem` attributed to that command's id for each one the OS refuses
+/// (e.g. already owned by another application).
 ///
 /// Thin wrapper around `register_hotkeys_with` -- the actual OS call is the
 /// one part of this that needs a live `AppHandle` and so cannot run in a
 /// unit test; `register_hotkeys_with` is the attribution logic pulled out
 /// so it can be exercised with a fake, always-failing registration function
 /// instead. See `register_hotkeys_tests` below.
-fn register_hotkeys(app: &tauri::AppHandle, shortcuts: &[(Shortcut, String)]) -> Vec<Problem> {
-    register_hotkeys_with(shortcuts, |shortcut| app.global_shortcut().register(*shortcut))
+fn register_hotkeys(app: &tauri::AppHandle, registrations: &[Registration]) -> Vec<Problem> {
+    register_hotkeys_with(registrations, |shortcut| {
+        app.global_shortcut().register(*shortcut)
+    })
 }
 
-fn register_hotkeys_with<F, E>(shortcuts: &[(Shortcut, String)], mut register: F) -> Vec<Problem>
+fn register_hotkeys_with<F, E>(registrations: &[Registration], mut register: F) -> Vec<Problem>
 where
     F: FnMut(&Shortcut) -> Result<(), E>,
     E: std::fmt::Display,
 {
     let mut problems = Vec::new();
-    for (shortcut, command_id) in shortcuts {
-        if let Err(e) = register(shortcut) {
+    for reg in registrations {
+        if let Err(e) = register(&reg.shortcut) {
             problems.push(Problem {
-                command_id: Some(command_id.clone()),
-                message: format!("{shortcut}: already in use ({e})"),
+                command_id: Some(reg.command_id.clone()),
+                // Leads with the command name and the config's own spelling,
+                // matching every other problem message -- and specifically
+                // not `Shortcut`'s `Display`, which would print a spelling
+                // the user never typed (see `CommandEntry::hotkey`).
+                message: format!(
+                    "{}: hotkey {:?} is already in use ({e})",
+                    reg.command_name, reg.hotkey
+                ),
             });
         }
     }
@@ -322,12 +351,21 @@ mod register_hotkeys_tests {
     // the config's spelling -- so `CommandList.svelte`'s row-matching could
     // never succeed for this problem type. Attributing by `command_id`
     // instead sidesteps string matching entirely.
+    fn registration(hotkey: &str, command_id: &str, command_name: &str) -> Registration {
+        Registration {
+            shortcut: hotkey.parse().unwrap(),
+            command_id: command_id.to_string(),
+            command_name: command_name.to_string(),
+            hotkey: hotkey.to_string(),
+        }
+    }
+
     #[test]
     fn a_hotkey_that_fails_to_register_is_attributed_to_its_command_id() {
-        let shortcut: Shortcut = "Ctrl+Alt+J".parse().unwrap();
-        let shortcuts = vec![(shortcut, "cmd-1".to_string())];
+        let registrations = vec![registration("Ctrl+Alt+J", "cmd-1", "Fix grammar")];
 
-        let problems = register_hotkeys_with(&shortcuts, |_| Err("already registered by another app"));
+        let problems =
+            register_hotkeys_with(&registrations, |_| Err("already registered by another app"));
 
         assert_eq!(problems.len(), 1);
         assert_eq!(problems[0].command_id.as_deref(), Some("cmd-1"));
@@ -338,24 +376,49 @@ mod register_hotkeys_tests {
         );
     }
 
+    // The message the user actually reads must use the config's spelling.
+    // `Shortcut`'s `Display` would render this same hotkey as
+    // "control+alt+KeyJ" -- lowercased, reordered, raw key code -- which is
+    // a spelling that appears nowhere in their config.
+    #[test]
+    fn the_problem_message_uses_the_config_spelling_and_names_the_command() {
+        let registrations = vec![registration("Ctrl+Alt+J", "cmd-1", "Fix grammar")];
+
+        let problems = register_hotkeys_with(&registrations, |_| Err("in use"));
+
+        let message = &problems[0].message;
+        assert!(message.contains("Fix grammar"), "must name the command, got: {message}");
+        assert!(message.contains("Ctrl+Alt+J"), "must use the config spelling, got: {message}");
+        assert!(
+            !message.contains("control+alt+KeyJ"),
+            "must not leak the parsed Shortcut's Display form, got: {message}"
+        );
+    }
+
     #[test]
     fn a_hotkey_that_registers_successfully_produces_no_problem() {
-        let shortcut: Shortcut = "Ctrl+Alt+K".parse().unwrap();
-        let shortcuts = vec![(shortcut, "cmd-2".to_string())];
+        let registrations = vec![registration("Ctrl+Alt+K", "cmd-2", "Summarise")];
 
-        let problems = register_hotkeys_with::<_, &str>(&shortcuts, |_| Ok(()));
+        let problems = register_hotkeys_with::<_, &str>(&registrations, |_| Ok(()));
 
         assert!(problems.is_empty(), "expected no problems, got: {problems:?}");
     }
 
     #[test]
     fn only_the_failing_shortcut_in_a_batch_is_attributed() {
-        let ok: Shortcut = "Ctrl+Alt+K".parse().unwrap();
         let bad: Shortcut = "Ctrl+Alt+J".parse().unwrap();
-        let shortcuts = vec![(ok, "cmd-ok".to_string()), (bad, "cmd-bad".to_string())];
+        let registrations = vec![
+            registration("Ctrl+Alt+K", "cmd-ok", "Summarise"),
+            registration("Ctrl+Alt+J", "cmd-bad", "Fix grammar"),
+        ];
 
-        let problems =
-            register_hotkeys_with(&shortcuts, |s| if *s == bad { Err("in use") } else { Ok(()) });
+        let problems = register_hotkeys_with(&registrations, |s| {
+            if *s == bad {
+                Err("in use")
+            } else {
+                Ok(())
+            }
+        });
 
         assert_eq!(problems.len(), 1);
         assert_eq!(problems[0].command_id.as_deref(), Some("cmd-bad"));
@@ -408,7 +471,15 @@ fn apply_config(app: &tauri::AppHandle, state: &AppState, config: config::Config
 
     let (map, build_problems) = build_command_map(&config);
     problems.extend(build_problems);
-    let shortcuts: Vec<(Shortcut, String)> = map.iter().map(|(s, e)| (*s, e.id.clone())).collect();
+    let registrations: Vec<Registration> = map
+        .iter()
+        .map(|(s, e)| Registration {
+            shortcut: *s,
+            command_id: e.id.clone(),
+            command_name: e.name.clone(),
+            hotkey: e.hotkey.clone(),
+        })
+        .collect();
 
     if let Ok(mut guard) = state.commands.lock() {
         *guard = map;
@@ -417,7 +488,7 @@ fn apply_config(app: &tauri::AppHandle, state: &AppState, config: config::Config
         *guard = config;
     }
 
-    problems.extend(register_hotkeys(app, &shortcuts));
+    problems.extend(register_hotkeys(app, &registrations));
     problems
 }
 
@@ -708,8 +779,12 @@ pub fn run() {
             // not advertise a hotkey that does nothing.
             let mut command_items: Vec<MenuItem<tauri::Wry>> = Vec::new();
             if let Ok(guard) = state.commands.lock() {
-                for (i, (shortcut, entry)) in guard.iter().enumerate() {
-                    let label = format!("{} \u{2014} {shortcut}", entry.name);
+                for (i, (_shortcut, entry)) in guard.iter().enumerate() {
+                    // `entry.hotkey`, not the parsed `Shortcut`: the latter's
+                    // `Display` renders "Ctrl+Alt+J" as "control+alt+KeyJ",
+                    // and the tray menu is the most visible place in the app
+                    // to show a user a spelling they never typed.
+                    let label = format!("{} \u{2014} {}", entry.name, entry.hotkey);
                     let id = format!("command-{i}");
                     command_items.push(MenuItem::with_id(app, id, label, false, None::<&str>)?);
                 }
