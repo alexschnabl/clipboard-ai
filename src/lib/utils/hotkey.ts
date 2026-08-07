@@ -44,42 +44,86 @@ export function hotkeyFromEvent(event: KeyboardEvent): string | null {
  * than guessed: `global-hotkey` 0.8.0 `src/hotkey.rs` `parse_key()` (reached
  * via `tauri-plugin-global-shortcut` 2.3.2's `Shortcut::from_str`, since
  * `Shortcut` is a type alias for `global_hotkey::hotkey::HotKey`). That
- * function upper-cases its input and accepts the exact identifiers below
- * (some, like the arrow keys, only under a short alias — `"UP"`, not
- * `"ARROWUP"`'s literal DOM name — which is why those four differ from the
- * `code` value).
+ * function upper-cases its input, so a DOM `code` that matches an arm
+ * case-insensitively can be passed straight through.
  */
 function keyFromCode(code: string): string | null {
 	if (/^Key[A-Z]$/.test(code)) return code.slice(3);
 	if (/^Digit[0-9]$/.test(code)) return code.slice(5);
 	if (/^F([1-9]|1[0-9]|2[0-4])$/.test(code)) return code;
 
-	const named: Record<string, string> = {
-		Space: 'Space',
-		Enter: 'Enter',
-		Tab: 'Tab',
-		Backspace: 'Backspace',
-		Delete: 'Delete',
-		Insert: 'Insert',
-		Home: 'Home',
-		End: 'End',
-		PageUp: 'PageUp',
-		PageDown: 'PageDown',
-		ArrowUp: 'Up',
-		ArrowDown: 'Down',
-		ArrowLeft: 'Left',
-		ArrowRight: 'Right',
-		Comma: 'Comma',
-		Period: 'Period',
-		Slash: 'Slash',
-		Semicolon: 'Semicolon',
-		Quote: 'Quote',
-		BracketLeft: 'BracketLeft',
-		BracketRight: 'BracketRight',
-		Backslash: 'Backslash',
-		Minus: 'Minus',
-		Equal: 'Equal',
-		Backquote: 'Backquote'
-	};
-	return named[code] ?? null;
+	if (IDENTITY_CODES.has(code)) return code;
+	return ALIASED_CODES[code] ?? null;
 }
+
+/**
+ * Codes whose DOM name is already one of `parse_key`'s match arms, so they
+ * pass through unchanged.
+ *
+ * Media keys (`AudioVolumeMute`, `MediaPlayPause`, …) are also accepted by the
+ * parser but deliberately left out: they are pressed without modifiers, and
+ * `hotkeyFromEvent` requires one, so they could never reach here anyway.
+ */
+const IDENTITY_CODES: ReadonlySet<string> = new Set([
+	// Punctuation
+	'Comma',
+	'Period',
+	'Slash',
+	'Semicolon',
+	'Quote',
+	'BracketLeft',
+	'BracketRight',
+	'Backslash',
+	'Minus',
+	'Equal',
+	'Backquote',
+	// Editing and navigation
+	'Space',
+	'Enter',
+	'Tab',
+	'Backspace',
+	'Delete',
+	'Insert',
+	'Home',
+	'End',
+	'PageUp',
+	'PageDown',
+	// Numeric keypad — a common choice for global hotkeys precisely because
+	// these keys rarely collide with an application's own shortcuts.
+	'Numpad0',
+	'Numpad1',
+	'Numpad2',
+	'Numpad3',
+	'Numpad4',
+	'Numpad5',
+	'Numpad6',
+	'Numpad7',
+	'Numpad8',
+	'Numpad9',
+	'NumpadAdd',
+	'NumpadSubtract',
+	'NumpadMultiply',
+	'NumpadDivide',
+	'NumpadDecimal',
+	'NumpadEnter',
+	'NumpadEqual',
+	// Locks and system keys
+	'CapsLock',
+	'NumLock',
+	'ScrollLock',
+	'PrintScreen',
+	'Pause'
+]);
+
+/**
+ * Codes the parser accepts only under a different name. The DOM says
+ * `ArrowUp`; `parse_key` matches `"ARROWUP"` or the alias `"UP"`, and Rust's
+ * `HotKey::into_string()` prints the short form — so the short form is what
+ * round-trips.
+ */
+const ALIASED_CODES: Record<string, string> = {
+	ArrowUp: 'Up',
+	ArrowDown: 'Down',
+	ArrowLeft: 'Left',
+	ArrowRight: 'Right'
+};

@@ -90,7 +90,25 @@ describe('keyFromCode table verified against global-hotkey 0.8.0 parse_key()', (
 		['ArrowUp', 'Up'],
 		['ArrowDown', 'Down'],
 		['ArrowLeft', 'Left'],
-		['ArrowRight', 'Right']
+		['ArrowRight', 'Right'],
+		// The numeric keypad. The v2 spec names numpad keys as a place the
+		// browser-to-Rust spelling was expected to bite; parse_key in fact
+		// accepts the DOM code verbatim for every one of them.
+		['Numpad0', 'Numpad0'],
+		['Numpad9', 'Numpad9'],
+		['NumpadAdd', 'NumpadAdd'],
+		['NumpadSubtract', 'NumpadSubtract'],
+		['NumpadMultiply', 'NumpadMultiply'],
+		['NumpadDivide', 'NumpadDivide'],
+		['NumpadDecimal', 'NumpadDecimal'],
+		['NumpadEnter', 'NumpadEnter'],
+		['NumpadEqual', 'NumpadEqual'],
+		// Locks and system keys
+		['CapsLock', 'CapsLock'],
+		['NumLock', 'NumLock'],
+		['ScrollLock', 'ScrollLock'],
+		['PrintScreen', 'PrintScreen'],
+		['Pause', 'Pause']
 	];
 
 	it.each(namedKeyCases)('maps code %s to the accepted spelling %s', (code, expected) => {
@@ -100,6 +118,18 @@ describe('keyFromCode table verified against global-hotkey 0.8.0 parse_key()', (
 	it('accepts the full function-key range the parser supports (F1-F24)', () => {
 		expect(hotkeyFromEvent(ev({ ctrlKey: true, key: 'F1', code: 'F1' }))).toBe('Ctrl+F1');
 		expect(hotkeyFromEvent(ev({ ctrlKey: true, key: 'F24', code: 'F24' }))).toBe('Ctrl+F24');
+	});
+
+	it('keeps numpad digits distinct from the top-row digits', () => {
+		// Numpad1 and Digit1 are different physical keys and different parser
+		// arms; collapsing one into the other would register the wrong hotkey.
+		expect(hotkeyFromEvent(ev({ ctrlKey: true, key: '1', code: 'Numpad1' }))).toBe('Ctrl+Numpad1');
+		expect(hotkeyFromEvent(ev({ ctrlKey: true, key: '1', code: 'Digit1' }))).toBe('Ctrl+1');
+	});
+
+	it('rejects media keys, which cannot reach a modifier combination', () => {
+		expect(hotkeyFromEvent(ev({ ctrlKey: true, key: 'AudioVolumeMute', code: 'AudioVolumeMute' })))
+			.toBeNull();
 	});
 
 	it('rejects a function-key code outside the range the parser accepts', () => {
