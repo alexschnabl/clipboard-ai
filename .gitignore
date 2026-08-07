@@ -1,10 +1,16 @@
-# Python
+# Python (no Python code remains in the repo; kept in case a stray .venv
+# still exists on disk from the deleted spike/)
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
 venv/
 env/
+.pytest_cache/
+
+# Agent working notes (draft brainstorming, per-task reviews/diffs) --
+# never meant to be committed
+.superpowers/
 
 # Environment / secrets
 .env
