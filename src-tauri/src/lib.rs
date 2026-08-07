@@ -4,6 +4,7 @@ use tauri::{
 };
 
 mod config;
+mod sentinel;
 
 pub fn run() {
     tauri::Builder::default()
