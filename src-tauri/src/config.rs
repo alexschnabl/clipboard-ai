@@ -81,6 +81,47 @@ fn default_timeout() -> u64 {
     120_000
 }
 
+/// Appearance the frontend should render. `System` means "follow the OS
+/// theme" -- detecting *what* the OS theme is stays a frontend concern (this
+/// struct only persists the choice), the same division of labour as
+/// `Language::System` below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
+/// UI language. `System` means "detect the OS locale, fall back to
+/// English" -- like `Theme::System`, the detection itself is the frontend's
+/// job; this only persists which of the three the user chose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Language {
+    #[default]
+    System,
+    En,
+    De,
+}
+
+/// Plain enums, not `BackendConfig.kind`'s raw-`String`-plus-`validate()`
+/// style: for a fixed 2-3 value set, an unknown value already becomes a
+/// `ConfigError::Parse` for free via serde, with no extra `ConfigError`
+/// variant or `validate()` branch needed -- less code, not more, for this
+/// shape of field.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Settings {
+    #[serde(default)]
+    pub theme: Theme,
+    #[serde(default)]
+    pub language: Language,
+    #[serde(default)]
+    pub autostart: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandConfig {
@@ -102,6 +143,18 @@ pub struct Config {
     pub version: u32,
     pub backends: Vec<BackendConfig>,
     pub commands: Vec<CommandConfig>,
+    /// Additive since it was introduced: stays `#[serde(default)]` rather
+    /// than forcing a `CURRENT_VERSION` bump. See `parse`'s version dispatch
+    /// -- it accepts exactly `1` or `CURRENT_VERSION` and hard-rejects every
+    /// other value as `UnsupportedVersion`, so bumping the constant without
+    /// a matching new migration arm would reject every existing user's
+    /// on-disk config on their very next launch. A purely-additive field
+    /// with sensible defaults is exactly what `#[serde(default)]` (here) and
+    /// serde_json's default ignore-unknown-fields behaviour (on the read
+    /// side, for an older binary reading a newer file) already handle
+    /// without any of that.
+    #[serde(default)]
+    pub settings: Settings,
 }
 
 impl Config {
@@ -213,6 +266,7 @@ pub fn default_config() -> Config {
             hotkey: "Ctrl+Alt+J".into(),
             system_prompt: "Fix grammar and spelling.".into(),
         }],
+        settings: Settings::default(),
     }
 }
 
@@ -389,6 +443,89 @@ mod tests {
         assert_eq!(cfg.backends.len(), 1);
         assert_eq!(cfg.commands[0].backend_id, "ollama");
         assert_eq!(cfg.backends[0].timeout_ms, 120_000);
+    }
+
+    // Builds on `valid_json()` via `serde_json::Value` rather than string
+    // splicing -- `valid_json()`'s exact whitespace/bracket layout is
+    // incidental, and a `Value`-level insert can't be broken by reformatting
+    // that fixture later the way a brittle string `.replace` could.
+    fn json_with_settings(settings: serde_json::Value) -> String {
+        let mut value: serde_json::Value = serde_json::from_str(valid_json()).unwrap();
+        value.as_object_mut().unwrap().insert("settings".to_string(), settings);
+        serde_json::to_string(&value).unwrap()
+    }
+
+    // An existing config.json predating this feature has no "settings" key
+    // at all -- `valid_json()` already has none -- and must load with every
+    // default rather than fail to parse.
+    #[test]
+    fn a_config_with_no_settings_key_loads_with_defaults() {
+        let cfg = parse(valid_json()).expect("a config with no settings key should still parse");
+        assert_eq!(cfg.settings.theme, Theme::System);
+        assert_eq!(cfg.settings.language, Language::System);
+        assert!(!cfg.settings.autostart);
+    }
+
+    // A hand-edited or partially-migrated config.json might set only one of
+    // the three fields -- the other two must still fall back to their
+    // individual defaults, not fail to parse or zero out the whole object.
+    #[test]
+    fn partial_settings_fill_in_defaults_for_the_missing_fields() {
+        let json = json_with_settings(serde_json::json!({"theme": "dark"}));
+        let cfg = parse(&json).expect("partial settings should still parse");
+        assert_eq!(cfg.settings.theme, Theme::Dark);
+        assert_eq!(cfg.settings.language, Language::System);
+        assert!(!cfg.settings.autostart);
+    }
+
+    // Prefer a real enum over a stringly-typed field precisely so this
+    // case is free: an unknown value is rejected at parse time like any
+    // other malformed config, with no dedicated `ConfigError` variant or
+    // `validate()` branch needed.
+    #[test]
+    fn rejects_an_unknown_theme_value() {
+        let json = json_with_settings(serde_json::json!({"theme": "rainbow"}));
+        assert!(matches!(parse(&json), Err(ConfigError::Parse(_))));
+    }
+
+    #[test]
+    fn rejects_an_unknown_language_value() {
+        let json = json_with_settings(serde_json::json!({"language": "fr"}));
+        assert!(matches!(parse(&json), Err(ConfigError::Parse(_))));
+    }
+
+    // A config written by *this* version (settings present, fully
+    // populated) must parse cleanly and keep every settings value intact --
+    // the ordinary round trip every save/reload cycle depends on.
+    #[test]
+    fn a_config_written_by_this_version_round_trips_its_settings_intact() {
+        let mut cfg = default_config();
+        cfg.settings.theme = Theme::Dark;
+        cfg.settings.language = Language::De;
+        cfg.settings.autostart = true;
+
+        let json = serde_json::to_string(&cfg).unwrap();
+        let parsed = parse(&json).expect("a config written by this version must parse");
+
+        assert_eq!(parsed.version, CURRENT_VERSION);
+        assert_eq!(parsed.settings.theme, Theme::Dark);
+        assert_eq!(parsed.settings.language, Language::De);
+        assert!(parsed.settings.autostart);
+    }
+
+    // `#[serde(rename_all = "lowercase")]` produces exactly these three
+    // wire values -- pin them down explicitly so a future refactor of the
+    // enum (renaming a variant, reordering) can't silently change the wire
+    // contract `settings.svelte.ts` will be written against without a test
+    // failing here first.
+    #[test]
+    fn theme_and_language_serialize_to_the_expected_lowercase_wire_values() {
+        assert_eq!(serde_json::to_string(&Theme::System).unwrap(), "\"system\"");
+        assert_eq!(serde_json::to_string(&Theme::Light).unwrap(), "\"light\"");
+        assert_eq!(serde_json::to_string(&Theme::Dark).unwrap(), "\"dark\"");
+        assert_eq!(serde_json::to_string(&Language::System).unwrap(), "\"system\"");
+        assert_eq!(serde_json::to_string(&Language::En).unwrap(), "\"en\"");
+        assert_eq!(serde_json::to_string(&Language::De).unwrap(), "\"de\"");
     }
 
     // The settings UI enforces this floor too, but hand-editing config.json

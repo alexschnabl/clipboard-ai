@@ -145,6 +145,7 @@ mod build_command_map_tests {
                 command("one", "First", "Ctrl+Alt+J"),
                 command("two", "Second", "Control+Alt+J"),
             ],
+            settings: config::Settings::default(),
         };
         let (map, problems) = build_command_map(&cfg);
         assert_eq!(
@@ -168,6 +169,7 @@ mod build_command_map_tests {
             version: 1,
             backends: vec![backend_cfg()],
             commands: vec![command("one", "First", "Ctrl+Alt+J"), command("two", "Second", "Ctrl+Alt+K")],
+            settings: config::Settings::default(),
         };
         let (map, problems) = build_command_map(&cfg);
         assert_eq!(map.len(), 2);

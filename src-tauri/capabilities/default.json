@@ -2,8 +2,9 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the settings window",
-  "windows": ["settings"],
+  "windows": ["settings", "overlay"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "autostart:default"
   ]
 }

@@ -5,6 +5,7 @@ mod cycle;
 mod hotkeys;
 mod osops;
 mod sentinel;
+mod settings;
 mod status;
 
 use std::{
@@ -286,7 +287,12 @@ fn handle_config_load_failure(
     };
 
     (
-        config::Config { version: 1, backends: Vec::new(), commands: Vec::new() },
+        config::Config {
+            version: 1,
+            backends: Vec::new(),
+            commands: Vec::new(),
+            settings: config::Settings::default(),
+        },
         commands::ConfigLoadError { reason: e.to_string(), preserved_path },
     )
 }
@@ -431,6 +437,7 @@ pub fn run() {
                     version: 1,
                     backends: Vec::new(),
                     commands: Vec::new(),
+                    settings: config::Settings::default(),
                 })),
                 commands: Arc::new(Mutex::new(HashMap::new())),
                 ops,
@@ -450,6 +457,11 @@ pub fn run() {
             // nothing managed, no matter how the rest of this function is
             // wired.
             app.manage((*state).clone());
+
+            // Registered before any `settings::apply_autostart` call below:
+            // that helper reaches the plugin through `ManagerExt`, which
+            // resolves nothing until the plugin is on the handle.
+            app.handle().plugin(tauri_plugin_autostart::Builder::new().build())?;
 
             let handler_state = state.clone();
             app.handle().plugin(
@@ -532,7 +544,17 @@ pub fn run() {
 
             let backends_configured = cfg.backends.len();
             let commands_configured = cfg.commands.len();
+            // Read before `cfg` is moved into `apply_config`. Reasserting the
+            // persisted choice on every launch keeps the OS registration and
+            // the config in step even if the registry entry was removed
+            // behind the app's back -- and a debug build refuses to register
+            // at all, so this cannot pollute a developer's Run key (see
+            // `settings::apply_autostart`).
+            let autostart_wanted = cfg.settings.autostart;
             problems.extend(apply_config(&handle, &state, cfg));
+            if let Err(e) = settings::apply_autostart(&handle, autostart_wanted) {
+                problems.push(Problem { command_id: None, message: e });
+            }
             // R10: record the full startup problem list where
             // `commands::get_config` can hand it to the settings window on
             // every load -- not just log it, which is where the rest of
