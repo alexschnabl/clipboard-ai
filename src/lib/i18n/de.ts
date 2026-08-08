@@ -174,8 +174,6 @@ export const de: typeof en = {
 		languageLabel: 'Sprache',
 		languageDescription: 'Sprache der Benutzeroberfläche für dieses Fenster.',
 		languageSystem: 'System',
-		languageEnglish: 'English',
-		languageGerman: 'Deutsch',
 		autostartLabel: 'Mit Windows starten',
 		autostartDescription: 'Startet Clipboard AI bei der Anmeldung minimiert im Infobereich.'
 	}

@@ -19,25 +19,13 @@
 // module never imports or writes `configState` itself. A caller drives this
 // store via `setLanguage`, typically once after `configState.load()`
 // resolves, and again whenever the user changes the setting.
+//
+// Which languages exist at all — codes, native display names, dictionaries
+// — lives in `registry.ts`, not here: see that file for how to add one.
 
-import { en } from './en';
-import { de } from './de';
+import { registry, FALLBACK_LOCALE, type Locale, type LanguageChoice } from './registry';
 
-/** The two languages Clipboard AI ships today. Adding a third (see
- *  v3-research.md): type `src/lib/i18n/fr.ts` against `typeof en` (the
- *  compiler lists everything missing), add `'fr'` here and to
- *  `dictionaries` below, and add it to the settings UI's language picker —
- *  nothing else in this module changes. */
-export type Locale = 'en' | 'de';
-
-/** Mirrors `Settings.language` in src-tauri/src/config.rs
- *  (`Language::System | ::En | ::De`, serialized as the lowercase strings
- *  `"system" | "en" | "de"`) -- the persisted *choice*, distinct from
- *  `Locale` above, which is always the already-resolved language actually
- *  shown. `'system'` means "detect the OS locale, fall back to English". */
-export type LanguageChoice = 'system' | Locale;
-
-const dictionaries = { en, de } satisfies Record<Locale, typeof en>;
+export type { Locale, LanguageChoice };
 
 /** WebView2 exposes the OS locale to the frontend only via
  *  `navigator.language` -- there is no other signal available in this Tauri
@@ -45,12 +33,22 @@ const dictionaries = { en, de } satisfies Record<Locale, typeof en>;
  *  `navigator`'s and `.language`'s presence: this module can be evaluated
  *  outside a full browser environment (SvelteKit's prerender step, a test
  *  runner without `jsdom`), and a missing value must fall back to English,
- *  not throw. Any tag beginning `de` (`de`, `de-DE`, `de-AT`, `de-CH`, ...)
- *  resolves to German; anything else, including a missing value, resolves
- *  to English. */
+ *  not throw.
+ *
+ *  Matches on the primary subtag only (`navigator.language.split('-')[0]`),
+ *  against `registry`'s own keys, so any registered language resolves for
+ *  every regional variant (`fr-CA`, `fr-FR`, ... all resolve to `fr` once
+ *  `fr` is registered) without this function needing to know the language
+ *  list at all -- adding a language never requires touching this function. */
 function detectSystemLocale(): Locale {
 	const lang = typeof navigator === 'undefined' ? undefined : navigator.language;
-	return typeof lang === 'string' && lang.toLowerCase().startsWith('de') ? 'de' : 'en';
+	if (typeof lang !== 'string') return FALLBACK_LOCALE;
+	const lower = lang.toLowerCase();
+	// `String.split` always returns at least one element, even for '' -- the
+	// `?? lower` only exists to satisfy `noUncheckedIndexedAccess`, it can
+	// never actually be reached.
+	const primary = lower.split('-')[0] ?? lower;
+	return primary in registry ? (primary as Locale) : FALLBACK_LOCALE;
 }
 
 function resolveLocale(choice: LanguageChoice): Locale {
@@ -61,8 +59,8 @@ let languageChoice = $state<LanguageChoice>('system');
 
 export const i18n = {
 	/** The resolved locale actually in use. Never `'system'` -- that choice
-	 *  has already been resolved to `'en'` or `'de'` by the time it's read
-	 *  here, via `detectSystemLocale` above. */
+	 *  has already been resolved to a `Locale` by the time it's read here,
+	 *  via `detectSystemLocale` above. */
 	get locale(): Locale {
 		return resolveLocale(languageChoice);
 	},
@@ -71,7 +69,7 @@ export const i18n = {
 	 *  `languageChoice`, because the `$state` read happens on every access,
 	 *  same as `configState.config` in config.svelte.ts. */
 	get t() {
-		return dictionaries[resolveLocale(languageChoice)];
+		return registry[resolveLocale(languageChoice)].dictionary;
 	},
 	/** Drives the store. The caller owns persistence -- typically
 	 *  `configState.load()`'s resolved `settings.language` on startup, and

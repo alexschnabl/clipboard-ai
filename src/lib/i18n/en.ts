@@ -1,15 +1,18 @@
 // lib/i18n/en.ts — canonical UI-text dictionary for Clipboard AI's settings
-// window. English is authoritative: `de.ts` is typed against `typeof en`, so a
+// window. English is authoritative: every other dictionary (`de.ts`, and
+// whatever's registered in registry.ts) is typed against `typeof en`, so a
 // missing key, an extra key, or a function with the wrong parameter type in
-// `de.ts` is a compile error (verified by temporarily deleting a German key
-// and confirming `npm run check` fails — see v3-i18n-report.md).
+// one of them is a compile error (verified by temporarily deleting a German
+// key and confirming `npm run check` fails — see v3-i18n-report.md and
+// v3-i18n-scale-report.md).
 //
 // Deliberately *not* `as const`: that would narrow every string leaf to its
 // literal English value's type (e.g. `"Cancel"` rather than `string`), and
 // `de.ts` assigning `"Abbrechen"` to a property typed `"Cancel"` would then
 // itself be a type error. Leaves stay plain `string` — or a function
 // returning `string`, for the handful of entries that need an interpolated
-// value — so the two dictionaries only have to agree on *shape*, not content.
+// value — so every dictionary only has to agree with this one on *shape*,
+// not content.
 //
 // Grouped by the screen/component that owns the text, mirroring
 // src/routes/+page.svelte and src/lib/components/*.svelte, plus `history`
@@ -188,11 +191,10 @@ export const en = {
 		languageLabel: 'Language',
 		languageDescription: 'Interface language for this window.',
 		languageSystem: 'System',
-		// Language names are shown in their own language regardless of the
-		// active UI locale (a language picker convention), so these two
-		// values are deliberately identical in de.ts.
-		languageEnglish: 'English',
-		languageGerman: 'Deutsch',
+		// Language *names* (English shown as "English", French as
+		// "Français", ...) are not dictionary entries: they live once each
+		// in registry.ts's `nativeName`, not once per *other* language in
+		// every dictionary here -- see that file's header comment for why.
 		autostartLabel: 'Start with Windows',
 		autostartDescription: 'Launch Clipboard AI minimized to the tray on sign-in.'
 	}

@@ -9,6 +9,7 @@
 	import { Switch } from '$lib/components/shadcn/switch/index.js';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { registry, type LanguageChoice } from '$lib/i18n/registry';
 	import type { Language, Settings, Theme } from '$lib/types';
 
 	/** Rebuilt on every read via `$derived`, not a plain module-level const:
@@ -22,10 +23,15 @@
 		{ value: 'dark', label: i18n.t.settings.themeDark }
 	]);
 
-	const languageOptions = $derived<{ value: Language; label: string }[]>([
+	// Generated from the registry, not enumerated by hand: adding a language
+	// there is the only edit this control needs (see registry.ts's header
+	// comment for the full add-a-language recipe).
+	const languageOptions = $derived<{ value: LanguageChoice; label: string }[]>([
 		{ value: 'system', label: i18n.t.settings.languageSystem },
-		{ value: 'en', label: i18n.t.settings.languageEnglish },
-		{ value: 'de', label: i18n.t.settings.languageGerman }
+		...Object.entries(registry).map(([code, entry]) => ({
+			value: code as LanguageChoice,
+			label: entry.nativeName
+		}))
 	]);
 
 	/** Set right after any `updateSettings` rejection or refusal -- one shared

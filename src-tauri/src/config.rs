@@ -96,7 +96,29 @@ pub enum Theme {
 
 /// UI language. `System` means "detect the OS locale, fall back to
 /// English" -- like `Theme::System`, the detection itself is the frontend's
-/// job; this only persists which of the three the user chose.
+/// job; this only persists which language the user chose.
+///
+/// Stays a plain enum -- one variant per language -- rather than switching
+/// to `BackendConfig.kind`'s raw-`String`-plus-`validate()` style as the
+/// frontend's `src/lib/i18n/registry.ts` grows past two entries. That
+/// switch was considered and rejected: `kind`'s style exists because
+/// backend kinds need a `ConfigError::UnknownKind` variant *and* a
+/// `validate()` branch, written by hand, to reject a bad value at all --
+/// serde alone doesn't know the legal set for a raw `String` field. A
+/// language, like `Theme`, is a fixed, developer-curated set the same way
+/// `kind` is not (nothing here ever reads a language code from outside the
+/// binary), so serde already rejects a value absent from this enum as
+/// `ConfigError::Parse`, for free, via `#[serde(rename_all = "lowercase")]`
+/// -- for *any* number of variants, not just two or three. Switching to a
+/// string would trade that compiler-checked, free-rejecting enum for a
+/// runtime lookup this file would have to keep in sync with the registry by
+/// hand, which is strictly more code for an identical guarantee. Adding a
+/// language is therefore one variant line here (matched by one entry in
+/// `registry.ts`) either way -- and, because this only ever *adds* a legal
+/// value to an already-`#[serde(default)]` field, never changes the
+/// `Config`/`Settings` shape itself, it needs no `CURRENT_VERSION` bump
+/// (see the comment on `Config::settings` for why bumping that constant
+/// without a matching migration arm would be actively harmful).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
@@ -107,10 +129,11 @@ pub enum Language {
 }
 
 /// Plain enums, not `BackendConfig.kind`'s raw-`String`-plus-`validate()`
-/// style: for a fixed 2-3 value set, an unknown value already becomes a
-/// `ConfigError::Parse` for free via serde, with no extra `ConfigError`
-/// variant or `validate()` branch needed -- less code, not more, for this
-/// shape of field.
+/// style: for a fixed, developer-curated value set, an unknown value
+/// already becomes a `ConfigError::Parse` for free via serde, with no extra
+/// `ConfigError` variant or `validate()` branch needed -- less code, not
+/// more, for this shape of field. See `Language`'s own doc comment for why
+/// this holds regardless of how many languages that enum ends up with.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
