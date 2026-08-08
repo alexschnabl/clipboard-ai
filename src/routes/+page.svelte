@@ -1,12 +1,23 @@
-<!-- routes/+page.svelte — settings window: Backends and Commands tabs -->
+<!-- routes/+page.svelte — settings window shell: sidebar navigation over Commands,
+     Backends, History and Settings. No page title here by design -- see
+     SettingsSidebar.svelte and .superpowers/mockups/mockup-a-compact.html; the OS
+     title bar already names the app, so a second "Clipboard AI" header was dropped. -->
 <script lang="ts">
-	import * as Tabs from '$lib/components/shadcn/tabs/index.js';
 	import * as Alert from '$lib/components/shadcn/alert/index.js';
+	import SettingsSidebar, { type SectionId } from '$lib/components/SettingsSidebar.svelte';
 	import BackendList from '$lib/components/BackendList.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { onMount } from 'svelte';
 	import { listen } from '@tauri-apps/api/event';
+
+	// Which section is showing. Not reset on the revision bump below -- that
+	// remounts *content*, but bits-ui's old Tabs.Root managed the active tab
+	// outside the remounted subtree too, so a hide/reshow previously left the
+	// user on whatever tab they'd been on. Same behaviour here: this lives
+	// outside the `{#key}` block.
+	let activeSection = $state<SectionId>('commands');
 
 	onMount(() => {
 		void configState.load();
@@ -17,11 +28,11 @@
 		// `BackendForm`/`CommandForm` dialog with a stale draft -- would
 		// otherwise survive straight through a hide/reshow cycle. Rust emits
 		// this event every time it actually hides the window; bumping
-		// `configState.revision` here, consumed by the `{#key}` blocks below,
-		// remounts the tab bodies so all of that resets. Listening for this
-		// event specifically, rather than `document.visibilitychange`, is
-		// deliberate -- WebView2 firing that on a native window hide is not
-		// guaranteed.
+		// `configState.revision` here, consumed by the `{#key}` block below,
+		// remounts the active section's content so all of that resets.
+		// Listening for this event specifically, rather than
+		// `document.visibilitychange`, is deliberate -- WebView2 firing that
+		// on a native window hide is not guaranteed.
 		const unlisten = listen('settings://window-hidden', () => {
 			configState.revision++;
 		});
@@ -31,75 +42,105 @@
 	});
 </script>
 
-<div class="flex flex-col gap-6 p-8">
-	<div>
-		<h1 class="text-2xl font-semibold">Clipboard AI</h1>
-		<p class="text-sm text-muted-foreground">Configure backends and commands.</p>
-	</div>
+<!-- `h-screen`, not `h-full`: the shared root layout's `<main>` (+layout.svelte,
+     also used by the overlay window) intentionally keeps `min-h-screen`, not a
+     definite height, so this reaches for the viewport unit directly instead of
+     depending on an ancestor whose sizing isn't this component's to change.
+     `overflow-hidden` here plus `overflow-y-auto` on the two regions below is
+     what keeps this a fixed-chrome shell with internal scrolling, matching the
+     mockup's `.window`/`.content-scroll` split, rather than a page that scrolls
+     as a whole. -->
+<div class="flex h-screen min-h-0 overflow-hidden">
+	<SettingsSidebar
+		active={activeSection}
+		onNavigate={(id) => (activeSection = id)}
+		commandCount={configState.config.commands.length}
+		backendCount={configState.config.backends.length}
+	/>
 
-	{#if configState.loadError}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Your saved configuration could not be read</Alert.Title>
-			<Alert.Description>
-				<p>{configState.loadError.reason}</p>
-				{#if configState.loadError.preservedPath}
-					<p>
-						The original file was kept, unmodified, at
-						<code>{configState.loadError.preservedPath}</code>. Fix it by hand and restart the
-						app to recover your existing backends and prompts.
-					</p>
-				{:else}
-					<p>Clipboard AI could not preserve the original file either — check the log.</p>
+	<div class="flex min-w-0 flex-1 flex-col overflow-hidden">
+		{#if configState.loadError || configState.error || configState.problems.length > 0}
+			<!-- Page-level alerts, kept out of the scrolling content region below so
+			     they stay visible while a long list scrolls underneath. Capped so a
+			     pile of problems can't push the whole section out of view at the
+			     720x520 minimum window size. -->
+			<div class="flex max-h-48 shrink-0 flex-col gap-2 overflow-y-auto border-b p-3">
+				{#if configState.loadError}
+					<Alert.Root variant="destructive">
+						<Alert.Title>{i18n.t.app.loadErrorTitle}</Alert.Title>
+						<Alert.Description>
+							<p>{configState.loadError.reason}</p>
+							{#if configState.loadError.preservedPath}
+								<p>
+									{i18n.t.app.loadErrorPreservedBefore}
+									<code>{configState.loadError.preservedPath}</code>. {i18n.t.app
+										.loadErrorPreservedAfter}
+								</p>
+							{:else}
+								<p>{i18n.t.app.loadErrorNotPreserved}</p>
+							{/if}
+							<p>{i18n.t.app.loadErrorFallbackNotice}</p>
+						</Alert.Description>
+					</Alert.Root>
 				{/if}
-				<p>
-					What you see below is a blank starting point, not your saved settings. Any change you
-					make here saves immediately — that only creates a fresh config.json and will not touch
-					the preserved copy above.
-				</p>
-			</Alert.Description>
-		</Alert.Root>
-	{/if}
 
-	{#if configState.error}
-		<Alert.Root variant="destructive">
-			<Alert.Title>
-				{configState.error.source === 'load' ? 'Couldn’t load config' : 'Couldn’t save config'}
-			</Alert.Title>
-			<Alert.Description>{configState.error.message}</Alert.Description>
-		</Alert.Root>
-	{/if}
+				{#if configState.error}
+					<Alert.Root variant="destructive">
+						<Alert.Title>
+							{configState.error.source === 'load'
+								? i18n.t.app.errorLoadTitle
+								: i18n.t.app.errorSaveTitle}
+						</Alert.Title>
+						<Alert.Description>{configState.error.message}</Alert.Description>
+					</Alert.Root>
+				{/if}
 
-	{#if configState.problems.length > 0}
-		<Alert.Root>
-			<Alert.Title>Some settings couldn’t be applied</Alert.Title>
-			<Alert.Description>
-				<ul class="list-disc pl-4">
-					{#each configState.problems as problem, i (i)}
-						<li>{problem.message}</li>
-					{/each}
-				</ul>
-			</Alert.Description>
-		</Alert.Root>
-	{/if}
+				{#if configState.problems.length > 0}
+					<Alert.Root>
+						<Alert.Title>{i18n.t.app.problemsTitle}</Alert.Title>
+						<Alert.Description>
+							<ul class="list-disc pl-4">
+								{#each configState.problems as problem, i (i)}
+									<li>{problem.message}</li>
+								{/each}
+							</ul>
+						</Alert.Description>
+					</Alert.Root>
+				{/if}
+			</div>
+		{/if}
 
-	{#if configState.loading}
-		<p class="text-sm text-muted-foreground">Loading…</p>
-	{:else}
-		<Tabs.Root value="backends">
-			<Tabs.List>
-				<Tabs.Trigger value="backends">Backends</Tabs.Trigger>
-				<Tabs.Trigger value="commands">Commands</Tabs.Trigger>
-			</Tabs.List>
-			<Tabs.Content value="backends">
+		{#if configState.loading}
+			<p class="p-4 text-sm text-muted-foreground">{i18n.t.app.loading}</p>
+		{:else}
+			<div class="min-h-0 flex-1 overflow-y-auto">
 				{#key configState.revision}
-					<BackendList />
+					{#if activeSection === 'commands'}
+						<CommandList />
+					{:else if activeSection === 'backends'}
+						<BackendList />
+					{:else if activeSection === 'history'}
+						<!-- Placeholder: another agent is building HistoryPanel.svelte to replace
+						     this slot -- last 100 command runs, per src-tauri/src/history.rs. -->
+						<div class="flex h-full flex-col items-center justify-center gap-1 p-8 text-center">
+							<p class="text-sm font-medium text-foreground">{i18n.t.history.title} — coming soon</p>
+							<p class="text-xs text-muted-foreground">
+								This section will show your recent command runs.
+							</p>
+						</div>
+					{:else}
+						<!-- Placeholder: another agent is building SettingsPanel.svelte to replace
+						     this slot -- theme, language and start-with-Windows, per
+						     src-tauri/src/config.rs `Settings`. -->
+						<div class="flex h-full flex-col items-center justify-center gap-1 p-8 text-center">
+							<p class="text-sm font-medium text-foreground">{i18n.t.settings.title} — coming soon</p>
+							<p class="text-xs text-muted-foreground">
+								Theme, language and startup options will live here.
+							</p>
+						</div>
+					{/if}
 				{/key}
-			</Tabs.Content>
-			<Tabs.Content value="commands">
-				{#key configState.revision}
-					<CommandList />
-				{/key}
-			</Tabs.Content>
-		</Tabs.Root>
-	{/if}
+			</div>
+		{/if}
+	</div>
 </div>
