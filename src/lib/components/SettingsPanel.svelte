@@ -92,79 +92,89 @@
 	}
 </script>
 
-<div class="flex flex-col gap-4">
-	<h2 class="text-sm font-medium">{i18n.t.settings.title}</h2>
+<!-- Same content-toolbar / content-scroll split as CommandList.svelte -- see
+     that component's comment for the spacing rationale. This section has no
+     primary action, so the toolbar is just the title (mockup's last frame
+     shows the same: `.content-toolbar` with an `<h2>` and an empty spacer,
+     no button). -->
+<div class="flex h-full min-h-0 flex-col">
+	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
+		<h2 class="text-[12.5px] font-bold">{i18n.t.settings.title}</h2>
+		<div class="flex-1"></div>
+	</div>
 
-	{#if settingsNotice}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Couldn’t save that change</Alert.Title>
-			<Alert.Description>{settingsNotice}</Alert.Description>
-		</Alert.Root>
-	{/if}
+	<div class="min-h-0 flex-1 overflow-y-auto p-4">
+		{#if settingsNotice}
+			<Alert.Root variant="destructive" class="mb-3">
+				<Alert.Title>Couldn’t save that change</Alert.Title>
+				<Alert.Description>{settingsNotice}</Alert.Description>
+			</Alert.Root>
+		{/if}
 
-	<div class="flex flex-col">
-		<div class="flex items-center justify-between gap-4 border-b py-3">
-			<div class="flex flex-col gap-0.5">
-				<span class="text-sm font-medium">{i18n.t.settings.themeLabel}</span>
-				<span class="text-xs text-muted-foreground">{i18n.t.settings.themeDescription}</span>
-			</div>
-			<div
-				class="inline-flex shrink-0 gap-0.5 rounded-md bg-muted p-0.5"
-				role="radiogroup"
-				aria-label={i18n.t.settings.themeLabel}
-			>
-				{#each themeOptions as opt (opt.value)}
-					{@const active = configState.config.settings.theme === opt.value}
-					<button
-						type="button"
-						role="radio"
-						aria-checked={active}
-						class="rounded-sm px-2.5 py-1 text-xs font-medium transition-colors {active
-							? 'bg-background text-foreground shadow-sm'
-							: 'text-muted-foreground hover:text-foreground'}"
-						onclick={() => setTheme(opt.value)}
-					>
-						{opt.label}
-					</button>
-				{/each}
-			</div>
-		</div>
-
-		<div class="flex items-center justify-between gap-4 border-b py-3">
-			<div class="flex flex-col gap-0.5">
-				<span class="text-sm font-medium">{i18n.t.settings.languageLabel}</span>
-				<span class="text-xs text-muted-foreground">{i18n.t.settings.languageDescription}</span>
-			</div>
-			<Select.Root
-				type="single"
-				value={configState.config.settings.language}
-				onValueChange={handleLanguageChange}
-			>
-				<Select.Trigger class="w-32 shrink-0">{languageLabel}</Select.Trigger>
-				<Select.Content>
-					{#each languageOptions as opt (opt.value)}
-						<Select.Item value={opt.value} label={opt.label} />
+		<div class="flex flex-col">
+			<div class="flex items-center justify-between gap-4 border-b py-3">
+				<div class="flex flex-col gap-0.5">
+					<span class="text-sm font-medium">{i18n.t.settings.themeLabel}</span>
+					<span class="text-xs text-muted-foreground">{i18n.t.settings.themeDescription}</span>
+				</div>
+				<div
+					class="inline-flex shrink-0 gap-0.5 rounded-md bg-muted p-0.5"
+					role="radiogroup"
+					aria-label={i18n.t.settings.themeLabel}
+				>
+					{#each themeOptions as opt (opt.value)}
+						{@const active = configState.config.settings.theme === opt.value}
+						<button
+							type="button"
+							role="radio"
+							aria-checked={active}
+							class="rounded-sm px-2.5 py-1 text-xs font-medium transition-colors {active
+								? 'bg-background text-foreground shadow-sm'
+								: 'text-muted-foreground hover:text-foreground'}"
+							onclick={() => setTheme(opt.value)}
+						>
+							{opt.label}
+						</button>
 					{/each}
-				</Select.Content>
-			</Select.Root>
-		</div>
-
-		<div class="flex items-center justify-between gap-4 py-3">
-			<div class="flex flex-col gap-0.5">
-				<span class="text-sm font-medium">{i18n.t.settings.autostartLabel}</span>
-				<span class="text-xs text-muted-foreground">
-					{i18n.t.settings.autostartDescription} Refused in development builds — it would register
-					the debug executable to run at login instead of your installed app; test this with an
-					installed (<code>npm run tauri build</code>) build instead.
-				</span>
+				</div>
 			</div>
-			<Switch
-				checked={configState.config.settings.autostart}
-				disabled={autostartPending}
-				onCheckedChange={(checked: boolean) => void setAutostart(checked)}
-				class="shrink-0"
-				aria-label={i18n.t.settings.autostartLabel}
-			/>
+
+			<div class="flex items-center justify-between gap-4 border-b py-3">
+				<div class="flex flex-col gap-0.5">
+					<span class="text-sm font-medium">{i18n.t.settings.languageLabel}</span>
+					<span class="text-xs text-muted-foreground">{i18n.t.settings.languageDescription}</span>
+				</div>
+				<Select.Root
+					type="single"
+					value={configState.config.settings.language}
+					onValueChange={handleLanguageChange}
+				>
+					<Select.Trigger class="w-32 shrink-0">{languageLabel}</Select.Trigger>
+					<Select.Content>
+						{#each languageOptions as opt (opt.value)}
+							<Select.Item value={opt.value} label={opt.label} />
+						{/each}
+					</Select.Content>
+				</Select.Root>
+			</div>
+
+			<div class="flex items-center justify-between gap-4 py-3">
+				<div class="flex flex-col gap-0.5">
+					<span class="text-sm font-medium">{i18n.t.settings.autostartLabel}</span>
+					<span class="text-xs text-muted-foreground">
+						{i18n.t.settings.autostartDescription} Refused in development builds — it would
+						register the debug executable to run at login instead of your installed app; test this
+						with an installed (<code>npm run tauri build</code>) build instead.
+					</span>
+				</div>
+				<Switch
+					checked={configState.config.settings.autostart}
+					disabled={autostartPending}
+					onCheckedChange={(checked: boolean) => void setAutostart(checked)}
+					class="shrink-0"
+					aria-label={i18n.t.settings.autostartLabel}
+				/>
+			</div>
 		</div>
 	</div>
 </div>

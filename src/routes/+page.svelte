@@ -48,10 +48,11 @@
      also used by the overlay window) intentionally keeps `min-h-screen`, not a
      definite height, so this reaches for the viewport unit directly instead of
      depending on an ancestor whose sizing isn't this component's to change.
-     `overflow-hidden` here plus `overflow-y-auto` on the two regions below is
-     what keeps this a fixed-chrome shell with internal scrolling, matching the
-     mockup's `.window`/`.content-scroll` split, rather than a page that scrolls
-     as a whole. -->
+     `overflow-hidden` here, plus `overflow-hidden` on the section wrapper below
+     and `overflow-y-auto` scoped to just the alerts strip and each section's own
+     content-scroll region, is what keeps this a fixed-chrome shell with internal
+     scrolling, matching the mockup's `.window`/`.content-scroll` split, rather
+     than a page that scrolls as a whole. -->
 <div class="flex h-screen min-h-0 overflow-hidden">
 	<SettingsSidebar
 		active={activeSection}
@@ -65,8 +66,10 @@
 			<!-- Page-level alerts, kept out of the scrolling content region below so
 			     they stay visible while a long list scrolls underneath. Capped so a
 			     pile of problems can't push the whole section out of view at the
-			     720x520 minimum window size. -->
-			<div class="flex max-h-48 shrink-0 flex-col gap-2 overflow-y-auto border-b p-3">
+			     720x520 minimum window size. `px-4` matches the 16px gutter every
+			     section's own toolbar uses below, so this banner lines up with the
+			     content it sits above rather than looking like a different scale. -->
+			<div class="flex max-h-48 shrink-0 flex-col gap-2 overflow-y-auto border-b px-4 py-3">
 				{#if configState.loadError}
 					<Alert.Root variant="destructive">
 						<Alert.Title>{i18n.t.app.loadErrorTitle}</Alert.Title>
@@ -115,7 +118,16 @@
 		{#if configState.loading}
 			<p class="p-4 text-sm text-muted-foreground">{i18n.t.app.loading}</p>
 		{:else}
-			<div class="min-h-0 flex-1 overflow-y-auto">
+			<!-- Not `overflow-y-auto` here anymore: the previous single page-level
+			     scroll region made every section's own "Add command"/"Add backend"
+			     toolbar scroll away with the list under it, and put a sticky
+			     column-header's stick point wherever the *page* happened to be
+			     scrolled to rather than the section's own list. Each section below
+			     now owns a `content-toolbar` (pinned) + `content-scroll` (scrolls)
+			     split matching the mockup's `.content` structure directly, so this
+			     wrapper only needs to constrain height and let the active section
+			     manage its own internal scrolling. -->
+			<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
 				{#key configState.revision}
 					{#if activeSection === 'commands'}
 						<CommandList />

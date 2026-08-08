@@ -146,7 +146,7 @@
 <button
 	{id}
 	type="button"
-	class="w-full rounded-md border px-3 py-2 text-left font-mono text-sm"
+	class="w-full rounded-md border px-3 py-1.5 text-left font-mono text-sm"
 	class:ring-2={recording}
 	onclick={start}
 	onblur={() => void stop(false)}

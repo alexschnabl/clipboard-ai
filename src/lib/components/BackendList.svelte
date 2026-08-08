@@ -54,78 +54,91 @@
 		confirmDeleteOpen = false;
 		pendingDelete = null;
 	}
+
+	// Copied verbatim from HistoryPanel/CommandList's own `headClass` -- see
+	// CommandList's comment on this string for why it isn't a shared import.
+	const headClass =
+		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase';
 </script>
 
-<div class="flex flex-col gap-4">
-	{#if blockedDelete}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Can’t delete “{blockedDelete.backendName}”</Alert.Title>
-			<Alert.Description>
-				Still used by: {blockedDelete.usedBy.join(', ')}. Point those commands at a different
-				backend first, then delete it.
-			</Alert.Description>
-		</Alert.Root>
-	{/if}
-
-	<div class="flex items-center justify-between">
-		<h2 class="text-sm font-medium">Backends</h2>
+<!-- Same content-toolbar / content-scroll split as CommandList.svelte -- see
+     that component's comment for the spacing rationale. -->
+<div class="flex h-full min-h-0 flex-col">
+	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
+		<h2 class="text-[12.5px] font-bold">Backends</h2>
+		<span class="text-[11px] text-muted-foreground"
+			>{configState.config.backends.length} configured</span
+		>
+		<div class="flex-1"></div>
 		<Button size="sm" onclick={openAdd}>
 			<RiAddLine class="size-4" />
 			Add backend
 		</Button>
 	</div>
 
-	<Table.Root>
-		<Table.Header>
-			<Table.Row>
-				<Table.Head>Name</Table.Head>
-				<Table.Head>Kind</Table.Head>
-				<Table.Head>Model</Table.Head>
-				<Table.Head class="text-right">Actions</Table.Head>
-			</Table.Row>
-		</Table.Header>
-		<Table.Body>
-			{#each configState.config.backends as backend (backend.id)}
-				<Table.Row>
-					<Table.Cell class="max-w-48 font-medium">
-						<span class="block truncate" title={backend.name}>{backend.name}</span>
-					</Table.Cell>
-					<Table.Cell>{KIND_LABELS[backend.kind]}</Table.Cell>
-					<Table.Cell class="max-w-48">
-						<span class="block truncate" title={backend.model ?? undefined}
-							>{backend.model ?? '—'}</span
-						>
-					</Table.Cell>
-					<Table.Cell class="text-right">
-						<div class="flex justify-end gap-2">
-							<Button
-								variant="outline"
-								size="icon-sm"
-								onclick={() => openEdit(backend)}
-								aria-label={`Edit ${backend.name}`}
-							>
-								<RiPencilLine class="size-4" />
-							</Button>
-							<Button
-								variant="outline"
-								size="icon-sm"
-								onclick={() => handleDelete(backend)}
-								aria-label={`Delete ${backend.name}`}
-							>
-								<RiDeleteBinLine class="size-4" />
-							</Button>
-						</div>
-					</Table.Cell>
+	<div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+		{#if blockedDelete}
+			<Alert.Root variant="destructive">
+				<Alert.Title>Can’t delete “{blockedDelete.backendName}”</Alert.Title>
+				<Alert.Description>
+					Still used by: {blockedDelete.usedBy.join(', ')}. Point those commands at a different
+					backend first, then delete it.
+				</Alert.Description>
+			</Alert.Root>
+		{/if}
+
+		<Table.Root>
+			<Table.Header>
+				<Table.Row class="hover:bg-transparent">
+					<Table.Head class={headClass}>Name</Table.Head>
+					<Table.Head class={headClass}>Kind</Table.Head>
+					<Table.Head class={headClass}>Model</Table.Head>
+					<Table.Head class="{headClass} text-right">Actions</Table.Head>
 				</Table.Row>
-			{:else}
-				<Table.Row>
-					<Table.Cell colspan={4} class="text-center text-muted-foreground">
-						No backends configured.
-					</Table.Cell>
-				</Table.Row>
-			{/each}
-		</Table.Body>
-	</Table.Root>
+			</Table.Header>
+			<Table.Body>
+				{#each configState.config.backends as backend (backend.id)}
+					<Table.Row>
+						<Table.Cell class="max-w-48 py-1.5 font-medium">
+							<span class="block truncate" title={backend.name}>{backend.name}</span>
+						</Table.Cell>
+						<Table.Cell class="py-1.5">{KIND_LABELS[backend.kind]}</Table.Cell>
+						<Table.Cell class="max-w-48 py-1.5">
+							<span class="block truncate" title={backend.model ?? undefined}
+								>{backend.model ?? '—'}</span
+							>
+						</Table.Cell>
+						<Table.Cell class="py-1.5 text-right">
+							<div class="flex justify-end gap-2">
+								<Button
+									variant="outline"
+									size="icon-sm"
+									onclick={() => openEdit(backend)}
+									aria-label={`Edit ${backend.name}`}
+								>
+									<RiPencilLine class="size-4" />
+								</Button>
+								<Button
+									variant="outline"
+									size="icon-sm"
+									onclick={() => handleDelete(backend)}
+									aria-label={`Delete ${backend.name}`}
+								>
+									<RiDeleteBinLine class="size-4" />
+								</Button>
+							</div>
+						</Table.Cell>
+					</Table.Row>
+				{:else}
+					<Table.Row>
+						<Table.Cell colspan={4} class="py-8 text-center text-muted-foreground">
+							No backends configured.
+						</Table.Cell>
+					</Table.Row>
+				{/each}
+			</Table.Body>
+		</Table.Root>
+	</div>
 </div>
 
 <BackendForm bind:open={formOpen} backend={editingBackend} />

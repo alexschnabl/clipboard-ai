@@ -121,7 +121,11 @@
 			</Dialog.Description>
 		</Dialog.Header>
 
-		<div class="flex flex-col gap-4 py-2">
+		<!-- `gap-3` (12px): matches mockup-a-compact.html's `.dialog-body { gap: 12px }`
+		     -- see CommandForm.svelte's identical comment for why this is the one
+		     spacing lever available here (Dialog.Content's own `p-6 gap-6` is
+		     shadcn-owned). -->
+		<div class="flex flex-col gap-3">
 			<div class="flex flex-col gap-1.5">
 				<Label for="backend-name">Name</Label>
 				<Input id="backend-name" bind:value={name} placeholder="Local Ollama" autocomplete="off" />

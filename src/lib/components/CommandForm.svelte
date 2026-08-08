@@ -100,7 +100,12 @@
 			</Dialog.Description>
 		</Dialog.Header>
 
-		<div class="flex flex-col gap-4 py-2">
+		<!-- `gap-3` (12px), not the more common `gap-4`: matches
+		     mockup-a-compact.html's `.dialog-body { gap: 12px }` -- Dialog.Content
+		     itself (shadcn-owned, not ours to edit) already wraps this in its own
+		     `p-6 gap-6`, so tightening the *inter-field* rhythm here is the one
+		     spacing lever this component has toward the mockup's denser dialog. -->
+		<div class="flex flex-col gap-3">
 			<div class="flex flex-col gap-1.5">
 				<Label for="command-name">Name</Label>
 				<Input id="command-name" bind:value={name} placeholder="Fix grammar" autocomplete="off" />

@@ -108,26 +108,17 @@
 	}
 </script>
 
-<div class="flex flex-col gap-4">
-	{#if configState.historyError}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Couldn’t load history</Alert.Title>
-			<Alert.Description>{configState.historyError}</Alert.Description>
-		</Alert.Root>
-	{/if}
-
-	{#if copyError}
-		<Alert.Root variant="destructive">
-			<Alert.Title>Couldn’t copy to clipboard</Alert.Title>
-			<Alert.Description>{copyError}</Alert.Description>
-		</Alert.Root>
-	{/if}
-
-	<div class="flex items-center justify-between">
-		<div class="flex items-baseline gap-2">
-			<h2 class="text-sm font-medium">{i18n.t.history.title}</h2>
-			<span class="text-xs text-muted-foreground">{i18n.t.history.hint(HISTORY_LIMIT)}</span>
-		</div>
+<!-- Same content-toolbar / content-scroll split as CommandList.svelte -- see
+     that component's comment for the spacing rationale. History's table
+     previously sat in its own `max-h-[28rem]` box regardless of the window's
+     actual height; it now fills whatever the toolbar leaves behind, matching
+     the mockup's `.content-scroll { flex: 1 1 auto }` instead of an
+     arbitrary cap. -->
+<div class="flex h-full min-h-0 flex-col">
+	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
+		<h2 class="text-[12.5px] font-bold">{i18n.t.history.title}</h2>
+		<span class="text-[11px] text-muted-foreground">{i18n.t.history.hint(HISTORY_LIMIT)}</span>
+		<div class="flex-1"></div>
 		<Button
 			variant="outline"
 			size="sm"
@@ -139,16 +130,30 @@
 		</Button>
 	</div>
 
-	{#if configState.historyLoading}
-		<p class="text-sm text-muted-foreground">{i18n.t.app.loading}</p>
-	{:else if configState.history.length === 0}
-		<div class="flex flex-col items-center gap-1 py-12 text-center">
-			<RiHistoryLine class="size-6 text-muted-foreground opacity-50" />
-			<p class="text-sm font-medium">{i18n.t.history.emptyTitle}</p>
-			<p class="max-w-64 text-xs text-muted-foreground">{i18n.t.history.emptyDescription}</p>
-		</div>
-	{:else}
-		<div class="max-h-[28rem] overflow-y-auto rounded-md border">
+	<div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+		{#if configState.historyError}
+			<Alert.Root variant="destructive">
+				<Alert.Title>Couldn’t load history</Alert.Title>
+				<Alert.Description>{configState.historyError}</Alert.Description>
+			</Alert.Root>
+		{/if}
+
+		{#if copyError}
+			<Alert.Root variant="destructive">
+				<Alert.Title>Couldn’t copy to clipboard</Alert.Title>
+				<Alert.Description>{copyError}</Alert.Description>
+			</Alert.Root>
+		{/if}
+
+		{#if configState.historyLoading}
+			<p class="text-sm text-muted-foreground">{i18n.t.app.loading}</p>
+		{:else if configState.history.length === 0}
+			<div class="flex flex-col items-center gap-1 py-12 text-center">
+				<RiHistoryLine class="size-6 text-muted-foreground opacity-50" />
+				<p class="text-sm font-medium">{i18n.t.history.emptyTitle}</p>
+				<p class="max-w-64 text-xs text-muted-foreground">{i18n.t.history.emptyDescription}</p>
+			</div>
+		{:else}
 			<Table.Root class="text-xs">
 				<Table.Header>
 					<Table.Row class="hover:bg-transparent">
@@ -271,8 +276,8 @@
 					{/each}
 				</Table.Body>
 			</Table.Root>
-		</div>
-	{/if}
+		{/if}
+	</div>
 </div>
 
 <Dialog.Root bind:open={confirmClearOpen}>
