@@ -1,7 +1,7 @@
 <!-- lib/components/HistoryPanel.svelte — last 100 cycle runs: view, expand to
      recover input/result text, copy the result, clear the whole log. -->
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onDestroy, onMount } from 'svelte';
 	import * as Table from '$lib/components/shadcn/table/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import * as Alert from '$lib/components/shadcn/alert/index.js';
@@ -39,8 +39,27 @@
 		void configState.loadHistory();
 	});
 
+	// F5 (review3-frontend.md): every other timer/listener in this codebase
+	// (the overlay's `clearWatchdog`, HotkeyRecorder's `onDestroy` backstop,
+	// +page.svelte's `unlisten`) is cleared on unmount; this one wasn't. A
+	// settings-window hide within 1.5s of "Copy" used to destroy this
+	// component (it lives inside +page.svelte's `{#key configState.revision}`
+	// block) while the timeout was still pending -- harmless (nothing reads
+	// `copiedKey` on a dead instance), but inconsistent with the rest of the
+	// app's cleanup discipline.
+	onDestroy(() => {
+		clearTimeout(copiedResetTimer);
+	});
+
+	// F3 (review3-frontend.md): `text-muted-foreground` on `bg-muted` is
+	// 4.15:1 in light mode -- just under WCAG AA's 4.5:1 for this small
+	// (10px), non-bold text. `text-foreground/65` is theme-aware for free
+	// (`--foreground` itself flips between near-black and near-white), and
+	// computed from the app's own oklch tokens it clears AA in both themes
+	// with margin to spare against this same `bg-muted`: 6.03:1 light,
+	// 6.88:1 dark (was 4.15:1 / 6.05:1).
 	const headClass =
-		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase';
+		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-foreground/65 uppercase';
 
 	function toggleExpand(index: number): void {
 		expandedIndex = expandedIndex === index ? null : index;
@@ -55,9 +74,23 @@
 		// project's teal, not an invented green), --muted-foreground for an
 		// abort (a cycle stopping itself on purpose is not an error), and
 		// --destructive reserved for an actual backend failure.
+		//
+		// F2 (review3-frontend.md): plain `text-primary` on `bg-background`
+		// computes to 2.62:1 in dark mode (well under AA's 4.5:1) -- dark
+		// mode's --primary is a deliberately dark teal, calibrated against
+		// `--primary-foreground` for use as a *background*, not as text on
+		// `--background`. `dark:text-chart-2` overrides it only in dark mode
+		// (light mode's plain `text-primary` already passes at 5.39:1) with
+		// a brighter step from the same teal family already defined in
+		// app.css's chart tokens -- computed at 8.14:1 against dark mode's
+		// `--background`, comfortable margin above the 4.5:1 floor.
 		switch (outcome.status) {
 			case 'succeeded':
-				return { label: i18n.t.history.statusSuccess, dot: 'bg-primary', text: 'text-primary' };
+				return {
+					label: i18n.t.history.statusSuccess,
+					dot: 'bg-primary',
+					text: 'text-primary dark:text-chart-2'
+				};
 			case 'aborted':
 				return {
 					label: i18n.t.history.statusAborted,

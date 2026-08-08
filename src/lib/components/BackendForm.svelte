@@ -144,9 +144,14 @@
 						{KIND_LABELS[kind]}
 					</Select.Trigger>
 					<Select.Content>
-						<Select.Item value="openai-compatible" label="OpenAI-compatible" />
-						<Select.Item value="anthropic-api" label="Anthropic API" />
-						<Select.Item value="claude-cli" label="Claude CLI" />
+						<!-- F6 (review3-frontend.md): was a third, hardcoded copy of these
+						     kind->label pairs -- KIND_LABELS (types.ts) is the one source of
+						     truth this same component already uses for the trigger text
+						     above; rendering options from it means Rust and TypeScript can
+						     no longer silently disagree in only this one place. -->
+						{#each Object.entries(KIND_LABELS) as [value, label] (value)}
+							<Select.Item {value} {label} />
+						{/each}
 					</Select.Content>
 				</Select.Root>
 			</div>
@@ -192,10 +197,17 @@
 							class="pr-9"
 							autocomplete="off"
 						/>
+						<!-- F4 (review3-frontend.md): with no size classes of its own, this
+						     button rendered at exactly its icon's size-4 (16x16px) -- under
+						     WCAG 2.5.8's 24x24 minimum target size. size-6 (24x24) plus
+						     flex-centering the icon gives it a proper hit target; `right-1`
+						     (was right-2) keeps the icon visually centered in the same spot
+						     inside the input's reserved `pr-9`, so the input's own layout is
+						     untouched. -->
 						<button
 							type="button"
 							onclick={() => (revealed = !revealed)}
-							class="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+							class="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
 							aria-label={revealed
 								? i18n.t.backends.form.hideApiKey
 								: i18n.t.backends.form.showApiKey}

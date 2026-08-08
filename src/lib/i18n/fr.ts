@@ -49,8 +49,6 @@ export const fr: typeof en = {
 	},
 
 	app: {
-		title: 'Clipboard AI',
-		subtitle: 'Configurer les backends et les commandes.',
 		loading: 'Chargement…',
 		loadErrorTitle: 'Votre configuration enregistrée n’a pas pu être lue',
 		loadErrorPreservedBefore: 'Le fichier d’origine a été conservé, inchangé, à l’emplacement',
@@ -122,14 +120,6 @@ export const fr: typeof en = {
 		blockedDeleteTitle: (name: string) => `Impossible de supprimer « ${name} »`,
 		blockedDeleteDescription: (usedBy: string) =>
 			`Encore utilisé par : ${usedBy}. Faites d’abord pointer ces commandes vers un autre backend, puis supprimez-le.`,
-		// Mirrors `KIND_LABELS` in src/lib/types.ts (owned by another agent) —
-		// kept as a parallel translated copy rather than importing that map,
-		// since this file must not depend on anything outside `lib/i18n`.
-		kindLabel: {
-			openaiCompatible: 'Compatible OpenAI',
-			anthropicApi: 'API Anthropic',
-			claudeCli: 'Claude CLI'
-		},
 		form: {
 			addTitle: 'Ajouter un backend',
 			editTitle: 'Modifier le backend',
@@ -139,7 +129,6 @@ export const fr: typeof en = {
 			namePlaceholder: 'Ollama local',
 			kindLabel: 'Type',
 			baseUrlLabel: 'URL de base',
-			baseUrlPlaceholder: 'http://localhost:11434/v1',
 			modelLabel: 'Modèle',
 			modelPlaceholderOpenAiCompatible: 'qwen2.5:32b-instruct',
 			modelPlaceholderOther: 'claude-opus-5',

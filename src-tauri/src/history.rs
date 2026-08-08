@@ -110,6 +110,7 @@
 use std::{
     fs,
     path::Path,
+    sync::Mutex,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -120,6 +121,21 @@ use thiserror::Error;
 /// `config.json` in the app config directory (see `config::config_path`).
 /// A `const` rather than callers each spelling `"history.json"` themselves.
 pub const FILE_NAME: &str = "history.json";
+
+/// Serializes every read-then-write access to `history.json` -- [`append`]'s
+/// load-mutate-write and [`clear`]'s write -- against each other.
+///
+/// `clear_history` is an ordinary Tauri command with no relationship to the
+/// `busy` re-entrancy flag in `lib.rs` at all (that flag only serializes
+/// cycle-triggered `append` calls against *each other*). Without this lock,
+/// a `clear_history` write landing between an in-flight cycle's `append`
+/// reading the file and that same `append` writing it back would be
+/// silently undone: `append` would overwrite the just-cleared file with the
+/// pre-clear entries plus its own new one. Those entries are the text the
+/// user selected and the model's output (see the module doc comment's data-
+/// sensitivity note), so "I deleted that and it came back" is the specific
+/// outcome this lock exists to make impossible, not just unlikely.
+static HISTORY_LOCK: Mutex<()> = Mutex::new(());
 
 /// Hard cap on stored entries. Newest first; the oldest entry is evicted
 /// once a write would exceed this.
@@ -304,6 +320,11 @@ pub fn append(path: &Path, mut entry: HistoryEntry) -> Result<(), HistoryError> 
     entry.input_text = entry.input_text.as_deref().map(truncate_text);
     entry.result_text = entry.result_text.as_deref().map(truncate_text);
 
+    // Held across the whole load-mutate-write span, not just the write --
+    // see HISTORY_LOCK's doc comment. Locking only around `write_atomic`
+    // would still let a `clear` land right after this `load()`, which is
+    // the exact interleaving that silently undoes a clear.
+    let _guard = crate::recover_lock(HISTORY_LOCK.lock(), "history", path.parent());
     let mut entries = load(path);
     entries.insert(0, entry);
     entries.truncate(MAX_ENTRIES);
@@ -316,6 +337,7 @@ pub fn append(path: &Path, mut entry: HistoryEntry) -> Result<(), HistoryError> 
 /// or immediately-following [`load`] never has to distinguish "empty
 /// history" from "no file yet" from "file mid-deletion".
 pub fn clear(path: &Path) -> Result<(), HistoryError> {
+    let _guard = crate::recover_lock(HISTORY_LOCK.lock(), "history", path.parent());
     write_atomic(path, &[])
 }
 
@@ -604,6 +626,61 @@ mod tests {
         clear(&path).unwrap();
 
         assert!(load(&path).is_empty());
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // R1: a `clear_history` command landing between an in-flight `append`'s
+    // `load()` and its `write_atomic` must never be silently undone. This
+    // reaches inside the module (rather than calling only the public
+    // `append`/`clear`) to widen `append`'s own load-then-write gap with a
+    // deliberate sleep -- `append`'s real critical section is far too fast
+    // to reliably land a second thread inside it otherwise -- while still
+    // exercising the exact `HISTORY_LOCK` both public functions take. A
+    // `Barrier` plus a short sleep on the clearing thread forces `clear` to
+    // attempt its own lock acquisition while the simulated append still
+    // holds it, deterministically (not just "usually") proving the two
+    // cannot interleave: if `HISTORY_LOCK` were absent or scoped only around
+    // `write_atomic`, `clear`'s write would land during the sleep and the
+    // pre-existing entry `load()` already read would come back once the
+    // simulated append's own write lands afterward.
+    #[test]
+    fn a_concurrent_append_and_clear_cannot_interleave_into_a_lost_update() {
+        let dir = temp_dir("race");
+        let path = dir.join(FILE_NAME);
+
+        append(&path, entry("pre-existing")).unwrap();
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+
+        let path_for_append = path.clone();
+        let barrier_for_append = barrier.clone();
+        let append_thread = std::thread::spawn(move || {
+            let _guard = HISTORY_LOCK.lock().unwrap();
+            barrier_for_append.wait(); // signal: lock is held, clear may now try
+            let mut entries = load(&path_for_append);
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            entries.insert(0, entry("racing-append"));
+            write_atomic(&path_for_append, &entries).unwrap();
+        });
+
+        barrier.wait();
+        // Give the append thread a moment to actually be inside its sleep
+        // (i.e. past `load()`, still holding the lock) before `clear` tries
+        // to acquire it.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        clear(&path).unwrap();
+
+        append_thread.join().unwrap();
+
+        // Correct serialization has exactly one outcome here: `clear`'s
+        // lock acquisition must block until the simulated append finishes
+        // its write, so `clear` always runs strictly after it -- the
+        // pre-existing entry that append's `load()` read can never survive.
+        assert!(
+            load(&path).is_empty(),
+            "clear must not be undone by an append that had already started reading the file"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }

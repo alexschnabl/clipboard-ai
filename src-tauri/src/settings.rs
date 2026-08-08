@@ -9,16 +9,15 @@ use tauri_plugin_autostart::ManagerExt;
 /// Registers or removes the "start with Windows" entry, driven by
 /// `Settings::autostart`.
 ///
-/// Intended call sites (not wired here -- see this crate's module-owner
-/// split): once in `lib.rs`'s `setup`, right after `config::load_or_create`
-/// resolves the startup config, so a persisted `autostart: true` actually
-/// takes effect on launch; and again in `commands::save_config`, after a
-/// successful `decide_save`, so toggling the settings-window checkbox takes
-/// effect immediately rather than only on next restart. Both call sites
-/// should treat an `Err` the same way `osops::WindowsOps::new()`'s failure
-/// is already treated in `lib.rs`'s `setup` -- logged and turned into a
-/// `Problem` for the settings window, never a hard failure that blocks the
-/// rest of startup or a save.
+/// Called from two places: `lib.rs`'s `setup`, right after
+/// `config::load_or_create` resolves the startup config, so a persisted
+/// `autostart: true` actually takes effect on launch; and
+/// `commands::save_config`, after a successful `decide_save`, so toggling
+/// the settings-window checkbox takes effect immediately rather than only
+/// on next restart. Both call sites treat an `Err` the same way
+/// `osops::WindowsOps::new()`'s failure is already treated in `lib.rs`'s
+/// `setup` -- logged and turned into a `Problem` for the settings window,
+/// never a hard failure that blocks the rest of startup or a save.
 ///
 /// Disabling always runs for real, in every build: it only ever removes a
 /// registry entry (a no-op if none exists), so there is nothing it could
@@ -42,13 +41,6 @@ use tauri_plugin_autostart::ManagerExt;
 /// but the log file is where every other "something didn't apply" line in
 /// this app already ends up, and is the only copy that survives after the
 /// console window is gone.
-// Not called from anywhere in this module-owner's files yet -- see the doc
-// comment above for the two call sites `lib.rs`/`commands.rs` still need to
-// add. Remove this once that wiring lands; it's here so this crate stays at
-// zero warnings in the meantime rather than the wiring gap being papered
-// over by leaving the function `pub(crate)` with an accidental internal
-// caller, or worse, deleting it and rewriting it later.
-#[allow(dead_code)]
 pub fn apply_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let manager = app.autolaunch();
 

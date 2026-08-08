@@ -42,8 +42,6 @@ export const en = {
 	// src/routes/+page.svelte: page chrome, load-error banner, save/load
 	// error banners, and the "problems" banner.
 	app: {
-		title: 'Clipboard AI',
-		subtitle: 'Configure backends and commands.',
 		loading: 'Loading…',
 		loadErrorTitle: 'Your saved configuration could not be read',
 		// The full sentence is split around the `<code>{preservedPath}</code>`
@@ -122,14 +120,6 @@ export const en = {
 		blockedDeleteTitle: (name: string) => `Can’t delete “${name}”`,
 		blockedDeleteDescription: (usedBy: string) =>
 			`Still used by: ${usedBy}. Point those commands at a different backend first, then delete it.`,
-		// Mirrors `KIND_LABELS` in src/lib/types.ts (owned by another agent) —
-		// kept as a parallel translated copy rather than importing that map,
-		// since this file must not depend on anything outside `lib/i18n`.
-		kindLabel: {
-			openaiCompatible: 'OpenAI-compatible',
-			anthropicApi: 'Anthropic API',
-			claudeCli: 'Claude CLI'
-		},
 		form: {
 			addTitle: 'Add backend',
 			editTitle: 'Edit backend',
@@ -139,7 +129,6 @@ export const en = {
 			namePlaceholder: 'Local Ollama',
 			kindLabel: 'Kind',
 			baseUrlLabel: 'Base URL',
-			baseUrlPlaceholder: 'http://localhost:11434/v1',
 			modelLabel: 'Model',
 			modelPlaceholderOpenAiCompatible: 'qwen2.5:32b-instruct',
 			modelPlaceholderOther: 'claude-opus-5',

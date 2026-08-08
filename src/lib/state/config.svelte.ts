@@ -103,6 +103,21 @@ export class ConfigState {
 		}
 	}
 
+	/** Chained tail of in-flight commits, or `null` once every queued one has
+	 *  settled. Two overlapping commits (e.g. SettingsPanel's theme toggle
+	 *  immediately followed by its language select, both before the first
+	 *  save's IPC round trip resolves) each used to snapshot and roll back
+	 *  independently -- if the *earlier* one's save then failed, its
+	 *  rollback reassigned `this.config` to a snapshot taken *before* the
+	 *  later commit's change too, silently discarding it even if that
+	 *  second save had already succeeded and reached disk (review3-frontend
+	 *  F1). Routing every commit's snapshot+mutate+save(+rollback) through
+	 *  this chain, one at a time in call order, closes that: a commit's
+	 *  snapshot is only ever taken once every earlier commit has fully
+	 *  settled -- succeeded, or already rolled back -- so its own rollback
+	 *  can only ever undo its own change, never a later one still standing. */
+	private commitChain: Promise<boolean> | null = null;
+
 	/** The shape every mutation below shares: apply `mutate` to the live
 	 *  `$state` proxy (so the list updates immediately), then persist it.
 	 *  Rust's `config::validate` (duplicate hotkey, duplicate id, unknown
@@ -112,13 +127,37 @@ export class ConfigState {
 	 *  snapshot rather than leaving the list showing a change that never
 	 *  reached disk. `$state.snapshot` takes that snapshot as a plain,
 	 *  non-proxied clone; mutating the live proxy afterwards can't alias it.
-	 */
-	private async commit(mutate: (config: Config) => void): Promise<boolean> {
-		const snapshot = $state.snapshot(this.config) as Config;
-		mutate(this.config);
-		const ok = await this.save();
-		if (!ok) this.config = snapshot;
-		return ok;
+	 *
+	 *  Not declared `async` itself -- it needs to tell, synchronously,
+	 *  whether another commit is already in flight *before* deciding
+	 *  whether to run immediately or queue behind it. An `await` on an
+	 *  already-resolved promise still defers to a microtask, which would
+	 *  delay `save()`'s synchronous `this.saving = true` by a tick for the
+	 *  common (single, non-overlapping) case and break callers that check
+	 *  `saving` right after calling a commit method without awaiting it. */
+	private commit(mutate: (config: Config) => void): Promise<boolean> {
+		const run = async (): Promise<boolean> => {
+			const snapshot = $state.snapshot(this.config) as Config;
+			mutate(this.config);
+			const ok = await this.save();
+			if (!ok) this.config = snapshot;
+			return ok;
+		};
+
+		const previous = this.commitChain;
+		const chained = previous ? previous.then(run, run) : run();
+		this.commitChain = chained;
+		// Fire-and-forget bookkeeping, deliberately not part of the chain
+		// returned to the caller: clears the tail pointer once this link
+		// settles, but only if nothing queued after it already took over
+		// (guards against a stale reference; two-callback `.then` form so
+		// this itself never produces an unhandled rejection).
+		const clearIfCurrent = (): void => {
+			if (this.commitChain === chained) this.commitChain = null;
+		};
+		void chained.then(clearIfCurrent, clearIfCurrent);
+
+		return chained;
 	}
 
 	commandsUsingBackend(id: string): CommandConfig[] {

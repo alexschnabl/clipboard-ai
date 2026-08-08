@@ -40,8 +40,6 @@ export const de: typeof en = {
 	},
 
 	app: {
-		title: 'Clipboard AI',
-		subtitle: 'Backends und Befehle konfigurieren.',
 		loading: 'Wird geladen…',
 		loadErrorTitle: 'Ihre gespeicherte Konfiguration konnte nicht gelesen werden',
 		loadErrorPreservedBefore: 'Die Originaldatei wurde unverändert beibehalten unter',
@@ -108,11 +106,6 @@ export const de: typeof en = {
 		blockedDeleteTitle: (name: string) => `„${name}“ kann nicht gelöscht werden`,
 		blockedDeleteDescription: (usedBy: string) =>
 			`Wird noch verwendet von: ${usedBy}. Weisen Sie diesen Befehlen zuerst ein anderes Backend zu, bevor Sie es löschen.`,
-		kindLabel: {
-			openaiCompatible: 'OpenAI-kompatibel',
-			anthropicApi: 'Anthropic API',
-			claudeCli: 'Claude CLI'
-		},
 		form: {
 			addTitle: 'Backend hinzufügen',
 			editTitle: 'Backend bearbeiten',
@@ -122,7 +115,6 @@ export const de: typeof en = {
 			namePlaceholder: 'Lokales Ollama',
 			kindLabel: 'Typ',
 			baseUrlLabel: 'Basis-URL',
-			baseUrlPlaceholder: 'http://localhost:11434/v1',
 			modelLabel: 'Modell',
 			modelPlaceholderOpenAiCompatible: 'qwen2.5:32b-instruct',
 			modelPlaceholderOther: 'claude-opus-5',

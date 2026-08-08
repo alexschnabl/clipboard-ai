@@ -305,6 +305,87 @@ describe('ConfigState commit-and-rollback semantics', () => {
 		});
 	});
 
+	// F1 (review3-frontend.md): two overlapping commits used to each snapshot
+	// independently, so whichever one's rollback ran *last* clobbered
+	// `config` with a snapshot taken before *both* mutations -- discarding
+	// the other commit's change even when it had already saved successfully.
+	// `commit` now serialises the snapshot+mutate+save(+rollback) unit of
+	// every call behind the previous one, so each rollback can only ever
+	// undo its own change.
+	describe('overlapping commits', () => {
+		it('an earlier commit failing does not discard a later, already-succeeded change', async () => {
+			let resolveFirst!: (value: SaveResult) => void;
+			invokeMock.mockReturnValueOnce(
+				new Promise<SaveResult>((resolve) => {
+					resolveFirst = resolve;
+				})
+			);
+
+			// Mirrors the finding's trigger: change Theme, then Language,
+			// quickly -- the second commit starts before the first's save
+			// has resolved, its payload built from the (already-mutated)
+			// state at that moment, same as SettingsPanel spreading
+			// `configState.config.settings` at click time.
+			const firstCommit = state.updateSettings({
+				theme: 'dark',
+				language: 'system',
+				autostart: false
+			});
+			invokeMock.mockResolvedValueOnce(ok());
+			const secondCommit = state.updateSettings({
+				theme: 'dark',
+				language: 'de',
+				autostart: false
+			});
+
+			resolveFirst(rejected('transient write failure'));
+			const [firstOk, secondOk] = await Promise.all([firstCommit, secondCommit]);
+
+			expect(firstOk).toBe(false);
+			expect(secondOk).toBe(true);
+			// Old, unserialised `commit` rolled back to a snapshot taken
+			// before *both* mutations here, wiping the second commit's
+			// already-saved language change too. Serialised, the first
+			// commit's rollback undoes only its own change; the second
+			// commit's snapshot (taken after the first settled) is the
+			// rolled-back state, and its own successful save is what's on
+			// disk -- config and disk agree.
+			expect(state.config.settings).toEqual({ theme: 'dark', language: 'de', autostart: false });
+		});
+
+		it('a later commit failing does not discard an earlier, already-succeeded change', async () => {
+			let resolveFirst!: (value: SaveResult) => void;
+			invokeMock.mockReturnValueOnce(
+				new Promise<SaveResult>((resolve) => {
+					resolveFirst = resolve;
+				})
+			);
+
+			const firstCommit = state.updateSettings({
+				theme: 'dark',
+				language: 'system',
+				autostart: false
+			});
+			invokeMock.mockResolvedValueOnce(rejected('transient write failure'));
+			const secondCommit = state.updateSettings({
+				theme: 'dark',
+				language: 'de',
+				autostart: false
+			});
+
+			resolveFirst(ok());
+			const [firstOk, secondOk] = await Promise.all([firstCommit, secondCommit]);
+
+			expect(firstOk).toBe(true);
+			expect(secondOk).toBe(false);
+			expect(state.config.settings).toEqual({
+				theme: 'dark',
+				language: 'system',
+				autostart: false
+			});
+		});
+	});
+
 	describe('history', () => {
 		describe('loadHistory', () => {
 			it('loads entries from get_history and clears any previous error', async () => {

@@ -70,7 +70,7 @@
 //! own doc comment and `src/routes/overlay/state.ts`.
 
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
 use std::time::Duration;
@@ -84,6 +84,29 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
 pub const LABEL: &str = "overlay";
 
 const EVENT: &str = "overlay://state";
+
+/// Bumped once per [`CycleOverlay::begin`]. [`CycleOverlay::finish`]'s
+/// failure/aborted auto-hide timer captures the value current at the time
+/// it was armed and compares it against this counter's live value before
+/// acting -- see that timer's own comment for the bug this closes (a stale
+/// timer from cycle A hiding cycle B's still-running indicator). The
+/// escalation thread's own `cancel` flag already handles suppressing a
+/// *specific* cycle's own show/escalate calls once that same cycle ends;
+/// this counter exists only for the one delayed, cross-cycle-reachable call
+/// that flag cannot reach, because it is a fresh `Arc` per `CycleOverlay`
+/// instance with no visibility into a *different* instance's timer.
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Whether a failure/aborted auto-hide timer armed for generation
+/// `armed_for` is still allowed to hide the window, given `live` -- the
+/// generation counter's value at the moment the timer wakes up. `false`
+/// once a newer cycle's `begin()` has bumped the counter past what this
+/// timer captured, which is exactly the case a stale timer must not act on.
+/// Pure and unit-tested for the same reason `clamp_to_area` is: this is the
+/// one piece of the generation logic that needs no `AppHandle` to verify.
+fn is_still_current(armed_for: u64, live: u64) -> bool {
+    armed_for == live
+}
 
 /// Below this, a cycle is indistinguishable from instant. The spike
 /// measured a warm local model at ~400ms; showing anything before this
@@ -265,8 +288,6 @@ impl Outcome {
     /// module's own type) turns into an `Outcome`. Takes a `bool` rather
     /// than `cycle::CycleOutcome` directly so this module has no
     /// compile-time dependency on a struct it isn't allowed to edit.
-    /// Takes plain `bool`s rather than `cycle::CycleOutcome` so this module
-    /// keeps no compile-time dependency on a struct it isn't allowed to edit.
     ///
     /// `failed` is "the outcome carried a detail string", which is the same
     /// signal `record_history` in lib.rs uses to tell a real failure from a
@@ -293,6 +314,10 @@ pub struct CycleOverlay {
     /// Set by `finish`; read by `Drop` to decide whether it still owes the
     /// window a hide -- see `Drop`'s doc comment.
     finished: bool,
+    /// This cycle's identity, captured from [`GENERATION`] at `begin()`.
+    /// `finish` hands it to its own delayed auto-hide timer -- see
+    /// [`is_still_current`].
+    generation: u64,
 }
 
 impl CycleOverlay {
@@ -303,12 +328,13 @@ impl CycleOverlay {
     pub fn begin(app: AppHandle) -> Self {
         hide_now(&app);
 
+        let generation = GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
         let cancel = Arc::new(AtomicBool::new(false));
         let thread_app = app.clone();
         let thread_cancel = cancel.clone();
         std::thread::spawn(move || run_escalation(thread_app, thread_cancel));
 
-        CycleOverlay { app, cancel, finished: false }
+        CycleOverlay { app, cancel, finished: false, generation }
     }
 
     /// Reports how the cycle ended. Consumes `self`: there is exactly one
@@ -327,9 +353,17 @@ impl CycleOverlay {
         };
         show(&self.app, terminal);
         let app = self.app.clone();
+        let generation = self.generation;
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(FAILURE_VISIBLE_MS));
-            hide_now(&app);
+            // A cycle that started after this one (a fresh hotkey press
+            // while this timer was still asleep) has already bumped
+            // GENERATION past what this timer was armed for -- hiding now
+            // would hide *that* cycle's own live indicator, not this one's
+            // stale failure/aborted glyph. See GENERATION's doc comment.
+            if is_still_current(generation, GENERATION.load(Ordering::SeqCst)) {
+                hide_now(&app);
+            }
         });
     }
 }
@@ -496,6 +530,17 @@ mod tests {
     fn wait_or_cancelled_returns_true_once_the_full_duration_elapses_uncancelled() {
         let cancel = AtomicBool::new(false);
         assert!(wait_or_cancelled(&cancel, 20));
+    }
+
+    // R2: the piece of the stale-timer fix that needs no live AppHandle to
+    // verify -- see `is_still_current`'s doc comment.
+    #[test]
+    fn a_stale_timers_generation_no_longer_matches_after_a_newer_cycle_begins() {
+        assert!(is_still_current(1, 1), "no newer cycle has begun; the timer still owns the window");
+        assert!(
+            !is_still_current(1, 2),
+            "a newer cycle bumping the live counter must invalidate an older timer"
+        );
     }
 
     #[test]

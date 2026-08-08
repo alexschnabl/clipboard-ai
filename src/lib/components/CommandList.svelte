@@ -66,8 +66,14 @@
 	// string, see that component). `sticky top-0` sticks to the nearest
 	// scrolling ancestor, which is this component's own `content-scroll` div
 	// below, not the page -- each section scrolls independently now.
+	//
+	// F3 (review3-frontend.md): `text-muted-foreground` on `bg-muted` is
+	// 4.15:1 in light mode, just under AA's 4.5:1 for this small, non-bold
+	// text. `text-foreground/65` is theme-aware for free and, computed from
+	// app.css's own oklch tokens, clears AA in both themes against this same
+	// `bg-muted`: 6.03:1 light, 6.88:1 dark (was 4.15:1 / 6.05:1).
 	const headClass =
-		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase';
+		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-foreground/65 uppercase';
 </script>
 
 <!-- `content-toolbar` (pinned, border-b) + `content-scroll` (scrolls, padded)

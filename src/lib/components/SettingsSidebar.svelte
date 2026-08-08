@@ -61,8 +61,12 @@
 			<Icon class="size-[15px] shrink-0 opacity-80" />
 			<span class="truncate">{item.label}</span>
 			{#if item.count !== undefined}
+				<!-- F3 (review3-frontend.md): text-muted-foreground on bg-muted is
+				     4.15:1 in light mode, under AA's 4.5:1 -- text-foreground/65
+				     clears both themes (6.03:1 light, 6.88:1 dark), see
+				     CommandList.svelte's headClass comment for the same fix. -->
 				<span
-					class="ml-auto flex h-[15px] shrink-0 items-center rounded-full bg-muted px-1.5 text-[10.5px] font-semibold text-muted-foreground"
+					class="ml-auto flex h-[15px] shrink-0 items-center rounded-full bg-muted px-1.5 text-[10.5px] font-semibold text-foreground/65"
 				>
 					{item.count}
 				</span>

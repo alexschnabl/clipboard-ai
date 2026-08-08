@@ -58,8 +58,11 @@
 
 	// Copied verbatim from HistoryPanel/CommandList's own `headClass` -- see
 	// CommandList's comment on this string for why it isn't a shared import.
+	// F3 (review3-frontend.md): text-foreground/65 replaces text-muted-foreground
+	// here for AA contrast against bg-muted -- see CommandList's comment for
+	// the computed ratios.
 	const headClass =
-		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-muted-foreground uppercase';
+		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-foreground/65 uppercase';
 </script>
 
 <!-- Same content-toolbar / content-scroll split as CommandList.svelte -- see
