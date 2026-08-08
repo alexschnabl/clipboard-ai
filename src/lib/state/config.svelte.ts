@@ -169,6 +169,7 @@ export class ConfigState {
 	}
 
 	updateBackend(backend: BackendConfig): Promise<boolean> {
+		if (!this.config.backends.some((b) => b.id === backend.id)) return Promise.resolve(false);
 		return this.commit((config) => {
 			const i = config.backends.findIndex((b) => b.id === backend.id);
 			if (i >= 0) config.backends[i] = backend;

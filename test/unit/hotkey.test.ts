@@ -29,6 +29,10 @@ describe('hotkeyFromEvent', () => {
 		expect(hotkeyFromEvent(ev({ altKey: true, key: 'Alt', code: 'AltLeft' }))).toBeNull();
 		expect(hotkeyFromEvent(ev({ shiftKey: true, key: 'Shift', code: 'ShiftLeft' }))).toBeNull();
 		expect(hotkeyFromEvent(ev({ metaKey: true, key: 'Meta', code: 'MetaLeft' }))).toBeNull();
+		// AltGraph is in MODIFIER_KEYS alongside the four above but has no
+		// dedicated boolean flag on KeyboardEvent -- it's still a modifier-only
+		// press and must be rejected the same way.
+		expect(hotkeyFromEvent(ev({ altKey: true, key: 'AltGraph', code: 'AltRight' }))).toBeNull();
 	});
 
 	it('rejects a bare key with no modifier', () => {

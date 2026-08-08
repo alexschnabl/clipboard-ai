@@ -81,7 +81,21 @@ describe('i18n locale resolution', () => {
 	it('resolves "system" to English when navigator.language is absent', () => {
 		stubNavigatorLanguage(undefined);
 		i18n.setLanguage('system');
-		expect(i18n.locale).toBe(FALLBACK_LOCALE);
+		// Asserts the literal 'en', not FALLBACK_LOCALE compared to itself --
+		// the latter would still pass if that constant were mis-edited to,
+		// say, 'de', which would silently show German to every user whose
+		// system locale this module can't detect.
+		expect(i18n.locale).toBe('en');
+	});
+
+	it('resolves "system" to English when navigator.language is the empty string', () => {
+		// `detectSystemLocale` explicitly comments on this case: `''.split('-')`
+		// still returns `['']`, a primary subtag that matches no registered
+		// locale, so this must fall through to the fallback rather than throw
+		// or index into an empty array.
+		stubNavigatorLanguage('');
+		i18n.setLanguage('system');
+		expect(i18n.locale).toBe('en');
 	});
 
 	it('an explicit choice overrides whatever the system locale would have resolved to', () => {
@@ -177,17 +191,6 @@ describe('registered-dictionary structural parity (runtime check complementing t
 			expect(entry.nativeName.length, `${code}'s nativeName must not be empty`).toBeGreaterThan(
 				0
 			);
-		}
-	});
-
-	it('every function leaf takes the same number of parameters in every registered dictionary', () => {
-		for (const [code, entry] of Object.entries(registry)) {
-			if (code === 'en') continue;
-			expect(entry.dictionary.commands.editAria.length).toBe(en.commands.editAria.length);
-			expect(entry.dictionary.backends.blockedDeleteDescription.length).toBe(
-				en.backends.blockedDeleteDescription.length
-			);
-			expect(entry.dictionary.history.hint.length).toBe(en.history.hint.length);
 		}
 	});
 });

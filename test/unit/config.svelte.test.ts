@@ -19,7 +19,13 @@ const invokeMock = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
 import { ConfigState } from '../../src/lib/state/config.svelte';
-import type { BackendConfig, CommandConfig, SaveResult, Settings } from '../../src/lib/types';
+import type {
+	BackendConfig,
+	CommandConfig,
+	GetConfigResult,
+	SaveResult,
+	Settings
+} from '../../src/lib/types';
 
 function backend(overrides: Partial<BackendConfig> = {}): BackendConfig {
 	return {
@@ -101,6 +107,14 @@ describe('ConfigState commit-and-rollback semantics', () => {
 	});
 
 	describe('updateBackend', () => {
+		it('is a no-op, with no IPC call at all, for an id that does not exist', async () => {
+			const result = await state.updateBackend(backend({ id: 'does-not-exist' }));
+
+			expect(result).toBe(false);
+			expect(state.config.backends).toHaveLength(0);
+			expect(invokeMock).not.toHaveBeenCalled();
+		});
+
 		it('applies the update and keeps it on a successful save', async () => {
 			state.config.backends.push(backend());
 			invokeMock.mockResolvedValue(ok());
@@ -215,6 +229,83 @@ describe('ConfigState commit-and-rollback semantics', () => {
 		});
 	});
 
+	// Every mutation test above uses a single-item array, which can't
+	// distinguish "the right item changed" from "the whole list got
+	// replaced with a one-item list". These pin that a mutation targets only
+	// the item it names, and that a rollback restores every item a rejected
+	// save's snapshot held, not just the one being mutated.
+	describe('multi-item lists', () => {
+		it('updateBackend on one backend leaves the other backend in the list untouched', async () => {
+			state.config.backends.push(backend({ id: 'b1', name: 'Backend A' }));
+			state.config.backends.push(backend({ id: 'b2', name: 'Backend B' }));
+			invokeMock.mockResolvedValue(ok());
+
+			const result = await state.updateBackend(backend({ id: 'b2', name: 'Backend B Renamed' }));
+
+			expect(result).toBe(true);
+			expect(state.config.backends).toHaveLength(2);
+			expect(state.config.backends.find((b) => b.id === 'b1')?.name).toBe('Backend A');
+			expect(state.config.backends.find((b) => b.id === 'b2')?.name).toBe('Backend B Renamed');
+		});
+
+		it('deleteCommand of one command leaves the other command in the list', async () => {
+			state.config.backends.push(backend());
+			state.config.commands.push(command({ id: 'c1', name: 'Command One' }));
+			state.config.commands.push(command({ id: 'c2', name: 'Command Two' }));
+			invokeMock.mockResolvedValue(ok());
+
+			const result = await state.deleteCommand('c1');
+
+			expect(result).toBe(true);
+			expect(state.config.commands).toHaveLength(1);
+			expect(state.config.commands[0]!.id).toBe('c2');
+		});
+
+		it('restores both original items of a two-item list when a rejected save rolls back, not a truncated one', async () => {
+			state.config.backends.push(backend());
+			state.config.commands.push(command({ id: 'c1', name: 'Command One' }));
+			state.config.commands.push(command({ id: 'c2', name: 'Command Two' }));
+			invokeMock.mockResolvedValue(rejected());
+
+			const result = await state.deleteCommand('c1');
+
+			expect(result).toBe(false);
+			expect(state.config.commands).toHaveLength(2);
+			expect(state.config.commands.map((c) => c.id).sort()).toEqual(['c1', 'c2']);
+			expect(state.config.commands.find((c) => c.id === 'c1')?.name).toBe('Command One');
+			expect(state.config.commands.find((c) => c.id === 'c2')?.name).toBe('Command Two');
+		});
+	});
+
+	describe('full-payload integrity', () => {
+		it('sends the entire config -- version, backends, commands, and settings -- on every mutation, not just the changed field', async () => {
+			state.config.backends.push(backend({ id: 'b1', name: 'Backend A' }));
+			state.config.backends.push(backend({ id: 'b2', name: 'Backend B' }));
+			state.config.commands.push(command({ id: 'c1', name: 'Command One', backendId: 'b1' }));
+			state.config.commands.push(command({ id: 'c2', name: 'Command Two', backendId: 'b2' }));
+			state.config.settings = { theme: 'dark', language: 'de', autostart: true };
+			invokeMock.mockResolvedValue(ok());
+
+			await state.updateBackend(backend({ id: 'b2', name: 'Backend B Renamed' }));
+
+			expect(invokeMock).toHaveBeenCalledTimes(1);
+			const [command_, payload] = invokeMock.mock.calls[0]!;
+			expect(command_).toBe('save_config');
+			expect(payload.config).toEqual({
+				version: 2,
+				backends: [
+					backend({ id: 'b1', name: 'Backend A' }),
+					backend({ id: 'b2', name: 'Backend B Renamed' })
+				],
+				commands: [
+					command({ id: 'c1', name: 'Command One', backendId: 'b1' }),
+					command({ id: 'c2', name: 'Command Two', backendId: 'b2' })
+				],
+				settings: { theme: 'dark', language: 'de', autostart: true }
+			});
+		});
+	});
+
 	describe('saving', () => {
 		it('is true only while a commit is in flight', async () => {
 			let resolveSave!: (value: SaveResult) => void;
@@ -232,6 +323,34 @@ describe('ConfigState commit-and-rollback semantics', () => {
 			await pending;
 
 			expect(state.saving).toBe(false);
+		});
+	});
+
+	describe('save() problems channel', () => {
+		it('surfaces problems from a successful save, the same channel load() uses for startupProblems', async () => {
+			invokeMock.mockResolvedValue({
+				ok: true,
+				error: null,
+				problems: [{ commandId: 'c1', message: 'hotkey already in use' }]
+			});
+
+			const result = await state.addBackend(backend());
+
+			expect(result).toBe(true);
+			expect(state.problems).toEqual([{ commandId: 'c1', message: 'hotkey already in use' }]);
+		});
+	});
+
+	describe('failure then success', () => {
+		it('clears a stale save error once a later save succeeds', async () => {
+			invokeMock.mockResolvedValueOnce(rejected('duplicate id: b1'));
+			await state.addBackend(backend());
+			expect(state.error).not.toBeNull();
+
+			invokeMock.mockResolvedValueOnce(ok());
+			await state.addBackend(backend({ id: 'b2' }));
+
+			expect(state.error).toBeNull();
 		});
 	});
 
@@ -270,6 +389,48 @@ describe('ConfigState commit-and-rollback semantics', () => {
 			await state.load();
 
 			expect(state.problems).toEqual([{ commandId: 'c1', message: 'hotkey already in use' }]);
+		});
+
+		it('propagates loadError from the result, not just accepting it as a write-only field', async () => {
+			const loadError = { reason: 'malformed json', preservedPath: '/config/config.json.bak' };
+			invokeMock.mockResolvedValue({
+				config: { version: 2, backends: [], commands: [], settings: defaultSettings() },
+				loadError,
+				startupProblems: []
+			});
+
+			await state.load();
+
+			expect(state.loadError).toEqual(loadError);
+		});
+
+		it('is true only while a load is in flight', async () => {
+			invokeMock.mockResolvedValue({
+				config: { version: 2, backends: [], commands: [], settings: defaultSettings() },
+				loadError: null,
+				startupProblems: []
+			});
+			await state.load();
+			expect(state.loading).toBe(false);
+
+			let resolveLoad!: (value: GetConfigResult) => void;
+			invokeMock.mockReturnValue(
+				new Promise<GetConfigResult>((resolve) => {
+					resolveLoad = resolve;
+				})
+			);
+
+			const pending = state.load();
+			expect(state.loading).toBe(true);
+
+			resolveLoad({
+				config: { version: 2, backends: [], commands: [], settings: defaultSettings() },
+				loadError: null,
+				startupProblems: []
+			});
+			await pending;
+
+			expect(state.loading).toBe(false);
 		});
 	});
 
