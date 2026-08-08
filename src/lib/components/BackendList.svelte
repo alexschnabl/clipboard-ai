@@ -9,6 +9,7 @@
 	import RiDeleteBinLine from 'remixicon-svelte/icons/delete-bin-line';
 	import BackendForm from './BackendForm.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { KIND_LABELS, type BackendConfig } from '$lib/types';
 
 	let formOpen = $state(false);
@@ -65,24 +66,23 @@
      that component's comment for the spacing rationale. -->
 <div class="flex h-full min-h-0 flex-col">
 	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
-		<h2 class="text-[12.5px] font-bold">Backends</h2>
+		<h2 class="text-[12.5px] font-bold">{i18n.t.backends.title}</h2>
 		<span class="text-[11px] text-muted-foreground"
-			>{configState.config.backends.length} configured</span
+			>{i18n.t.backends.count(configState.config.backends.length)}</span
 		>
 		<div class="flex-1"></div>
 		<Button size="sm" onclick={openAdd}>
 			<RiAddLine class="size-4" />
-			Add backend
+			{i18n.t.backends.addBackend}
 		</Button>
 	</div>
 
 	<div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
 		{#if blockedDelete}
 			<Alert.Root variant="destructive">
-				<Alert.Title>Can’t delete “{blockedDelete.backendName}”</Alert.Title>
+				<Alert.Title>{i18n.t.backends.blockedDeleteTitle(blockedDelete.backendName)}</Alert.Title>
 				<Alert.Description>
-					Still used by: {blockedDelete.usedBy.join(', ')}. Point those commands at a different
-					backend first, then delete it.
+					{i18n.t.backends.blockedDeleteDescription(blockedDelete.usedBy.join(', '))}
 				</Alert.Description>
 			</Alert.Root>
 		{/if}
@@ -90,10 +90,10 @@
 		<Table.Root>
 			<Table.Header>
 				<Table.Row class="hover:bg-transparent">
-					<Table.Head class={headClass}>Name</Table.Head>
-					<Table.Head class={headClass}>Kind</Table.Head>
-					<Table.Head class={headClass}>Model</Table.Head>
-					<Table.Head class="{headClass} text-right">Actions</Table.Head>
+					<Table.Head class={headClass}>{i18n.t.backends.columnName}</Table.Head>
+					<Table.Head class={headClass}>{i18n.t.backends.columnKind}</Table.Head>
+					<Table.Head class={headClass}>{i18n.t.backends.columnModel}</Table.Head>
+					<Table.Head class="{headClass} text-right">{i18n.t.backends.columnActions}</Table.Head>
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>
@@ -114,7 +114,7 @@
 									variant="outline"
 									size="icon-sm"
 									onclick={() => openEdit(backend)}
-									aria-label={`Edit ${backend.name}`}
+									aria-label={i18n.t.backends.editAria(backend.name)}
 								>
 									<RiPencilLine class="size-4" />
 								</Button>
@@ -122,7 +122,7 @@
 									variant="outline"
 									size="icon-sm"
 									onclick={() => handleDelete(backend)}
-									aria-label={`Delete ${backend.name}`}
+									aria-label={i18n.t.backends.deleteAria(backend.name)}
 								>
 									<RiDeleteBinLine class="size-4" />
 								</Button>
@@ -132,7 +132,7 @@
 				{:else}
 					<Table.Row>
 						<Table.Cell colspan={4} class="py-8 text-center text-muted-foreground">
-							No backends configured.
+							{i18n.t.backends.empty}
 						</Table.Cell>
 					</Table.Row>
 				{/each}
@@ -146,14 +146,16 @@
 <Dialog.Root bind:open={confirmDeleteOpen}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>Delete “{pendingDelete?.name}”?</Dialog.Title>
+			<Dialog.Title>{i18n.t.backends.deleteTitle(pendingDelete?.name ?? '')}</Dialog.Title>
 			<Dialog.Description>
-				This removes the backend permanently. This can’t be undone.
+				{i18n.t.backends.deleteDescription}
 			</Dialog.Description>
 		</Dialog.Header>
 		<Dialog.Footer>
-			<Button variant="outline" onclick={cancelDelete}>Cancel</Button>
-			<Button variant="destructive" onclick={() => void confirmDelete()}>Delete</Button>
+			<Button variant="outline" onclick={cancelDelete}>{i18n.t.common.cancel}</Button>
+			<Button variant="destructive" onclick={() => void confirmDelete()}
+				>{i18n.t.common.delete}</Button
+			>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>

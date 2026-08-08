@@ -58,12 +58,14 @@ export const de: typeof en = {
 
 	commands: {
 		title: 'Befehle',
+		count: (n: number) => `${n} konfiguriert`,
 		addCommand: 'Befehl hinzufügen',
 		columnName: 'Name',
 		columnHotkey: 'Hotkey',
 		columnBackend: 'Backend',
 		columnActions: 'Aktionen',
 		empty: 'Keine Befehle konfiguriert.',
+		unknownBackend: 'Unbekanntes Backend',
 		editAria: (name: string) => `${name} bearbeiten`,
 		deleteAria: (name: string) => `${name} löschen`,
 		deleteTitle: (name: string) => `„${name}“ löschen?`,
@@ -91,6 +93,7 @@ export const de: typeof en = {
 
 	backends: {
 		title: 'Backends',
+		count: (n: number) => `${n} konfiguriert`,
 		addBackend: 'Backend hinzufügen',
 		columnName: 'Name',
 		columnKind: 'Typ',

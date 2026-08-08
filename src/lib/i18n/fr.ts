@@ -68,12 +68,16 @@ export const fr: typeof en = {
 	// src/lib/components/CommandList.svelte + CommandForm.svelte
 	commands: {
 		title: 'Commandes',
+		// "commande" is feminine, hence "configurée(s)" -- agrees with
+		// `backends.count` below using the masculine "configuré(s)" instead.
+		count: (n: number) => `${n} configurée${n === 1 ? '' : 's'}`,
 		addCommand: 'Ajouter une commande',
 		columnName: 'Nom',
 		columnHotkey: 'Raccourci',
 		columnBackend: 'Backend',
 		columnActions: 'Actions',
 		empty: 'Aucune commande configurée.',
+		unknownBackend: 'Backend inconnu',
 		editAria: (name: string) => `Modifier ${name}`,
 		deleteAria: (name: string) => `Supprimer ${name}`,
 		deleteTitle: (name: string) => `Supprimer « ${name} » ?`,
@@ -102,6 +106,9 @@ export const fr: typeof en = {
 	// src/lib/components/BackendList.svelte + BackendForm.svelte
 	backends: {
 		title: 'Backends',
+		// "backend" is masculine, hence "configuré(s)" -- see `commands.count`
+		// above for the feminine counterpart.
+		count: (n: number) => `${n} configuré${n === 1 ? '' : 's'}`,
 		addBackend: 'Ajouter un backend',
 		columnName: 'Nom',
 		columnKind: 'Type',

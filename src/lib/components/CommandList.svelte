@@ -9,6 +9,7 @@
 	import RiDeleteBinLine from 'remixicon-svelte/icons/delete-bin-line';
 	import CommandForm from './CommandForm.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { CommandConfig, Problem } from '$lib/types';
 
 	let formOpen = $state(false);
@@ -45,7 +46,10 @@
 	}
 
 	function backendName(backendId: string): string {
-		return configState.config.backends.find((b) => b.id === backendId)?.name ?? 'Unknown backend';
+		return (
+			configState.config.backends.find((b) => b.id === backendId)?.name ??
+			i18n.t.commands.unknownBackend
+		);
 	}
 
 	/** Each `Problem` carries the id of the command it belongs to (see
@@ -75,14 +79,14 @@
      reported bug: content sitting flush against the sidebar). -->
 <div class="flex h-full min-h-0 flex-col">
 	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
-		<h2 class="text-[12.5px] font-bold">Commands</h2>
+		<h2 class="text-[12.5px] font-bold">{i18n.t.commands.title}</h2>
 		<span class="text-[11px] text-muted-foreground"
-			>{configState.config.commands.length} configured</span
+			>{i18n.t.commands.count(configState.config.commands.length)}</span
 		>
 		<div class="flex-1"></div>
 		<Button size="sm" onclick={openAdd}>
 			<RiAddLine class="size-4" />
-			Add command
+			{i18n.t.commands.addCommand}
 		</Button>
 	</div>
 
@@ -90,10 +94,10 @@
 		<Table.Root>
 			<Table.Header>
 				<Table.Row class="hover:bg-transparent">
-					<Table.Head class={headClass}>Name</Table.Head>
-					<Table.Head class={headClass}>Hotkey</Table.Head>
-					<Table.Head class={headClass}>Backend</Table.Head>
-					<Table.Head class="{headClass} text-right">Actions</Table.Head>
+					<Table.Head class={headClass}>{i18n.t.commands.columnName}</Table.Head>
+					<Table.Head class={headClass}>{i18n.t.commands.columnHotkey}</Table.Head>
+					<Table.Head class={headClass}>{i18n.t.commands.columnBackend}</Table.Head>
+					<Table.Head class="{headClass} text-right">{i18n.t.commands.columnActions}</Table.Head>
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>
@@ -126,7 +130,7 @@
 									variant="outline"
 									size="icon-sm"
 									onclick={() => openEdit(command)}
-									aria-label={`Edit ${command.name}`}
+									aria-label={i18n.t.commands.editAria(command.name)}
 								>
 									<RiPencilLine class="size-4" />
 								</Button>
@@ -134,7 +138,7 @@
 									variant="outline"
 									size="icon-sm"
 									onclick={() => handleDelete(command)}
-									aria-label={`Delete ${command.name}`}
+									aria-label={i18n.t.commands.deleteAria(command.name)}
 								>
 									<RiDeleteBinLine class="size-4" />
 								</Button>
@@ -144,7 +148,7 @@
 				{:else}
 					<Table.Row>
 						<Table.Cell colspan={4} class="py-8 text-center text-muted-foreground">
-							No commands configured.
+							{i18n.t.commands.empty}
 						</Table.Cell>
 					</Table.Row>
 				{/each}
@@ -158,14 +162,16 @@
 <Dialog.Root bind:open={confirmDeleteOpen}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>Delete “{pendingDelete?.name}”?</Dialog.Title>
+			<Dialog.Title>{i18n.t.commands.deleteTitle(pendingDelete?.name ?? '')}</Dialog.Title>
 			<Dialog.Description>
-				This removes the command and its hotkey permanently. This can’t be undone.
+				{i18n.t.commands.deleteDescription}
 			</Dialog.Description>
 		</Dialog.Header>
 		<Dialog.Footer>
-			<Button variant="outline" onclick={cancelDelete}>Cancel</Button>
-			<Button variant="destructive" onclick={() => void confirmDelete()}>Delete</Button>
+			<Button variant="outline" onclick={cancelDelete}>{i18n.t.common.cancel}</Button>
+			<Button variant="destructive" onclick={() => void confirmDelete()}
+				>{i18n.t.common.delete}</Button
+			>
 		</Dialog.Footer>
 	</Dialog.Content>
 </Dialog.Root>

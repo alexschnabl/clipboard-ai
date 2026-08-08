@@ -65,12 +65,20 @@ export const en = {
 	// src/lib/components/CommandList.svelte + CommandForm.svelte
 	commands: {
 		title: 'Commands',
+		// Toolbar count next to the title (e.g. "3 configured") -- distinct
+		// from `empty`, which replaces the whole table when the count is zero.
+		count: (n: number) => `${n} configured`,
 		addCommand: 'Add command',
 		columnName: 'Name',
 		columnHotkey: 'Hotkey',
 		columnBackend: 'Backend',
 		columnActions: 'Actions',
 		empty: 'No commands configured.',
+		// CommandList's backend-name lookup falls back to this when a
+		// command's `backendId` doesn't match any configured backend -- should
+		// only be reachable via a stale/edited config.json, since deleting a
+		// backend that's still in use is refused (see `blockedDeleteTitle`).
+		unknownBackend: 'Unknown backend',
 		editAria: (name: string) => `Edit ${name}`,
 		deleteAria: (name: string) => `Delete ${name}`,
 		deleteTitle: (name: string) => `Delete “${name}”?`,
@@ -98,6 +106,9 @@ export const en = {
 	// src/lib/components/BackendList.svelte + BackendForm.svelte
 	backends: {
 		title: 'Backends',
+		// Toolbar count next to the title (e.g. "3 configured") -- distinct
+		// from `empty`, which replaces the whole table when the count is zero.
+		count: (n: number) => `${n} configured`,
 		addBackend: 'Add backend',
 		columnName: 'Name',
 		columnKind: 'Kind',

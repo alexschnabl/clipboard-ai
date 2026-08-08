@@ -74,12 +74,14 @@ export const es: typeof en = {
 
 	commands: {
 		title: 'Comandos',
+		count: (n: number) => `${n} configurado${n === 1 ? '' : 's'}`,
 		addCommand: 'Añadir comando',
 		columnName: 'Nombre',
 		columnHotkey: 'Hotkey',
 		columnBackend: 'Backend',
 		columnActions: 'Acciones',
 		empty: 'No hay comandos configurados.',
+		unknownBackend: 'Backend desconocido',
 		editAria: (name: string) => `Editar ${name}`,
 		deleteAria: (name: string) => `Eliminar ${name}`,
 		deleteTitle: (name: string) => `¿Eliminar «${name}»?`,
@@ -106,6 +108,7 @@ export const es: typeof en = {
 
 	backends: {
 		title: 'Backends',
+		count: (n: number) => `${n} configurado${n === 1 ? '' : 's'}`,
 		addBackend: 'Añadir backend',
 		columnName: 'Nombre',
 		columnKind: 'Tipo',

@@ -9,6 +9,7 @@
 	import { Textarea } from '$lib/components/shadcn/textarea/index.js';
 	import HotkeyRecorder from './HotkeyRecorder.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { CommandConfig } from '$lib/types';
 
 	let {
@@ -35,7 +36,8 @@
 	const isEdit = $derived(command !== null);
 	const canSave = $derived(name.trim().length > 0 && backendId.length > 0);
 	const backendName = $derived(
-		configState.config.backends.find((b) => b.id === backendId)?.name ?? 'Select a backend'
+		configState.config.backends.find((b) => b.id === backendId)?.name ??
+			i18n.t.commands.form.backendPlaceholder
 	);
 
 	let wasOpen = false;
@@ -84,7 +86,7 @@
 		if (ok) {
 			open = false;
 		} else {
-			submitError = configState.error?.message ?? 'Save failed.';
+			submitError = configState.error?.message ?? i18n.t.commands.form.saveFailedFallback;
 		}
 	}
 </script>
@@ -92,11 +94,9 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>{isEdit ? 'Edit command' : 'Add command'}</Dialog.Title>
+			<Dialog.Title>{isEdit ? i18n.t.commands.form.editTitle : i18n.t.commands.form.addTitle}</Dialog.Title>
 			<Dialog.Description>
-				{isEdit
-					? 'Update this command’s backend, hotkey and prompt.'
-					: 'Configure a new command.'}
+				{isEdit ? i18n.t.commands.form.editDescription : i18n.t.commands.form.addDescription}
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -107,12 +107,17 @@
 		     spacing lever this component has toward the mockup's denser dialog. -->
 		<div class="flex flex-col gap-3">
 			<div class="flex flex-col gap-1.5">
-				<Label for="command-name">Name</Label>
-				<Input id="command-name" bind:value={name} placeholder="Fix grammar" autocomplete="off" />
+				<Label for="command-name">{i18n.t.commands.form.nameLabel}</Label>
+				<Input
+					id="command-name"
+					bind:value={name}
+					placeholder={i18n.t.commands.form.namePlaceholder}
+					autocomplete="off"
+				/>
 			</div>
 
 			<div class="flex flex-col gap-1.5">
-				<Label for="command-backend">Backend</Label>
+				<Label for="command-backend">{i18n.t.commands.form.backendLabel}</Label>
 				<Select.Root type="single" value={backendId} onValueChange={handleBackendChange}>
 					<Select.Trigger id="command-backend" class="w-full">
 						{backendName}
@@ -125,22 +130,22 @@
 				</Select.Root>
 				{#if configState.config.backends.length === 0}
 					<p class="text-xs text-muted-foreground">
-						No backends yet — add one on the Backends tab first.
+						{i18n.t.commands.form.noBackendsHint}
 					</p>
 				{/if}
 			</div>
 
 			<div class="flex flex-col gap-1.5">
-				<Label for="command-hotkey">Hotkey</Label>
+				<Label for="command-hotkey">{i18n.t.commands.form.hotkeyLabel}</Label>
 				<HotkeyRecorder id="command-hotkey" value={hotkey} onchange={handleHotkeyChange} />
 			</div>
 
 			<div class="flex flex-col gap-1.5">
-				<Label for="command-prompt">System prompt</Label>
+				<Label for="command-prompt">{i18n.t.commands.form.promptLabel}</Label>
 				<Textarea
 					id="command-prompt"
 					bind:value={systemPrompt}
-					placeholder="Fix grammar and spelling. Keep the meaning."
+					placeholder={i18n.t.commands.form.promptPlaceholder}
 					rows={4}
 				/>
 			</div>
@@ -148,15 +153,21 @@
 
 		{#if submitError}
 			<Alert.Root variant="destructive">
-				<Alert.Title>Couldn’t save command</Alert.Title>
+				<Alert.Title>{i18n.t.commands.form.saveError}</Alert.Title>
 				<Alert.Description>{submitError}</Alert.Description>
 			</Alert.Root>
 		{/if}
 
 		<Dialog.Footer>
-			<Button variant="outline" onclick={() => (open = false)} disabled={saving}>Cancel</Button>
+			<Button variant="outline" onclick={() => (open = false)} disabled={saving}
+				>{i18n.t.common.cancel}</Button
+			>
 			<Button onclick={() => void handleSave()} disabled={!canSave || saving}>
-				{saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add command'}
+				{saving
+					? i18n.t.common.saving
+					: isEdit
+						? i18n.t.commands.form.saveSubmit
+						: i18n.t.commands.form.addSubmit}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>

@@ -4,6 +4,7 @@
 	import { onDestroy } from 'svelte';
 	import { hotkeyFromEvent } from '$lib/hotkey';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { Problem } from '$lib/types';
 
 	let {
@@ -110,7 +111,7 @@
 			hint = null;
 			void stop(true);
 		} else {
-			hint = 'Hold a modifier (Ctrl, Alt, Shift or Win) and press a key.';
+			hint = i18n.t.hotkeyRecorder.hintModifier;
 		}
 	}
 
@@ -152,16 +153,16 @@
 	onblur={() => void stop(false)}
 	aria-pressed={recording}
 	aria-label={recording
-		? 'Recording hotkey. Press a key combination, or Escape to cancel.'
+		? i18n.t.hotkeyRecorder.recordingStatus
 		: value
-			? `Hotkey: ${value}. Click to change.`
-			: 'No hotkey set. Click to record one.'}
+			? i18n.t.hotkeyRecorder.ariaHotkey(value)
+			: i18n.t.hotkeyRecorder.ariaEmpty}
 >
-	{recording ? 'Press a combination…' : value || 'Click to set a hotkey'}
+	{recording ? i18n.t.hotkeyRecorder.prompt : value || i18n.t.hotkeyRecorder.placeholder}
 </button>
 {#if recording}
 	<p class="sr-only" role="status">
-		Recording hotkey. Press a key combination, or Escape to cancel.
+		{i18n.t.hotkeyRecorder.recordingStatus}
 	</p>
 {/if}
 {#if hint}

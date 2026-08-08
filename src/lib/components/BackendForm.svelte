@@ -9,6 +9,7 @@
 	import RiEyeLine from 'remixicon-svelte/icons/eye-line';
 	import RiEyeOffLine from 'remixicon-svelte/icons/eye-off-line';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { KIND_LABELS, type BackendConfig, type BackendKind } from '$lib/types';
 
 	let {
@@ -107,7 +108,7 @@
 		if (ok) {
 			open = false;
 		} else {
-			submitError = configState.error?.message ?? 'Save failed.';
+			submitError = configState.error?.message ?? i18n.t.backends.form.saveFailedFallback;
 		}
 	}
 </script>
@@ -115,9 +116,9 @@
 <Dialog.Root bind:open>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>{isEdit ? 'Edit backend' : 'Add backend'}</Dialog.Title>
+			<Dialog.Title>{isEdit ? i18n.t.backends.form.editTitle : i18n.t.backends.form.addTitle}</Dialog.Title>
 			<Dialog.Description>
-				{isEdit ? 'Update this backend’s connection details.' : 'Configure a new AI backend.'}
+				{isEdit ? i18n.t.backends.form.editDescription : i18n.t.backends.form.addDescription}
 			</Dialog.Description>
 		</Dialog.Header>
 
@@ -127,12 +128,17 @@
 		     shadcn-owned). -->
 		<div class="flex flex-col gap-3">
 			<div class="flex flex-col gap-1.5">
-				<Label for="backend-name">Name</Label>
-				<Input id="backend-name" bind:value={name} placeholder="Local Ollama" autocomplete="off" />
+				<Label for="backend-name">{i18n.t.backends.form.nameLabel}</Label>
+				<Input
+					id="backend-name"
+					bind:value={name}
+					placeholder={i18n.t.backends.form.namePlaceholder}
+					autocomplete="off"
+				/>
 			</div>
 
 			<div class="flex flex-col gap-1.5">
-				<Label for="backend-kind">Kind</Label>
+				<Label for="backend-kind">{i18n.t.backends.form.kindLabel}</Label>
 				<Select.Root type="single" value={kind} onValueChange={handleKindChange}>
 					<Select.Trigger id="backend-kind" class="w-full">
 						{KIND_LABELS[kind]}
@@ -147,7 +153,7 @@
 
 			{#if kind === 'openai-compatible'}
 				<div class="flex flex-col gap-1.5">
-					<Label for="backend-base-url">Base URL</Label>
+					<Label for="backend-base-url">{i18n.t.backends.form.baseUrlLabel}</Label>
 					<Input
 						id="backend-base-url"
 						bind:value={baseUrl}
@@ -159,19 +165,23 @@
 
 			{#if usesModelAndKey}
 				<div class="flex flex-col gap-1.5">
-					<Label for="backend-model">Model</Label>
+					<Label for="backend-model">{i18n.t.backends.form.modelLabel}</Label>
 					<Input
 						id="backend-model"
 						bind:value={model}
-						placeholder={kind === 'openai-compatible' ? 'qwen2.5:32b-instruct' : 'claude-opus-5'}
+						placeholder={kind === 'openai-compatible'
+							? i18n.t.backends.form.modelPlaceholderOpenAiCompatible
+							: i18n.t.backends.form.modelPlaceholderOther}
 						autocomplete="off"
 					/>
 				</div>
 				<div class="flex flex-col gap-1.5">
 					<Label for="backend-api-key">
-						API key
+						{i18n.t.backends.form.apiKeyLabel}
 						{#if kind === 'openai-compatible'}
-							<span class="font-normal text-muted-foreground">(optional)</span>
+							<span class="font-normal text-muted-foreground"
+								>{i18n.t.backends.form.apiKeyOptional}</span
+							>
 						{/if}
 					</Label>
 					<div class="relative">
@@ -186,7 +196,9 @@
 							type="button"
 							onclick={() => (revealed = !revealed)}
 							class="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-							aria-label={revealed ? 'Hide API key' : 'Show API key'}
+							aria-label={revealed
+								? i18n.t.backends.form.hideApiKey
+								: i18n.t.backends.form.showApiKey}
 						>
 							{#if revealed}
 								<RiEyeOffLine class="size-4" />
@@ -199,7 +211,7 @@
 			{/if}
 
 			<div class="flex flex-col gap-1.5">
-				<Label for="backend-timeout">Timeout (ms)</Label>
+				<Label for="backend-timeout">{i18n.t.backends.form.timeoutLabel}</Label>
 				<Input
 					id="backend-timeout"
 					type="number"
@@ -211,13 +223,12 @@
 				/>
 				{#if kind === 'openai-compatible'}
 					<p class="text-xs text-muted-foreground">
-						A cold local model can take ~16,000 ms on its first request of the day — the
-						{DEFAULT_TIMEOUT_MS.toLocaleString()} ms default avoids a false timeout then.
+						{i18n.t.backends.form.timeoutHint(DEFAULT_TIMEOUT_MS.toLocaleString())}
 					</p>
 				{/if}
 				{#if timeoutTooLow}
 					<p class="text-xs text-destructive">
-						Timeout must be at least {MIN_TIMEOUT_MS} ms.
+						{i18n.t.backends.form.timeoutTooLow(MIN_TIMEOUT_MS)}
 					</p>
 				{/if}
 			</div>
@@ -225,15 +236,21 @@
 
 		{#if submitError}
 			<Alert.Root variant="destructive">
-				<Alert.Title>Couldn’t save backend</Alert.Title>
+				<Alert.Title>{i18n.t.backends.form.saveError}</Alert.Title>
 				<Alert.Description>{submitError}</Alert.Description>
 			</Alert.Root>
 		{/if}
 
 		<Dialog.Footer>
-			<Button variant="outline" onclick={() => (open = false)} disabled={saving}>Cancel</Button>
+			<Button variant="outline" onclick={() => (open = false)} disabled={saving}
+				>{i18n.t.common.cancel}</Button
+			>
 			<Button onclick={() => void handleSave()} disabled={!canSave || saving}>
-				{saving ? 'Saving…' : isEdit ? 'Save changes' : 'Add backend'}
+				{saving
+					? i18n.t.common.saving
+					: isEdit
+						? i18n.t.backends.form.saveSubmit
+						: i18n.t.backends.form.addSubmit}
 			</Button>
 		</Dialog.Footer>
 	</Dialog.Content>
