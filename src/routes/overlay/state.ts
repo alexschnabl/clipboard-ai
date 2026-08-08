@@ -9,7 +9,7 @@
  *  local value (nothing renders before the first real event) and the
  *  terminal one every cycle is promised to reach -- see that module's doc
  *  comment for the guard/Drop guarantee behind that promise. */
-export const OVERLAY_STATES = ['hidden', 'working', 'escalated', 'failure'] as const;
+export const OVERLAY_STATES = ['hidden', 'working', 'escalated', 'aborted', 'failure'] as const;
 export type OverlayState = (typeof OVERLAY_STATES)[number];
 
 /** An event payload this route doesn't recognise is treated as "ignore",
@@ -30,3 +30,11 @@ export function isKnownState(value: string): value is OverlayState {
  *  bound those two states could be auto-cleared on without risking clearing
  *  a real, still-running cycle's indicator out from under it. */
 export const FAILURE_WATCHDOG_MS = 4000;
+
+/** The two terminal states the watchdog above applies to. Both are promised
+ *  to be followed by `"hidden"`, and neither has any legitimate reason to
+ *  persist -- unlike `working`/`escalated`, which a 16-second cold start can
+ *  hold for a long time entirely correctly. */
+export function isTerminalState(state: OverlayState): boolean {
+	return state === 'failure' || state === 'aborted';
+}

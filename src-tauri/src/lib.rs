@@ -596,8 +596,10 @@ pub fn run() {
                                     );
                                     let total_cycle_ms =
                                         state.ops.now_ms().saturating_sub(cycle_start);
-                                    indicator
-                                        .finish(overlay::Outcome::from_pasted(outcome.pasted));
+                                    indicator.finish(overlay::Outcome::from_cycle(
+                                        outcome.pasted,
+                                        outcome.detail.is_some(),
+                                    ));
                                     let line = status::log_line(&outcome, &name, backend.name());
                                     println!("{line}");
                                     status::append_log(&state.config_dir, &line);

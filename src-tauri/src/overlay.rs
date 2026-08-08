@@ -121,7 +121,7 @@ const OFFSET_Y: i32 = 24;
 
 /// Fallback used only if `outer_size()` itself fails -- matches the
 /// `width`/`height` declared for the `overlay` window in `tauri.conf.json`.
-const FALLBACK_SIZE: (u32, u32) = (56, 56);
+const FALLBACK_SIZE: (u32, u32) = (28, 28);
 
 #[derive(Serialize, Clone)]
 struct StatePayload {
@@ -234,12 +234,19 @@ fn show(app: &AppHandle, state: &'static str) {
 /// What the frontend should end up showing once `finish` is called.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
-    /// The cycle pasted. No failure glyph -- the pasted text is its own
+    /// The cycle pasted. No glyph -- the pasted text is its own
     /// confirmation -- just hide.
     Success,
-    /// The cycle aborted or the backend failed. Shown as a distinct glyph
-    /// for `FAILURE_VISIBLE_MS`, then cleared automatically.
-    Failure,
+    /// The cycle deliberately declined to paste: focus moved, a modifier was
+    /// still held, the model returned nothing usable. Kept separate from
+    /// `Failed` because it is *correct behaviour*, and the indicator says so
+    /// -- a calm neutral fade, never the failure flash. Showing an abort as
+    /// an error would misreport the one guarantee this whole app is built
+    /// around.
+    Aborted,
+    /// Something actually went wrong -- the backend errored. Shown
+    /// distinctly for `FAILURE_VISIBLE_MS`, then cleared automatically.
+    Failed,
 }
 
 impl Outcome {
@@ -247,8 +254,21 @@ impl Outcome {
     /// module's own type) turns into an `Outcome`. Takes a `bool` rather
     /// than `cycle::CycleOutcome` directly so this module has no
     /// compile-time dependency on a struct it isn't allowed to edit.
-    pub fn from_pasted(pasted: bool) -> Self {
-        if pasted { Outcome::Success } else { Outcome::Failure }
+    /// Takes plain `bool`s rather than `cycle::CycleOutcome` so this module
+    /// keeps no compile-time dependency on a struct it isn't allowed to edit.
+    ///
+    /// `failed` is "the outcome carried a detail string", which is the same
+    /// signal `record_history` in lib.rs uses to tell a real failure from a
+    /// deliberate abort -- deliberately the same rule in both places, so the
+    /// History tab and the indicator can never disagree about what happened.
+    pub fn from_cycle(pasted: bool, failed: bool) -> Self {
+        if pasted {
+            Outcome::Success
+        } else if failed {
+            Outcome::Failed
+        } else {
+            Outcome::Aborted
+        }
     }
 }
 
@@ -286,17 +306,20 @@ impl CycleOverlay {
     pub fn finish(mut self, outcome: Outcome) {
         self.cancel.store(true, Ordering::SeqCst);
         self.finished = true;
-        match outcome {
-            Outcome::Success => hide_now(&self.app),
-            Outcome::Failure => {
-                show(&self.app, "failure");
-                let app = self.app.clone();
-                std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(FAILURE_VISIBLE_MS));
-                    hide_now(&app);
-                });
+        let terminal = match outcome {
+            Outcome::Success => {
+                hide_now(&self.app);
+                return;
             }
-        }
+            Outcome::Aborted => "aborted",
+            Outcome::Failed => "failure",
+        };
+        show(&self.app, terminal);
+        let app = self.app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(FAILURE_VISIBLE_MS));
+            hide_now(&app);
+        });
     }
 }
 
@@ -435,9 +458,21 @@ mod tests {
     }
 
     #[test]
-    fn outcome_from_pasted_maps_true_to_success_and_false_to_failure() {
-        assert_eq!(Outcome::from_pasted(true), Outcome::Success);
-        assert_eq!(Outcome::from_pasted(false), Outcome::Failure);
+    fn a_paste_is_a_success_regardless_of_anything_else() {
+        assert_eq!(Outcome::from_cycle(true, false), Outcome::Success);
+        // `failed` is ignored when the paste happened: the document really
+        // was written, whatever else the outcome carried.
+        assert_eq!(Outcome::from_cycle(true, true), Outcome::Success);
+    }
+
+    // The distinction the indicator exists to communicate. A cycle that
+    // declined to paste did the right thing, and must not be shown with the
+    // failure treatment -- same rule `record_history` applies in lib.rs, so
+    // the History tab and the indicator can never disagree about a run.
+    #[test]
+    fn a_no_paste_is_aborted_unless_it_carried_a_failure_detail() {
+        assert_eq!(Outcome::from_cycle(false, false), Outcome::Aborted);
+        assert_eq!(Outcome::from_cycle(false, true), Outcome::Failed);
     }
 
     #[test]
