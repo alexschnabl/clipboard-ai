@@ -21,15 +21,6 @@
 	 *  feed `i18n.t.history.hint`. Matches the brief ("last 100 runs"). */
 	const HISTORY_LIMIT = 100;
 
-	// A handful of strings below (the expand panel's Input/Result labels and
-	// their Copy buttons, and the clear-confirmation dialog's title/body) have
-	// no counterpart in `$lib/i18n`'s dictionary -- that module's own
-	// `history` section covers the table itself, not the expand/copy
-	// affordance this brief additionally asked for. Left as plain English
-	// literals, same treatment `en.ts`'s own doc comment gives Rust-origin
-	// error text that's out of the dictionary's scope, rather than inventing
-	// keys in a file this component doesn't own.
-
 	let confirmClearOpen = $state(false);
 	/** Index into `configState.history` of the currently expanded row, or
 	 *  `null` when none is. A single value, not a Set -- the mockup and the
@@ -133,14 +124,14 @@
 	<div class="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
 		{#if configState.historyError}
 			<Alert.Root variant="destructive">
-				<Alert.Title>Couldn’t load history</Alert.Title>
+				<Alert.Title>{i18n.t.history.loadErrorTitle}</Alert.Title>
 				<Alert.Description>{configState.historyError}</Alert.Description>
 			</Alert.Root>
 		{/if}
 
 		{#if copyError}
 			<Alert.Root variant="destructive">
-				<Alert.Title>Couldn’t copy to clipboard</Alert.Title>
+				<Alert.Title>{i18n.t.history.copyErrorTitle}</Alert.Title>
 				<Alert.Description>{copyError}</Alert.Description>
 			</Alert.Root>
 		{/if}
@@ -181,7 +172,9 @@
 									class="flex w-full items-center gap-1 text-left"
 									onclick={() => toggleExpand(i)}
 									aria-expanded={expanded}
-									aria-label={`${expanded ? 'Collapse' : 'Expand'} details for ${entry.commandName}`}
+									aria-label={expanded
+										? i18n.t.history.collapseAria(entry.commandName)
+										: i18n.t.history.expandAria(entry.commandName)}
 								>
 									<RiArrowRightSLine
 										class="size-3.5 shrink-0 text-muted-foreground transition-transform {expanded
@@ -212,16 +205,22 @@
 									<div class="flex flex-col gap-3">
 										{#if entry.outcome.status === 'aborted'}
 											<p class="text-xs text-muted-foreground">
-												Aborted: {entry.outcome.reason}
+												{i18n.t.history.abortedPrefix}
+												{entry.outcome.reason}
 											</p>
 										{:else if entry.outcome.status === 'failed'}
-											<p class="text-xs text-destructive">Failed: {entry.outcome.error}</p>
+											<p class="text-xs text-destructive">
+												{i18n.t.history.failedPrefix}
+												{entry.outcome.error}
+											</p>
 										{/if}
 
 										<div class="grid grid-cols-1 gap-3 md:grid-cols-2">
 											<div class="flex flex-col gap-1">
 												<div class="flex items-center justify-between">
-													<span class="text-xs font-medium text-muted-foreground">Input</span>
+													<span class="text-xs font-medium text-muted-foreground"
+														>{i18n.t.history.inputLabel}</span
+													>
 													{#if entry.inputText}
 														<Button
 															variant="ghost"
@@ -231,10 +230,10 @@
 														>
 															{#if copiedKey === `${rowKey}-input`}
 																<RiCheckLine class="size-3.5" />
-																Copied
+																{i18n.t.history.copied}
 															{:else}
 																<RiClipboardLine class="size-3.5" />
-																Copy
+																{i18n.t.history.copy}
 															{/if}
 														</Button>
 													{/if}
@@ -246,7 +245,9 @@
 
 											<div class="flex flex-col gap-1">
 												<div class="flex items-center justify-between">
-													<span class="text-xs font-medium text-muted-foreground">Result</span>
+													<span class="text-xs font-medium text-muted-foreground"
+														>{i18n.t.history.resultLabel}</span
+													>
 													{#if entry.resultText}
 														<Button
 															variant="outline"
@@ -256,10 +257,10 @@
 														>
 															{#if copiedKey === `${rowKey}-result`}
 																<RiCheckLine class="size-3.5" />
-																Copied
+																{i18n.t.history.copied}
 															{:else}
 																<RiClipboardLine class="size-3.5" />
-																Copy result
+																{i18n.t.history.copyResult}
 															{/if}
 														</Button>
 													{/if}
@@ -283,10 +284,9 @@
 <Dialog.Root bind:open={confirmClearOpen}>
 	<Dialog.Content class="sm:max-w-md">
 		<Dialog.Header>
-			<Dialog.Title>Clear history?</Dialog.Title>
+			<Dialog.Title>{i18n.t.history.clearTitle}</Dialog.Title>
 			<Dialog.Description>
-				Permanently deletes all {configState.history.length} recorded runs, including any input
-				and result text still held here for recovery. This can’t be undone.
+				{i18n.t.history.clearDescription(configState.history.length)}
 			</Dialog.Description>
 		</Dialog.Header>
 		<Dialog.Footer>

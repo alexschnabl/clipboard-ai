@@ -164,7 +164,21 @@ export const de: typeof en = {
 		statusFailed: 'Fehlgeschlagen',
 		statusAborted: 'Abgebrochen',
 		emptyTitle: 'Noch keine Ausführungen',
-		emptyDescription: 'Lösen Sie einen Befehl über seinen Hotkey aus — das Ergebnis erscheint hier.'
+		emptyDescription: 'Lösen Sie einen Befehl über seinen Hotkey aus — das Ergebnis erscheint hier.',
+		loadErrorTitle: 'Verlauf konnte nicht geladen werden',
+		copyErrorTitle: 'Kopieren in die Zwischenablage fehlgeschlagen',
+		expandAria: (name: string) => `Details zu ${name} einblenden`,
+		collapseAria: (name: string) => `Details zu ${name} ausblenden`,
+		abortedPrefix: 'Abgebrochen:',
+		failedPrefix: 'Fehlgeschlagen:',
+		inputLabel: 'Eingabe',
+		resultLabel: 'Ergebnis',
+		copy: 'Kopieren',
+		copied: 'Kopiert',
+		copyResult: 'Ergebnis kopieren',
+		clearTitle: 'Verlauf leeren?',
+		clearDescription: (count: number) =>
+			`Löscht dauerhaft alle ${count} erfassten Ausführungen, einschließlich aller hier noch zur Wiederherstellung vorgehaltenen Eingabe- und Ergebnistexte. Diese Aktion kann nicht rückgängig gemacht werden.`
 	},
 
 	settings: {
@@ -178,6 +192,11 @@ export const de: typeof en = {
 		languageDescription: 'Sprache der Benutzeroberfläche für dieses Fenster.',
 		languageSystem: 'System',
 		autostartLabel: 'Mit Windows starten',
-		autostartDescription: 'Startet Clipboard AI bei der Anmeldung minimiert im Infobereich.'
+		autostartDescription: 'Startet Clipboard AI bei der Anmeldung minimiert im Infobereich.',
+		autostartDevNoteBefore:
+			'In Entwicklungs-Builds abgelehnt — dies würde die Debug-Ausführungsdatei anstelle der installierten App bei der Anmeldung registrieren; testen Sie dies stattdessen mit einem installierten (',
+		autostartDevNoteAfter: ') Build.',
+		saveErrorTitle: 'Änderung konnte nicht gespeichert werden',
+		saveFailedFallback: 'Die Änderung konnte nicht gespeichert werden.'
 	}
 };

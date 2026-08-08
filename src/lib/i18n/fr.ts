@@ -190,7 +190,25 @@ export const fr: typeof en = {
 		statusFailed: 'Échoué',
 		statusAborted: 'Annulé',
 		emptyTitle: 'Aucune exécution pour l’instant',
-		emptyDescription: 'Déclenchez une commande avec son raccourci et le résultat s’affichera ici.'
+		emptyDescription: 'Déclenchez une commande avec son raccourci et le résultat s’affichera ici.',
+		loadErrorTitle: 'Impossible de charger l’historique',
+		copyErrorTitle: 'Impossible de copier dans le presse-papiers',
+		expandAria: (name: string) => `Développer les détails de ${name}`,
+		collapseAria: (name: string) => `Réduire les détails de ${name}`,
+		// French typography wants a space before ":" -- baked into the
+		// prefix itself so `{prefix} {value}` in the component still comes
+		// out with exactly one space either side, same as every other
+		// dictionary's `{prefix} {value}` template.
+		abortedPrefix: 'Interrompu :',
+		failedPrefix: 'Échoué :',
+		inputLabel: 'Entrée',
+		resultLabel: 'Résultat',
+		copy: 'Copier',
+		copied: 'Copié',
+		copyResult: 'Copier le résultat',
+		clearTitle: 'Effacer l’historique ?',
+		clearDescription: (count: number) =>
+			`Supprime définitivement les ${count} exécutions enregistrées, y compris tout texte d’entrée et de résultat encore conservé ici pour récupération. Cette action est irréversible.`
 	},
 
 	// New section (mockup-a-compact.html): theme / language / autostart.
@@ -209,6 +227,11 @@ export const fr: typeof en = {
 		// in registry.ts's `nativeName`, not once per *other* language in
 		// every dictionary here -- see that file's header comment for why.
 		autostartLabel: 'Démarrer avec Windows',
-		autostartDescription: 'Lance Clipboard AI réduit dans la zone de notification à l’ouverture de session.'
+		autostartDescription: 'Lance Clipboard AI réduit dans la zone de notification à l’ouverture de session.',
+		autostartDevNoteBefore:
+			'Refusé dans les builds de développement — cela enregistrerait l’exécutable de débogage à la place de l’application installée au démarrage de la session ; testez plutôt cela avec un build installé (',
+		autostartDevNoteAfter: ').',
+		saveErrorTitle: 'Impossible d’enregistrer cette modification',
+		saveFailedFallback: 'Impossible d’enregistrer la modification.'
 	}
 };

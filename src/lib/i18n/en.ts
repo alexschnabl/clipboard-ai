@@ -188,7 +188,25 @@ export const en = {
 		statusFailed: 'Failed',
 		statusAborted: 'Aborted',
 		emptyTitle: 'No runs yet',
-		emptyDescription: 'Trigger a command with its hotkey and the result will show up here.'
+		emptyDescription: 'Trigger a command with its hotkey and the result will show up here.',
+		// The expand/copy/clear affordances the table itself doesn't need --
+		// added alongside the rows above rather than the table columns, same
+		// grouping rationale as `commands`/`backends` keeping their `form`
+		// sub-object next to the list-view keys it's used from.
+		loadErrorTitle: 'Couldn’t load history',
+		copyErrorTitle: 'Couldn’t copy to clipboard',
+		expandAria: (name: string) => `Expand details for ${name}`,
+		collapseAria: (name: string) => `Collapse details for ${name}`,
+		abortedPrefix: 'Aborted:',
+		failedPrefix: 'Failed:',
+		inputLabel: 'Input',
+		resultLabel: 'Result',
+		copy: 'Copy',
+		copied: 'Copied',
+		copyResult: 'Copy result',
+		clearTitle: 'Clear history?',
+		clearDescription: (count: number) =>
+			`Permanently deletes all ${count} recorded runs, including any input and result text still held here for recovery. This can’t be undone.`
 	},
 
 	// New section (mockup-a-compact.html): theme / language / autostart.
@@ -207,6 +225,15 @@ export const en = {
 		// in registry.ts's `nativeName`, not once per *other* language in
 		// every dictionary here -- see that file's header comment for why.
 		autostartLabel: 'Start with Windows',
-		autostartDescription: 'Launch Clipboard AI minimized to the tray on sign-in.'
+		autostartDescription: 'Launch Clipboard AI minimized to the tray on sign-in.',
+		// Split around the `<code>npm run tauri build</code>` element
+		// SettingsPanel.svelte renders inline, before/after halves, same
+		// technique `app.loadErrorPreservedBefore`/`After` uses for the
+		// `<code>{preservedPath}</code>` element in +page.svelte.
+		autostartDevNoteBefore:
+			'Refused in development builds — it would register the debug executable to run at login instead of your installed app; test this with an installed (',
+		autostartDevNoteAfter: ') build instead.',
+		saveErrorTitle: 'Couldn’t save that change',
+		saveFailedFallback: 'Could not save the change.'
 	}
 };

@@ -36,10 +36,12 @@
 
 	/** Set right after any `updateSettings` rejection or refusal -- one shared
 	 *  slot for all three settings rather than a field each, since only one
-	 *  control is ever mid-change at a time in this UI. Not in `$lib/i18n`'s
-	 *  dictionary (it covers the static labels below, not save-failure text,
-	 *  which is dynamic and often Rust-origin) -- stays a plain literal, same
-	 *  treatment the rest of this app gives `configState.error`. */
+	 *  control is ever mid-change at a time in this UI. Usually holds a
+	 *  Rust-origin message (`configState.error`/a `Problem`'s text), which is
+	 *  why the slot itself is a plain `string | null` rather than a
+	 *  dictionary key -- but the *fallback* used when there is no message
+	 *  (`settings.saveFailedFallback`) is still author-written English and
+	 *  goes through the dictionary like everything else here. */
 	let settingsNotice = $state<string | null>(null);
 	let autostartPending = $state(false);
 
@@ -57,7 +59,7 @@
 	async function applySettings(patch: Partial<Settings>): Promise<boolean> {
 		settingsNotice = null;
 		const ok = await configState.updateSettings({ ...configState.config.settings, ...patch });
-		if (!ok) settingsNotice = configState.error?.message ?? 'Could not save the change.';
+		if (!ok) settingsNotice = configState.error?.message ?? i18n.t.settings.saveFailedFallback;
 		return ok;
 	}
 
@@ -106,7 +108,7 @@
 	<div class="min-h-0 flex-1 overflow-y-auto p-4">
 		{#if settingsNotice}
 			<Alert.Root variant="destructive" class="mb-3">
-				<Alert.Title>Couldn’t save that change</Alert.Title>
+				<Alert.Title>{i18n.t.settings.saveErrorTitle}</Alert.Title>
 				<Alert.Description>{settingsNotice}</Alert.Description>
 			</Alert.Root>
 		{/if}
@@ -162,9 +164,9 @@
 				<div class="flex flex-col gap-0.5">
 					<span class="text-sm font-medium">{i18n.t.settings.autostartLabel}</span>
 					<span class="text-xs text-muted-foreground">
-						{i18n.t.settings.autostartDescription} Refused in development builds — it would
-						register the debug executable to run at login instead of your installed app; test this
-						with an installed (<code>npm run tauri build</code>) build instead.
+						{i18n.t.settings.autostartDescription}
+						{i18n.t.settings.autostartDevNoteBefore}<code>npm run tauri build</code
+						>{i18n.t.settings.autostartDevNoteAfter}
 					</span>
 				</div>
 				<Switch

@@ -147,15 +147,26 @@ fn emit_state(app: &AppHandle, state: &'static str) {
 ///
 /// Best-effort by design: a failure here must not stop the app from
 /// starting, and every cycle still works without it. Logged rather than
-/// propagated for that reason.
+/// propagated for that reason -- same shape as `settings::apply_autostart`,
+/// down to reusing its `config_path(app).parent()` route to the log file,
+/// since a release build's `windows_subsystem = "windows"` (see `main.rs`)
+/// means `eprintln!` alone reaches no console at all. Worth knowing: if this
+/// fails the window stays click-through-*less*, so it will swallow clicks in
+/// whatever application the user is working in until the app is restarted --
+/// a real, if quiet, regression, not merely a missing indicator.
 pub fn prepare(app: &AppHandle) {
-    match app.get_webview_window(LABEL) {
-        Some(window) => {
-            if let Err(e) = window.set_ignore_cursor_events(true) {
-                eprintln!("overlay: could not make the window click-through: {e}");
-            }
+    let failure = match app.get_webview_window(LABEL) {
+        Some(window) => window
+            .set_ignore_cursor_events(true)
+            .err()
+            .map(|e| format!("overlay: could not make the window click-through: {e}")),
+        None => Some(format!("overlay: window '{LABEL}' not found at startup; indicator disabled")),
+    };
+    if let Some(line) = failure {
+        eprintln!("{line}");
+        if let Some(dir) = crate::config::config_path(app).parent() {
+            crate::status::append_log(dir, &line);
         }
-        None => eprintln!("overlay: window '{LABEL}' not found at startup; indicator disabled"),
     }
 }
 

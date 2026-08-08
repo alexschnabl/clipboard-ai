@@ -195,7 +195,25 @@ export const it: typeof en = {
 		statusFailed: 'Fallito',
 		statusAborted: 'Interrotto',
 		emptyTitle: 'Ancora nessuna esecuzione',
-		emptyDescription: 'Attiva un comando con il suo hotkey — il risultato comparirà qui.'
+		emptyDescription: 'Attiva un comando con il suo hotkey — il risultato comparirà qui.',
+		loadErrorTitle: 'Impossibile caricare la cronologia',
+		copyErrorTitle: 'Impossibile copiare negli appunti',
+		expandAria: (name: string) => `Espandi i dettagli di ${name}`,
+		collapseAria: (name: string) => `Comprimi i dettagli di ${name}`,
+		abortedPrefix: 'Interrotto:',
+		failedPrefix: 'Fallito:',
+		inputLabel: 'Ingresso',
+		resultLabel: 'Risultato',
+		// Short tu-imperative, matching this file's button register
+		// ("Salva", "Annulla", "Elimina", ...).
+		copy: 'Copia',
+		copied: 'Copiato',
+		copyResult: 'Copia risultato',
+		// Infinitive-as-question, same form the header comment documents for
+		// `deleteTitle` ("Eliminare «X»?").
+		clearTitle: 'Svuotare la cronologia?',
+		clearDescription: (count: number) =>
+			`Rimuove definitivamente tutte le ${count} esecuzioni registrate, incluso qualsiasi testo di input e risultato ancora conservato qui per il recupero. Questa azione non può essere annullata.`
 	},
 
 	// New section (mockup-a-compact.html): theme / language / autostart.
@@ -210,6 +228,11 @@ export const it: typeof en = {
 		languageDescription: 'Lingua dell’interfaccia per questa finestra.',
 		languageSystem: 'Sistema',
 		autostartLabel: 'Avvia con Windows',
-		autostartDescription: 'Avvia Clipboard AI ridotto a icona nell’area di notifica all’accesso.'
+		autostartDescription: 'Avvia Clipboard AI ridotto a icona nell’area di notifica all’accesso.',
+		autostartDevNoteBefore:
+			'Rifiutato nelle build di sviluppo — registrerebbe l’eseguibile di debug al posto dell’app installata all’accesso; prova questa funzione con una build installata (',
+		autostartDevNoteAfter: ').',
+		saveErrorTitle: 'Impossibile salvare questa modifica',
+		saveFailedFallback: 'Impossibile salvare la modifica.'
 	}
 };

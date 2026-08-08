@@ -187,7 +187,23 @@ export const es: typeof en = {
 		statusFailed: 'Fallido',
 		statusAborted: 'Cancelado',
 		emptyTitle: 'Aún no hay ejecuciones',
-		emptyDescription: 'Ejecute un comando con su hotkey y el resultado aparecerá aquí.'
+		emptyDescription: 'Ejecute un comando con su hotkey y el resultado aparecerá aquí.',
+		loadErrorTitle: 'No se pudo cargar el historial',
+		copyErrorTitle: 'No se pudo copiar al portapapeles',
+		expandAria: (name: string) => `Expandir detalles de ${name}`,
+		collapseAria: (name: string) => `Contraer detalles de ${name}`,
+		// "Cancelado", not "Abortado" -- same reasoning as `statusAborted`
+		// above: this is a deliberate, correct decline, not a crash.
+		abortedPrefix: 'Cancelado:',
+		failedPrefix: 'Fallido:',
+		inputLabel: 'Entrada',
+		resultLabel: 'Resultado',
+		copy: 'Copiar',
+		copied: 'Copiado',
+		copyResult: 'Copiar resultado',
+		clearTitle: '¿Borrar el historial?',
+		clearDescription: (count: number) =>
+			`Elimina permanentemente las ${count} ejecuciones registradas, incluido cualquier texto de entrada y resultado que aún se conserve aquí para su recuperación. Esta acción no se puede deshacer.`
 	},
 
 	// New section (mockup-a-compact.html): theme / language / autostart.
@@ -202,6 +218,11 @@ export const es: typeof en = {
 		languageDescription: 'Idioma de la interfaz para esta ventana.',
 		languageSystem: 'Sistema',
 		autostartLabel: 'Iniciar con Windows',
-		autostartDescription: 'Inicia Clipboard AI minimizado en el área de notificación al iniciar sesión.'
+		autostartDescription: 'Inicia Clipboard AI minimizado en el área de notificación al iniciar sesión.',
+		autostartDevNoteBefore:
+			'Rechazado en compilaciones de desarrollo: registraría el ejecutable de depuración para iniciarse al iniciar sesión en lugar de la aplicación instalada; pruebe esto con una compilación instalada (',
+		autostartDevNoteAfter: ').',
+		saveErrorTitle: 'No se pudo guardar ese cambio',
+		saveFailedFallback: 'No se pudo guardar el cambio.'
 	}
 };
