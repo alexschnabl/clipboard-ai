@@ -7,6 +7,8 @@
 	import SettingsSidebar, { type SectionId } from '$lib/components/SettingsSidebar.svelte';
 	import BackendList from '$lib/components/BackendList.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
+	import HistoryPanel from '$lib/components/HistoryPanel.svelte';
+	import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { onMount } from 'svelte';
@@ -120,24 +122,9 @@
 					{:else if activeSection === 'backends'}
 						<BackendList />
 					{:else if activeSection === 'history'}
-						<!-- Placeholder: another agent is building HistoryPanel.svelte to replace
-						     this slot -- last 100 command runs, per src-tauri/src/history.rs. -->
-						<div class="flex h-full flex-col items-center justify-center gap-1 p-8 text-center">
-							<p class="text-sm font-medium text-foreground">{i18n.t.history.title} — coming soon</p>
-							<p class="text-xs text-muted-foreground">
-								This section will show your recent command runs.
-							</p>
-						</div>
+						<HistoryPanel />
 					{:else}
-						<!-- Placeholder: another agent is building SettingsPanel.svelte to replace
-						     this slot -- theme, language and start-with-Windows, per
-						     src-tauri/src/config.rs `Settings`. -->
-						<div class="flex h-full flex-col items-center justify-center gap-1 p-8 text-center">
-							<p class="text-sm font-medium text-foreground">{i18n.t.settings.title} — coming soon</p>
-							<p class="text-xs text-muted-foreground">
-								Theme, language and startup options will live here.
-							</p>
-						</div>
+						<SettingsPanel />
 					{/if}
 				{/key}
 			</div>

@@ -19,7 +19,7 @@ const invokeMock = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
 import { ConfigState } from '../../src/lib/state/config.svelte';
-import type { BackendConfig, CommandConfig, SaveResult } from '../../src/lib/types';
+import type { BackendConfig, CommandConfig, SaveResult, Settings } from '../../src/lib/types';
 
 function backend(overrides: Partial<BackendConfig> = {}): BackendConfig {
 	return {
@@ -43,6 +43,10 @@ function command(overrides: Partial<CommandConfig> = {}): CommandConfig {
 		systemPrompt: 'Do a thing.',
 		...overrides
 	};
+}
+
+function defaultSettings(): Settings {
+	return { theme: 'system', language: 'system', autostart: false };
 }
 
 function ok(): SaveResult {
@@ -236,7 +240,7 @@ describe('ConfigState commit-and-rollback semantics', () => {
 			state.error = { message: 'stale error', source: 'save' };
 			const before = state.revision;
 			invokeMock.mockResolvedValue({
-				config: { version: 2, backends: [], commands: [] },
+				config: { version: 2, backends: [], commands: [], settings: defaultSettings() },
 				loadError: null,
 				startupProblems: []
 			});
@@ -258,7 +262,7 @@ describe('ConfigState commit-and-rollback semantics', () => {
 
 		it('loads startup problems into `problems`, the same channel save() uses', async () => {
 			invokeMock.mockResolvedValue({
-				config: { version: 2, backends: [], commands: [] },
+				config: { version: 2, backends: [], commands: [], settings: defaultSettings() },
 				loadError: null,
 				startupProblems: [{ commandId: 'c1', message: 'hotkey already in use' }]
 			});
@@ -266,6 +270,143 @@ describe('ConfigState commit-and-rollback semantics', () => {
 			await state.load();
 
 			expect(state.problems).toEqual([{ commandId: 'c1', message: 'hotkey already in use' }]);
+		});
+	});
+
+	describe('updateSettings', () => {
+		it('applies and persists the new settings via save_config on success', async () => {
+			invokeMock.mockResolvedValue(ok());
+
+			const result = await state.updateSettings({
+				theme: 'dark',
+				language: 'de',
+				autostart: true
+			});
+
+			expect(result).toBe(true);
+			expect(state.config.settings).toEqual({ theme: 'dark', language: 'de', autostart: true });
+			const [command_, payload] = invokeMock.mock.calls[0]!;
+			expect(command_).toBe('save_config');
+			expect(payload.config.settings).toEqual({ theme: 'dark', language: 'de', autostart: true });
+		});
+
+		it('rolls back to the pre-change settings when the save is rejected', async () => {
+			invokeMock.mockResolvedValue(rejected('refusing to enable autostart from a debug build'));
+
+			const result = await state.updateSettings({
+				theme: 'system',
+				language: 'system',
+				autostart: true
+			});
+
+			expect(result).toBe(false);
+			expect(state.config.settings).toEqual(defaultSettings());
+			expect(state.error?.message).toBe('refusing to enable autostart from a debug build');
+		});
+	});
+
+	describe('history', () => {
+		describe('loadHistory', () => {
+			it('loads entries from get_history and clears any previous error', async () => {
+				state.historyError = 'stale error';
+				const entries = [
+					{
+						timestampMs: 1000,
+						commandId: 'c1',
+						commandName: 'Fix grammar',
+						backendName: 'Local Ollama',
+						outcome: { status: 'succeeded' as const },
+						backendMs: 500,
+						totalCycleMs: 600,
+						inputText: 'teh quick fox',
+						resultText: 'The quick fox.'
+					}
+				];
+				invokeMock.mockResolvedValue(entries);
+
+				await state.loadHistory();
+
+				expect(state.history).toEqual(entries);
+				expect(state.historyError).toBeNull();
+				expect(state.historyLoading).toBe(false);
+				expect(invokeMock).toHaveBeenCalledWith('get_history');
+			});
+
+			it('surfaces a rejection (e.g. the command not being wired yet) without throwing', async () => {
+				invokeMock.mockRejectedValue(new Error('command get_history not found'));
+
+				await expect(state.loadHistory()).resolves.toBeUndefined();
+
+				expect(state.history).toEqual([]);
+				expect(state.historyError).toContain('command get_history not found');
+				expect(state.historyLoading).toBe(false);
+			});
+
+			it('is true only while a load is in flight', async () => {
+				let resolveLoad!: (value: unknown[]) => void;
+				invokeMock.mockReturnValue(
+					new Promise((resolve) => {
+						resolveLoad = resolve;
+					})
+				);
+
+				expect(state.historyLoading).toBe(true);
+				const pending = state.loadHistory();
+				expect(state.historyLoading).toBe(true);
+
+				resolveLoad([]);
+				await pending;
+
+				expect(state.historyLoading).toBe(false);
+			});
+		});
+
+		describe('clearHistory', () => {
+			it('empties the local history on success', async () => {
+				state.history = [
+					{
+						timestampMs: 1,
+						commandId: 'c1',
+						commandName: 'Fix grammar',
+						backendName: 'Local Ollama',
+						outcome: { status: 'succeeded' },
+						backendMs: 1,
+						totalCycleMs: null,
+						inputText: null,
+						resultText: null
+					}
+				];
+				invokeMock.mockResolvedValue(undefined);
+
+				const result = await state.clearHistory();
+
+				expect(result).toBe(true);
+				expect(state.history).toEqual([]);
+				expect(invokeMock).toHaveBeenCalledWith('clear_history');
+			});
+
+			it('leaves the local history untouched and reports the error on rejection', async () => {
+				state.history = [
+					{
+						timestampMs: 1,
+						commandId: 'c1',
+						commandName: 'Fix grammar',
+						backendName: 'Local Ollama',
+						outcome: { status: 'succeeded' },
+						backendMs: 1,
+						totalCycleMs: null,
+						inputText: null,
+						resultText: null
+					}
+				];
+				invokeMock.mockRejectedValue(new Error('command clear_history not found'));
+
+				const result = await state.clearHistory();
+
+				expect(result).toBe(false);
+				expect(state.history).toHaveLength(1);
+				expect(state.historyError).toContain('command clear_history not found');
+			});
 		});
 	});
 });

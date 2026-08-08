@@ -27,10 +27,27 @@ export interface CommandConfig {
 	systemPrompt: string;
 }
 
+/** Wire values match `config::Theme`'s `#[serde(rename_all = "lowercase")]`
+ *  exactly (see config.rs) -- `system` means "follow the OS", detection of
+ *  which is this frontend's job, not something the enum itself encodes. */
+export type Theme = 'system' | 'light' | 'dark';
+
+/** Wire values match `config::Language`'s `#[serde(rename_all =
+ *  "lowercase")]` exactly -- `system` means "detect the OS locale, fall
+ *  back to English", same division of labour as `Theme` above. */
+export type Language = 'system' | 'en' | 'de';
+
+export interface Settings {
+	theme: Theme;
+	language: Language;
+	autostart: boolean;
+}
+
 export interface Config {
 	version: number;
 	backends: BackendConfig[];
 	commands: CommandConfig[];
+	settings: Settings;
 }
 
 /** A problem surfaced by the backend: something in the config didn't apply
@@ -66,4 +83,30 @@ export interface GetConfigResult {
 	 *  hotkey that failed to register at launch was invisible in the UI until
 	 *  an unrelated Save happened to call `apply_config` again. */
 	startupProblems: Problem[];
+}
+
+/** Mirrors `history::Outcome` (src-tauri/src/history.rs) exactly: internally
+ *  tagged on `status`, so a switch/if-chain on `outcome.status` narrows
+ *  `reason`/`error` for free with no separate discriminant field to keep in
+ *  sync by hand. */
+export type HistoryOutcome =
+	| { status: 'succeeded' }
+	| { status: 'aborted'; reason: string }
+	| { status: 'failed'; error: string };
+
+/** Mirrors `history::HistoryEntry` (src-tauri/src/history.rs) field-for-field.
+ *  `totalCycleMs`/`inputText`/`resultText` are `| null`, not `?:` --
+ *  serde_json serialises a Rust `None` as JSON `null` rather than omitting
+ *  the key (none of the three `#[serde(default)]` attributes there carry
+ *  `skip_serializing_if`), so every entry always carries all eight keys. */
+export interface HistoryEntry {
+	timestampMs: number;
+	commandId: string;
+	commandName: string;
+	backendName: string;
+	outcome: HistoryOutcome;
+	backendMs: number;
+	totalCycleMs: number | null;
+	inputText: string | null;
+	resultText: string | null;
 }

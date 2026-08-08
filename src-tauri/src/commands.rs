@@ -103,7 +103,19 @@ pub fn save_config(
     match decide_save(&config, &path) {
         Err(e) => SaveResult { ok: false, error: Some(e), problems: vec![] },
         Ok(validated) => {
-            let problems = apply_config(&app, state.inner(), validated);
+            // Read before `validated` is moved into `apply_config`.
+            let autostart_wanted = validated.settings.autostart;
+            let mut problems = apply_config(&app, state.inner(), validated);
+            // Without this the toggle would persist but not take effect until
+            // the next launch (where `setup` reasserts it) -- a setting that
+            // silently does nothing until restart is exactly the kind of
+            // half-applied change this app reports as a `Problem` rather than
+            // swallowing. A debug build's refusal surfaces here too, so the
+            // user is told why it did not stick instead of watching it fail
+            // quietly.
+            if let Err(e) = crate::settings::apply_autostart(&app, autostart_wanted) {
+                problems.push(Problem { command_id: None, message: e });
+            }
             SaveResult { ok: true, error: None, problems }
         }
     }

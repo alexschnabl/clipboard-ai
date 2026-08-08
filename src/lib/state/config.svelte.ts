@@ -8,12 +8,19 @@ import type {
 	Config,
 	ConfigLoadError,
 	GetConfigResult,
+	HistoryEntry,
 	Problem,
-	SaveResult
+	SaveResult,
+	Settings
 } from '$lib/types';
 
 function emptyConfig(): Config {
-	return { version: 2, backends: [], commands: [] };
+	return {
+		version: 2,
+		backends: [],
+		commands: [],
+		settings: { theme: 'system', language: 'system', autostart: false }
+	};
 }
 
 /** `error` and its source always moved together as two separate fields --
@@ -159,6 +166,69 @@ export class ConfigState {
 		return this.commit((config) => {
 			config.commands = config.commands.filter((c) => c.id !== id);
 		});
+	}
+
+	/** Theme, language and autostart all persist through the exact same
+	 *  commit-and-rollback path as a backend/command edit -- there is no
+	 *  separate settings save button, and no reason for this one corner of
+	 *  the config to durably diverge from the rest of it if `save_config`
+	 *  rejects the write. Callers (SettingsPanel) pass the *whole* `Settings`
+	 *  object rather than one field, spreading their own change over
+	 *  `config.settings` first -- matching `updateBackend`/`updateCommand`'s
+	 *  shape of "hand over the intended next value", not a partial patch. */
+	updateSettings(settings: Settings): Promise<boolean> {
+		return this.commit((config) => {
+			config.settings = settings;
+		});
+	}
+
+	// ── History ───────────────────────────────────────────────────────
+	// A separate concern from `config` above in every way that matters here:
+	// it lives in its own `history.json` (see history.rs's module doc
+	// comment for why), it is never mutated through `commit`'s
+	// snapshot/rollback machinery -- there is nothing to roll back to, a
+	// clear is just as final on a retry as on the first attempt -- and a
+	// failure to load or clear it has no bearing on whether `config` above
+	// is usable. Kept on this same class only because it is, like `config`,
+	// a single piece of state the settings window needs loaded once and
+	// shared across whatever reads it -- not because the two are related.
+	history = $state<HistoryEntry[]>([]);
+	historyLoading = $state(true);
+	/** IPC-level failure only (a rejected `invoke`) -- `get_history`/
+	 *  `clear_history` have no validated-vs-rejected split the way
+	 *  `save_config` does, they either return data or the call itself
+	 *  throws. Cleared at the start of every fresh attempt so a stale
+	 *  failure from a previous load doesn't linger next to a successful
+	 *  retry's data. */
+	historyError = $state<string | null>(null);
+
+	async loadHistory(): Promise<void> {
+		this.historyLoading = true;
+		this.historyError = null;
+		try {
+			this.history = await invoke<HistoryEntry[]>('get_history');
+		} catch (e) {
+			// `get_history`/`clear_history` are being wired in parallel with
+			// this panel (see the task brief) -- until that lands, `invoke`
+			// rejects with a "command not found"-shaped error. Surfacing it
+			// through `historyError` rather than letting it throw is what
+			// keeps that gap non-fatal for the rest of the settings window.
+			this.historyError = String(e);
+		} finally {
+			this.historyLoading = false;
+		}
+	}
+
+	async clearHistory(): Promise<boolean> {
+		this.historyError = null;
+		try {
+			await invoke('clear_history');
+			this.history = [];
+			return true;
+		} catch (e) {
+			this.historyError = String(e);
+			return false;
+		}
 	}
 }
 
