@@ -11,7 +11,7 @@
 //! ordering that would otherwise be scattered across files instead of kept
 //! readable top-to-bottom in one place.
 
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
@@ -44,7 +44,7 @@ struct Registration {
 /// exact value that was registered, and `Shortcut` derives `Eq`/`Hash`, so
 /// lookup is structural rather than string-based.
 fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, Vec<Problem>) {
-    let mut map = HashMap::new();
+    let mut map: HashMap<Shortcut, CommandEntry> = HashMap::new();
     let mut problems = Vec::new();
     for command in &cfg.commands {
         let Some(backend_cfg) = cfg.backend(&command.backend_id) else {
@@ -83,15 +83,32 @@ fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, 
                 // parse to the identical `Shortcut`. An unchecked insert
                 // would silently drop one command's binding with no signal
                 // anywhere; report it as a problem instead.
-                if let Some(previous) = map.insert(shortcut, entry) {
-                    problems.push(Problem {
-                        command_id: Some(command.id.clone()),
-                        message: format!(
-                            "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing ({shortcut}); \
-                             only \"{}\" is registered",
-                            command.name, command.hotkey, previous.name, previous.name
-                        ),
-                    });
+                //
+                // First-wins, explicitly: this used to be a bare
+                // `map.insert`, which is last-wins -- while the problem
+                // message named the *earlier* command as the survivor. So
+                // the message pointed the user at the dead binding: they
+                // would press the hotkey, the later command would fire, and
+                // the diagnostic would insist the earlier one was
+                // registered. First-wins keeps earlier-listed commands
+                // stable and makes the message true.
+                match map.entry(shortcut) {
+                    Entry::Occupied(existing) => {
+                        problems.push(Problem {
+                            command_id: Some(command.id.clone()),
+                            message: format!(
+                                "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing \
+                                 ({shortcut}); only \"{}\" is registered",
+                                command.name,
+                                command.hotkey,
+                                existing.get().name,
+                                existing.get().name
+                            ),
+                        });
+                    }
+                    Entry::Vacant(slot) => {
+                        slot.insert(entry);
+                    }
                 }
             }
             Err(e) => problems.push(Problem {
@@ -160,6 +177,23 @@ mod build_command_map_tests {
         assert!(
             problems.iter().any(|p| p.command_id.as_deref() == Some("two")),
             "the collision problem must carry the dropped command's id, got: {problems:?}"
+        );
+        // The assertion this test was missing, and the reason a real bug
+        // lived here undetected: which command actually SURVIVES. The old
+        // code was last-wins (bare HashMap::insert) while the message named
+        // the earlier command as the survivor -- so pressing the hotkey ran
+        // "Second" while the diagnostic insisted "First" was registered,
+        // sending anyone debugging it to the wrong command. First-wins is
+        // now pinned: the survivor must be the earlier-listed command, the
+        // same one the message names.
+        let survivor = map.values().next().expect("one entry must remain");
+        assert_eq!(
+            survivor.name, "First",
+            "the earlier-listed command must win the collision, matching the message"
+        );
+        assert!(
+            problems.iter().any(|p| p.message.contains("only \"First\" is registered")),
+            "the message must name the actual survivor, got: {problems:?}"
         );
     }
 

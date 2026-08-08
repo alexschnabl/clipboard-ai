@@ -199,8 +199,14 @@ pub fn parse(json: &str) -> Result<Config, ConfigError> {
     // be a corrupted or hand-mangled future-version file.
     let version = match value.get("version") {
         None => 1u32,
-        Some(v) => match v.as_u64() {
-            Some(n) => n as u32,
+        Some(v) => match v.as_u64().and_then(|n| u32::try_from(n).ok()) {
+            Some(n) => n,
+            // `try_from`, not `as`: the old truncating cast meant a version
+            // above u32::MAX wrapped -- 4294967297 became 1 and silently
+            // took the v1 migration path, bypassing exactly the
+            // "reject unknown versions rather than guess" guarantee the
+            // comment above commits to. Out of range is malformed, same as
+            // a string or a float.
             None => return Err(ConfigError::MalformedVersion { found: v.to_string() }),
         },
     };
@@ -209,8 +215,22 @@ pub fn parse(json: &str) -> Result<Config, ConfigError> {
         1 => {
             // v1 called them prompts. Move the key, then type it as v2.
             if let Some(obj) = value.as_object_mut() {
-                if let Some(prompts) = obj.remove("prompts") {
-                    obj.insert("commands".to_string(), prompts);
+                match obj.remove("prompts") {
+                    Some(prompts) => {
+                        obj.insert("commands".to_string(), prompts);
+                    }
+                    // A v1 file with no "prompts" key at all -- hand-editing
+                    // is a supported path, and "I deleted the whole array"
+                    // is a legitimate state of it. `commands` has no serde
+                    // default (a *v2* file missing it should still be
+                    // rejected rather than guessed at), so the migration
+                    // must supply the empty list itself or this file would
+                    // be wrongly refused.
+                    None => {
+                        if !obj.contains_key("commands") {
+                            obj.insert("commands".to_string(), serde_json::json!([]));
+                        }
+                    }
                 }
                 obj.insert("version".to_string(), serde_json::json!(CURRENT_VERSION));
             }
@@ -574,6 +594,43 @@ mod tests {
     // The settings UI enforces this floor too, but hand-editing config.json
     // is a supported path and would otherwise bypass it entirely -- the UI
     // check alone was cosmetic.
+    // The old `as u32` cast wrapped this to exactly 1 and silently migrated
+    // a file claiming a version in the billions -- bypassing the "reject
+    // unknown versions rather than guess" guarantee for precisely the kind
+    // of corrupted value it exists for.
+    #[test]
+    fn rejects_a_version_that_overflows_u32_instead_of_wrapping_into_migration() {
+        let json = valid_json().replace("\"version\": 2", "\"version\": 4294967297");
+        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
+    }
+
+    #[test]
+    fn rejects_a_negative_version() {
+        let json = valid_json().replace("\"version\": 2", "\"version\": -1");
+        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
+    }
+
+    #[test]
+    fn rejects_a_float_version() {
+        let json = valid_json().replace("\"version\": 2", "\"version\": 1.5");
+        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
+    }
+
+    // Hand-editing is a supported path, and "I deleted the whole prompts
+    // array" is a legitimate state of a v1 file. The migration must supply
+    // the empty command list itself; `commands` deliberately has no serde
+    // default, so without this arm the file would be wrongly rejected.
+    #[test]
+    fn migrates_a_v1_file_that_has_no_prompts_key_at_all() {
+        let json = r#"{"version": 1,
+            "backends": [{"id":"b","name":"B","kind":"claude-cli",
+            "baseUrl":null,"model":null,"apiKey":null,"timeoutMs":120000}]}"#;
+        let cfg = parse(json).expect("a promptless v1 file must migrate, not be rejected");
+        assert_eq!(cfg.version, CURRENT_VERSION);
+        assert!(cfg.commands.is_empty());
+        assert_eq!(cfg.backends.len(), 1);
+    }
+
     #[test]
     fn rejects_a_timeout_below_the_floor() {
         let json = valid_json().replace(r#""timeoutMs":120000"#, r#""timeoutMs":1"#);
