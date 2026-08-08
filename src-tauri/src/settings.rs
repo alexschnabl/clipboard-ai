@@ -53,6 +53,20 @@ pub fn apply_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), Stri
     let manager = app.autolaunch();
 
     if !enabled {
+        // Disabling something that was never enabled is not a failure.
+        //
+        // `auto-launch`'s `disable()` deletes the HKCU ...\Run value, and
+        // Windows reports ERROR_FILE_NOT_FOUND ("The system cannot find the
+        // file specified", os error 2) when there was nothing to delete.
+        // Since startup reasserts the persisted setting on every launch, a
+        // fresh install with autostart off -- the default -- reported that as
+        // a startup problem every single time. The check has to come first:
+        // asking whether it is enabled is the only way to tell "nothing to
+        // do" apart from a genuine failure to remove a registration that
+        // really is there.
+        if matches!(manager.is_enabled(), Ok(false)) {
+            return Ok(());
+        }
         return manager.disable().map_err(|e| e.to_string());
     }
 
