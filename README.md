@@ -1,130 +1,263 @@
 # Clipboard AI
 
-A Windows tray app that transforms selected text in any application using an AI backend,
-in place. Press a configurable global hotkey, the current selection is copied, sent to a
-configured backend with a per-command system prompt, and the result is pasted back over
-the selection. No window steals focus in the normal case — the whole interaction happens
-without leaving the app you're typing in.
+Select text in any Windows application, press a hotkey, and get it transformed by an AI
+backend — pasted back in place, over your original selection.
 
-## What it does
+<!-- SCREENSHOT: hero — animated GIF of the select -> hotkey -> result loop in Notepad -->
+*[Animated GIF: selecting a sentence in Notepad, pressing the "Fix grammar" hotkey, the
+cursor-following indicator appearing briefly, and the corrected text landing over the
+selection.]*
 
-1. You select text in any application and press a hotkey (e.g. `Ctrl+Alt+J` for a "Fix
-   grammar" command).
-2. The app copies the selection, sends it to the command's configured AI backend with
-   the command's system prompt.
-3. The model's reply is pasted back over the original selection.
+## How it works
 
-Multiple **commands** (name + hotkey + system prompt + backend) can be configured, each
-bound to its own hotkey, each pointing at one of possibly several configured
-**backends**. The app is tray-resident: no window is visible until you open its settings
-from the tray icon. Windows only today — see `docs/superpowers/` for what a
-cross-platform port would need.
+You select some text and press a hotkey bound to one of your configured **commands**. The
+app copies the selection, sends it to that command's **backend** together with its system
+prompt, and — if the backend's answer comes back wrapped in exactly one `<output>` tag —
+pastes the result back over the selection. Anything less certain than that (no tag, two
+tags, a window switch, a stuck modifier key) aborts instead of pasting a guess; see
+[The safety model](#the-safety-model).
 
-## Running it
+```mermaid
+flowchart LR
+    A["Select text"] --> B["Press hotkey"]
+    B --> C["App captures the selection"]
+    C --> D["Sent to the command's backend<br/>with its system prompt"]
+    D --> E{"Answer wrapped in exactly<br/>one &lt;output&gt; tag?"}
+    E -->|No| F["Abort — nothing pasted,<br/>clipboard restored"]
+    E -->|Yes| G["Pasted back over<br/>the original selection"]
+```
 
-Commands are from `package.json`.
+No window steals focus in the normal case — the whole interaction happens without leaving
+the application you're typing in. The app is tray-resident; nothing is visible until you
+open its settings from the tray icon.
 
-- **Dev:** `npm run tauri dev` — builds and launches the whole app (Rust backend, tray
-  icon, live hotkeys, and the hidden SvelteKit settings window). Running `npm run dev`
-  alone only starts the Vite dev server for the settings UI in a browser; it has no tray,
-  no hotkeys, and no Rust backend behind it.
-- **Build:** `npm run tauri build` — produces a release bundle (runs the frontend build,
-  then `cargo build`, per `beforeBuildCommand` in `src-tauri/tauri.conf.json`).
-- **Check:** `npm run check` — `svelte-kit sync` + `svelte-check` across the frontend.
+## Features
 
-**Config file:** `%APPDATA%\com.clipboardai.app\config.json` — created with defaults on
-first run. Hand-editing it is a supported path; the same validation that guards the
-settings UI also runs on load. Editable live from the tray ("Settings"), or by hand
-("Open config file" in the tray menu applies changes without restarting the app).
+- **Commands**: name + hotkey + system prompt + backend, any number of them, each bound to
+  its own global hotkey.
+- **Three backend kinds**: an OpenAI-compatible `/chat/completions` endpoint (a local Ollama
+  or LM Studio server, or OpenAI itself), the Anthropic Messages API directly with your own
+  API key, or the `claude` CLI using your existing Claude subscription (no API key needed).
+- **Live hotkey re-registration**: editing a command in Settings takes effect immediately —
+  no restart.
+- **Run history**: the last 100 runs, each with the captured input and pasted result,
+  viewable and copyable from the History tab, clearable at any time.
+- **Settings**: theme (system/light/dark), five UI languages (English, German, French,
+  Spanish, Italian, or follow the OS), and launch-on-sign-in.
+- **A cursor-following indicator** appears while a cycle is running, escalates after ~2.5s
+  if a backend is slow to answer, and flashes distinctly on a real failure versus a
+  deliberate abort.
+- **Corrupt config.json is preserved, not overwritten** — an unreadable config file is moved
+  aside (`config.json.corrupt`) rather than silently replaced with an empty one.
+- **Abort rather than guess**: clipboard, window focus and modifier-key state are all
+  rechecked immediately before anything is pasted.
 
-**Log file:** `%APPDATA%\com.clipboardai.app\clipboard-ai.log` — one line per hotkey
-press (`PASTED`/`ABORTED`, reason, timings), truncated once it exceeds ~1 MB. "Show log"
-in the tray menu opens it.
+## Installation
 
-## Architecture
+There are no packaged releases yet — building from source is the only path today.
 
-### Rust (`src-tauri/src/`)
+**Requirements:**
+- [Node.js](https://nodejs.org/) and npm
+- A [Rust toolchain](https://rustup.rs/)
+- On Windows, the MSVC build tools (Visual Studio Build Tools with the "Desktop development
+  with C++" workload) — `cargo` needs `link.exe` on `PATH`. See
+  [Development](#development) below if `cargo build`/`cargo test` can't find it.
 
-- `lib.rs` — Tauri app wiring: builds `AppState`, registers the global-shortcut plugin
-  and its hotkey-dispatch closure, constructs the tray icon/menu, and owns the settings
-  window's show/hide lifecycle.
-- `config.rs` — the config schema (currently v2), parsing, validation, v1→v2 migration,
-  and atomic load/save.
-- `commands.rs` — the Tauri IPC commands the settings window calls: `get_config`,
-  `save_config`, `suspend_hotkeys`, `resume_hotkeys`.
-- `cycle.rs` — the capture → transform → paste engine: one hotkey press, end to end.
-- `sentinel.rs` — the `<output>` wrap/extract contract between the app and the backend
-  (see Safety model below).
-- `osops.rs` — the `OsOps` trait plus its Windows implementation: clipboard read/write,
-  synthetic copy/paste, and reads of focus and held-down modifier keys.
-- `status.rs` — log-line formatting and log file writes.
-- `backend/` — the `Backend` trait plus one adapter per backend kind.
+```sh
+npm install
+npm run tauri build
+```
 
-### Frontend (`src/`)
+This runs the frontend build, then `cargo build`, and produces a release bundle under
+`src-tauri/target/release/` (see `bundle` in `src-tauri/tauri.conf.json` for the configured
+targets).
 
-SvelteKit + shadcn-svelte + Tailwind, prerendered to static HTML (`adapter-static`,
-`fallback: index.html`) and loaded into the settings window — Tauri has no Node server
-at runtime.
+## Setup
 
-- `src/routes/+page.svelte` — the settings screen (Backends and Commands tabs).
-- `src/lib/components/` — `BackendList`/`BackendForm`, `CommandList`/`CommandForm`,
-  `HotkeyRecorder`: the app's own UI, hand-written.
-- `src/lib/state/config.svelte.ts` — the single reactive source of truth for the
-  settings window's config state (load, save, dirty tracking).
-- `src/lib/components/shadcn/` — generated shadcn-svelte primitives; regenerate via the
-  shadcn CLI (`components.json`) rather than hand-editing.
+**First run.** Launching the built app creates a default `config.json` and puts an icon in
+the system tray — no window opens on its own. Left-click the tray icon, or use its
+"Settings" menu entry, to open the settings window.
 
-### Backend kinds
+<!-- SCREENSHOT: tray icon and its context menu -->
+*[Screenshot: the tray icon with its right-click menu open, showing the status line,
+Settings, the configured commands, "Open config file", "Reload config", "Show log", and
+Quit.]*
 
-Each configured backend has a `kind`, one of:
+**Adding a backend.** Go to the Backends tab, "Add backend", and pick a kind:
 
-- `openai-compatible` — any OpenAI-style `/chat/completions` endpoint (Ollama, LM
-  Studio, OpenAI itself).
-- `anthropic-api` — the Anthropic Messages API directly, using an API key.
-- `claude-cli` — shells out to the `claude` CLI, using its own subscription auth (no
-  API key needed).
+- **OpenAI-compatible** — a base URL and a model name, both required. For a local Ollama
+  install, the shipped default is a concrete example: base URL
+  `http://localhost:11434/v1`, model `qwen2.5:32b-instruct`. An API key is optional (local
+  servers usually don't need one).
+- **Anthropic API** — requires an API key (`x-api-key`); the model field is optional and
+  falls back to a built-in default if left blank.
+- **Claude CLI** — no base URL, model or API key: it shells out to a `claude` executable on
+  `PATH` and uses that CLI's own subscription login. Nothing to configure beyond a name and
+  a timeout.
+
+<!-- SCREENSHOT: Add backend dialog, kind = OpenAI-compatible, filled in with the Ollama example -->
+*[Screenshot: the "Add backend" dialog with Name "Local Ollama", Kind "OpenAI-compatible",
+Base URL `http://localhost:11434/v1`, Model `qwen2.5:32b-instruct`.]*
+
+**Adding a command.** Go to the Commands tab, "Add command", give it a name, pick a
+backend, and write a system prompt (e.g. "Fix grammar and spelling. Keep the meaning.").
+The app ships with one command out of the box — "Fix grammar", bound to `Ctrl+Alt+J`
+against the local Ollama backend above.
+
+<!-- SCREENSHOT: Commands tab with two or three configured commands -->
+*[Screenshot: the Commands tab listing "Fix grammar" (Ctrl+Alt+J, Local Ollama) plus one or
+two more example commands.]*
+
+**Recording a hotkey.** Click the hotkey field in the command form and press a combination.
+It needs at least one modifier (Ctrl, Alt, Shift or Win) plus a key — a bare key is
+rejected, since it would swallow that key system-wide. Recording is keyboard-layout
+independent (it reads the physical key, not the character it produces) and briefly
+suspends the app's other hotkeys so it can't accidentally trigger one while you're setting
+another. Press Escape to cancel.
+
+## Configuration
+
+Everything lives in `%APPDATA%\com.clipboardai.app\config.json`, created with defaults on
+first run. Hand-editing it is a supported path — the same validation that guards the
+settings UI runs again on load — and the file carries a schema `version` (currently `2`)
+that's migrated automatically and silently on an older file (logged once, not shown as a
+prompt). If the file fails to parse, it's moved aside as `config.json.corrupt` (or
+`.corrupt.2`, and so on) instead of being overwritten, and the settings window tells you
+where it went.
+
+Two files live alongside it, in the same directory:
+
+- **`history.json`** — the last 100 runs.
+- **`clipboard-ai.log`** — one line per hotkey press (`PASTED`/`ABORTED`, a reason, and
+  timings), truncated once it passes about 1 MB.
+
+**Read this before you configure a real backend:**
+
+- **API keys are stored in plaintext** in `config.json`. There is no OS keychain
+  integration. Anyone who can read that file can read your keys.
+- **History stores what you selected and what came back, in plaintext**, in `history.json`
+  — that's the point of a history you can open and read, not an oversight. Each of the two
+  text fields is truncated at 4,000 characters (with a visible marker when it happens), and
+  the file holds at most the 100 most recent runs; older entries are evicted. If you run a
+  command over something sensitive, it stays on disk until it rolls out of that 100-entry
+  window — or until you clear it from the History tab, which is immediate.
+- `clipboard-ai.log`, by contrast, deliberately never contains clipboard text — only
+  timings, outcome reasons, and backend error messages.
 
 ## The safety model
 
-This is the app's defining property, worth understanding before touching `cycle.rs`,
-`osops.rs`, or `sentinel.rs`: the app types into other applications' windows and
-overwrites the user's real selection. Every stage is built to **abort rather than
-paste** whenever anything is uncertain — a failed guard produces nothing on screen,
-never a guess.
+This is the app's defining property: it types into other applications' windows and
+overwrites your real selection, so every stage is built to **abort rather than paste**
+whenever anything is uncertain. A failed check produces nothing on screen — never a guess.
+This is why a hotkey press sometimes visibly does nothing: something it checked came back
+uncertain, and it declined rather than risk pasting the wrong thing into your document.
+Check the History tab (an "Aborted" or "Failed" entry names the reason) or the log file if
+you want to know why.
 
-- **Clipboard-restore guard.** `ClipboardGuard` in `cycle.rs` reads the clipboard once
-  at the start of a cycle and restores it unconditionally on every exit — an early
-  return or a panic — via `Drop`. There is no "disarm"; restoration is a property of
-  scope, not a step any one code path has to remember.
-- **Focus and modifier checks.** The foreground window is sampled before the copy and
-  re-checked immediately before the paste; if it changed, the cycle aborts
-  (`focus-changed`) instead of pasting into whatever now has focus. Held-down modifier
-  keys are checked both before capture and again right before paste
-  (`modifiers-stuck`/`modifiers-stuck-before-paste`), so a hotkey chord the OS hasn't
-  finished releasing can't leak into the paste.
-- **The `<output>` sentinel contract.** Every system prompt is wrapped with an
-  instruction to return the result inside `<output>…</output>` tags.
-  `sentinel::extract` returns `None` — treated as a refusal, never empty text — when the
-  tags are missing, or when more than one `</output>` appears (ambiguous which block is
-  the real answer). Either case aborts the cycle (`no-sentinel`) instead of pasting
-  whatever the model actually said.
-- Every abort has its own reason string (`backend-error`, `capture-timeout`,
-  `clipboard-write-failed`, `paste-failed`, `no-sentinel`, …), logged, so a failure is
-  diagnosable instead of collapsing into one generic "it didn't work."
+- **Your clipboard is always restored.** A guard armed at the very start of every cycle
+  restores whatever was on the clipboard before, on every exit path — an early return, or
+  even a panic — with no "disarm" step for any code path to forget.
+- **Focus and held-down modifier keys are rechecked immediately before pasting.** If you
+  switched windows, or the hotkey's own modifier keys are still physically held down (the
+  OS hasn't finished releasing the chord yet), the cycle aborts instead of pasting into
+  whatever now has focus or leaking a stuck chord into it.
+- **The model's answer has to be unambiguous.** Every system prompt is silently wrapped
+  with an instruction to answer inside `<output>...</output>` tags. If those tags are
+  missing, or if more than one complete `<output>...</output>` block shows up (which can
+  mean the model echoed the instruction back, or gave two candidate answers), nothing is
+  pasted — refusal, never empty text and never a guess at which block is the real one.
+- **Abort is not failure.** Every abort carries its own reason
+  (`modifiers-stuck`, `focus-changed`, `capture-timeout`, `no-sentinel`, `empty-result`,
+  `clipboard-write-failed`, `paste-failed`, or a real `backend-error` with the underlying
+  cause attached) and is logged. History records it as "Aborted", kept distinct from a
+  "Failed" run (an actual backend error) and a "Success" — a cycle that correctly declined
+  to touch your document is not a bug to fix.
 
-## Testing
+<!-- SCREENSHOT: History tab with an expanded row showing an Aborted entry next to a Success -->
+*[Screenshot: the History tab, one row expanded to show its captured input/result, with at
+least one "Aborted" and one "Success" entry visible in the list for contrast.]*
 
-- Frontend: `npm run test` (Vitest, tests under `test/unit/`).
-- Rust: `cargo test`, run from `src-tauri/`. Requires the MSVC linker — if `cargo`
-  can't find `link.exe`, load `vcvars64.bat` from your Visual Studio installation in the
-  *same* shell invocation before running cargo, from PowerShell rather than the
-  MSYS/Bash tool (path quoting around the "Visual Studio" space breaks under MSYS). See
-  `CLAUDE.md` for the exact command verified on this machine.
-- `npm run check` — svelte-check across the frontend.
+For contributors: this all lives mainly in `src-tauri/src/cycle.rs` (the capture → transform
+→ paste engine and its guards), `src-tauri/src/osops.rs` (the Win32 clipboard/focus/modifier
+reads, behind the `OsOps` trait so `cycle.rs` can be tested against a fake), and
+`src-tauri/src/sentinel.rs` (the `<output>` wrap/extract contract). The cursor-following
+indicator (`src-tauri/src/overlay.rs`) follows the identical guard-plus-`Drop` shape as the
+clipboard guard, for the same reason: "stop showing" has to be a property of scope, not a
+step any one exit path can forget.
 
-## Design history
+## Architecture
 
-`docs/superpowers/` holds the project's design history, not its current state: a
-chronological spike → v1 → v2 trail of specs, plans and verification notes, each
-building on and partly superseding the last. Read it to understand *why* something is
-built the way it is; read this file and the code for what it *is* today.
+**Rust (`src-tauri/src/`)**
+
+| Module | Responsibility |
+|---|---|
+| `lib.rs` | App wiring: `AppState`, the global-shortcut dispatch closure, the tray icon/menu, the settings window's show/hide lifecycle. |
+| `config.rs` | The config schema (v2), parsing, validation, v1→v2 migration, atomic load/save, corrupt-file preservation. |
+| `commands.rs` | The Tauri IPC commands the settings window calls (`get_config`, `save_config`, `suspend_hotkeys`, `resume_hotkeys`, `get_history`, `clear_history`). |
+| `cycle.rs` | The capture → transform → paste engine — one hotkey press, end to end. |
+| `hotkeys.rs` | Turns a `Config` into OS-registered global shortcuts, and registration failures into `Problem`s the UI can show. |
+| `sentinel.rs` | The `<output>` wrap/extract contract. |
+| `osops.rs` | The `OsOps` trait plus its Windows implementation: clipboard, synthetic copy/paste, focus and modifier-key reads. |
+| `history.rs` | The last-100-runs store (`history.json`). |
+| `status.rs` | Log-line formatting and log file writes. |
+| `overlay.rs` | The cursor-following in-flight indicator window. |
+| `settings.rs` | Applies persisted settings that reach outside the process (currently just autostart). |
+| `backend/` | The `Backend` trait plus one adapter each for `openai.rs`, `anthropic.rs`, `claude_cli.rs`. |
+
+**Frontend (`src/`)** — SvelteKit + Svelte 5 + shadcn-svelte + Tailwind, prerendered to
+static HTML (`adapter-static`) and loaded into the settings window; Tauri has no Node
+server at runtime.
+
+| Path | Responsibility |
+|---|---|
+| `routes/+page.svelte` | The settings window shell: sidebar navigation over Commands, Backends, History and Settings. |
+| `routes/overlay/` | The in-flight indicator's own tiny page, driven purely by the `overlay://state` event stream. |
+| `lib/components/` | Hand-written UI: `CommandList`/`CommandForm`, `BackendList`/`BackendForm`, `HotkeyRecorder`, `HistoryPanel`, `SettingsPanel`, `SettingsSidebar`. |
+| `lib/components/shadcn/` | Generated shadcn-svelte primitives — regenerate via the shadcn CLI, don't hand-edit. |
+| `lib/state/config.svelte.ts` | The single reactive source of truth for config and history: load, immediate-commit-with-rollback edits, history load/clear. |
+| `lib/i18n/` | The dictionary-based i18n store and its five language files, plus `registry.ts` as the single source of which languages exist. |
+| `lib/hotkey.ts` | Converts a browser `KeyboardEvent` into the shortcut spelling Rust's hotkey parser expects. |
+
+`docs/superpowers/` holds the project's design history — a spike → v1 → v2 trail of specs
+(`specs/`), plans (`plans/`) and verification notes (`notes/`), each building on and partly
+superseding the last. Read it for *why* something is built the way it is; read this file
+and the code for what it *is* today.
+
+## Development
+
+```sh
+npm install
+npm run tauri dev   # full app: Rust backend, tray icon, live hotkeys, settings window
+```
+
+`npm run dev` alone only starts the Vite dev server for the settings UI in a browser — no
+tray, no hotkeys, no Rust backend behind it.
+
+**Testing:**
+
+- Rust — from `src-tauri/`: `cargo test` (139 tests).
+- Frontend — `npm run test` (Vitest, 101 tests across `test/unit/`).
+- `npm run check` — `svelte-kit sync` + `svelte-check` across the frontend.
+
+**Windows/MSVC gotcha:** `cargo` needs MSVC's `link.exe` on `PATH`. If `cargo build`/`cargo
+test` fails to find it, load `vcvars64.bat` from your Visual Studio install in the *same*
+shell invocation before running cargo, e.g. from PowerShell:
+
+```
+cmd /c '"<path to VS>\VC\Auxiliary\Build\vcvars64.bat" >nul && cd /d <repo>\src-tauri && cargo test'
+```
+
+**Contributing:** there's no CI configured yet. Before submitting a change, run both test
+suites and `npm run check` above.
+
+## Platform support
+
+Windows is the only supported platform today. Hotkey capture, clipboard access, and the
+focus/modifier checks the safety model depends on (`osops.rs`) call the Win32 API directly
+(`GetForegroundWindow`, `GetAsyncKeyState`) alongside `arboard`/`enigo`. macOS and Linux are
+not implemented — `docs/superpowers/` has some early thinking about what a cross-platform
+port would need, but there's no code toward it yet.
+
+## License
+
+TODO(license): no license has been chosen for this project yet.
