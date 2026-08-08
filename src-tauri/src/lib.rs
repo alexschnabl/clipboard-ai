@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod cycle;
 mod hotkeys;
+mod history;
 mod osops;
 mod sentinel;
 mod settings;
@@ -131,6 +132,50 @@ struct AppState {
     /// failed to register at launch was invisible in the UI until an
     /// unrelated Save happened to call `apply_config` again.
     startup_problems: Arc<Mutex<Vec<Problem>>>,
+}
+
+/// Records one finished cycle in `history.json`.
+///
+/// Maps `CycleOutcome`'s two-part result onto history's three-way one:
+/// `pasted` is a success; anything else with a `detail` is a real failure
+/// (today only a backend error carries one); everything else is an abort,
+/// which is a deliberate refusal to touch the document rather than a fault.
+/// Keeping "aborted" distinct from "failed" is the whole point -- a cycle
+/// that correctly declined to paste is not an error the user needs to fix.
+fn record_history(
+    state: &AppState,
+    command_id: &str,
+    command_name: &str,
+    backend_name: &str,
+    outcome: &cycle::CycleOutcome,
+    total_cycle_ms: u64,
+) {
+    let recorded = if outcome.pasted {
+        history::Outcome::succeeded()
+    } else if let Some(detail) = &outcome.detail {
+        history::Outcome::failed(format!("{}: {detail}", outcome.reason))
+    } else {
+        history::Outcome::aborted(outcome.reason)
+    };
+
+    let entry = history::HistoryEntry {
+        // Overwritten by `append` with wall-clock time; see its doc comment.
+        timestamp_ms: 0,
+        command_id: command_id.to_string(),
+        command_name: command_name.to_string(),
+        backend_name: backend_name.to_string(),
+        outcome: recorded,
+        backend_ms: outcome.backend_ms,
+        total_cycle_ms: Some(total_cycle_ms),
+        input_text: outcome.captured_text.clone(),
+        result_text: outcome.result_text.clone(),
+    };
+
+    if let Err(e) = history::append(&state.config_dir.join(history::FILE_NAME), entry) {
+        let line = format!("HISTORY append failed: {e}");
+        eprintln!("{line}");
+        status::append_log(&state.config_dir, &line);
+    }
 }
 
 /// R4: how long tray Quit waits for an in-flight cycle to reach its own
@@ -516,18 +561,39 @@ pub fn run() {
                                 )
                                 .get(&key)
                                 .cloned();
-                                if let Some(CommandEntry { name, system_prompt, backend, .. }) = entry
+                                if let Some(CommandEntry {
+                                    id, name, system_prompt, backend, ..
+                                }) = entry
                                 {
+                                    let cycle_start = state.ops.now_ms();
                                     let outcome = cycle::run(
                                         backend.as_ref(),
                                         &system_prompt,
                                         state.ops.as_ref(),
                                     );
+                                    let total_cycle_ms =
+                                        state.ops.now_ms().saturating_sub(cycle_start);
                                     let line = status::log_line(&outcome, &name, backend.name());
                                     println!("{line}");
                                     status::append_log(&state.config_dir, &line);
 
                                     set_status(&state, status::summary(&outcome, &name));
+
+                                    // After the paste, deliberately: this
+                                    // writes the whole history file, and
+                                    // nothing the user is waiting on happens
+                                    // after it. A failure to record history
+                                    // must never affect a cycle that already
+                                    // succeeded, so it is logged, not
+                                    // propagated.
+                                    record_history(
+                                        &state,
+                                        &id,
+                                        &name,
+                                        backend.name(),
+                                        &outcome,
+                                        total_cycle_ms,
+                                    );
                                 }
                             }));
                             if let Err(payload) = result {
@@ -806,6 +872,8 @@ pub fn run() {
             commands::save_config,
             commands::suspend_hotkeys,
             commands::resume_hotkeys,
+            commands::get_history,
+            commands::clear_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

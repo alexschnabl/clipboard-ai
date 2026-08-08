@@ -4,7 +4,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-use crate::{config, hotkeys::apply_config, AppState, Problem};
+use crate::{config, history, hotkeys::apply_config, AppState, Problem};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -302,4 +302,24 @@ pub(crate) fn handle_close_request(app: AppHandle, state: Option<AppState>) {
             eprintln!("failed to schedule config re-apply on settings close: {e}");
         }
     }
+}
+
+// ─── History ────────────────────────────────────────────────────────────
+//
+// Both commands resolve the path the same way `record_history` in lib.rs
+// does, from `AppState.config_dir`, rather than taking it from the
+// frontend -- a path arriving over IPC would be a path the webview could
+// choose.
+
+#[tauri::command]
+pub fn get_history(state: State<'_, AppState>) -> Vec<history::HistoryEntry> {
+    // `load` already treats an unreadable or corrupt file as "no history"
+    // (it is disposable, unlike config.json), so there is nothing here for
+    // the caller to handle and no Result to unwrap.
+    history::load(&state.config_dir.join(history::FILE_NAME))
+}
+
+#[tauri::command]
+pub fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
+    history::clear(&state.config_dir.join(history::FILE_NAME)).map_err(|e| e.to_string())
 }

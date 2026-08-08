@@ -25,6 +25,22 @@ pub struct CycleOutcome {
     pub detail: Option<String>,
     pub captured_ms: u64,
     pub backend_ms: u64,
+    /// The text captured from the user's selection, once the capture
+    /// succeeded -- `None` for the aborts that happen before it (stuck
+    /// modifiers, changed focus, capture timeout), because at that point
+    /// there genuinely is nothing to record.
+    ///
+    /// Populated by `run`'s wrapper rather than by the abort paths
+    /// themselves: there are thirteen `return abort(..)` sites in `run_inner`
+    /// and threading a text argument through every one of them would mean
+    /// editing every early-exit in the file whose entire job is to *not*
+    /// touch the user's document. The out-parameter keeps those paths byte
+    /// for byte unchanged.
+    pub captured_text: Option<String>,
+    /// What was pasted. Only ever `Some` on the success path -- a run that
+    /// aborted produced no text, and recording anything here would imply the
+    /// document was modified when it was not.
+    pub result_text: Option<String>,
 }
 
 fn wait_for_modifier_release(ops: &dyn OsOps) -> bool {
@@ -88,7 +104,25 @@ impl Drop for ClipboardGuard<'_> {
 ///
 /// Every exit restores the original clipboard, and no exit except the happy
 /// path reaches `send_paste`.
+/// Runs one cycle and records what it captured.
+///
+/// Thin wrapper over `run_inner`, which holds the actual logic and every
+/// early exit. The split exists so `captured_text` can be attached to
+/// whichever outcome comes back without any abort path having to carry it --
+/// see `CycleOutcome::captured_text`.
 pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> CycleOutcome {
+    let mut captured_text = None;
+    let mut outcome = run_inner(backend, system_prompt, ops, &mut captured_text);
+    outcome.captured_text = captured_text;
+    outcome
+}
+
+fn run_inner(
+    backend: &dyn Backend,
+    system_prompt: &str,
+    ops: &dyn OsOps,
+    captured_out: &mut Option<String>,
+) -> CycleOutcome {
     // `.ok()`, not `.unwrap_or_default()`: a read failure (non-text
     // clipboard, or one we cannot read) must not be treated as "the
     // clipboard held an empty string" — see ClipboardGuard.
@@ -101,6 +135,8 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
         detail: None,
         captured_ms,
         backend_ms,
+        captured_text: None,
+        result_text: None,
     };
     let abort_detail =
         |reason: &'static str, detail: String, captured_ms: u64, backend_ms: u64| CycleOutcome {
@@ -109,6 +145,8 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
             detail: Some(detail),
             captured_ms,
             backend_ms,
+            captured_text: None,
+            result_text: None,
         };
 
     if !wait_for_modifier_release(ops) {
@@ -148,6 +186,10 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
         None => return abort("capture-timeout", 0, 0),
     };
     let captured_ms = ops.now_ms().saturating_sub(capture_start);
+    // Recorded the moment it exists, so every abort from here on still
+    // reports what the user had selected -- knowing the input is most useful
+    // precisely on the runs that failed.
+    *captured_out = Some(captured.clone());
 
     let wrapped = sentinel::wrap_system_prompt(system_prompt);
     let backend_start = ops.now_ms();
@@ -223,7 +265,16 @@ pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> Cycle
     // The guard restores after this sleep, when it drops at end of scope.
     ops.sleep_ms(RESTORE_DELAY_MS);
 
-    CycleOutcome { pasted: true, reason: "ok", detail: None, captured_ms, backend_ms }
+    CycleOutcome {
+        pasted: true,
+        reason: "ok",
+        detail: None,
+        captured_ms,
+        backend_ms,
+        // Filled in by `run`; only the success path has a result at all.
+        captured_text: None,
+        result_text: Some(extracted),
+    }
 }
 
 #[cfg(test)]

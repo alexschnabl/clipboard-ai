@@ -62,7 +62,17 @@ mod tests {
     use crate::cycle::CycleOutcome;
 
     fn outcome(pasted: bool, reason: &'static str) -> CycleOutcome {
-        CycleOutcome { pasted, reason, detail: None, captured_ms: 42, backend_ms: 1234 }
+        CycleOutcome {
+            pasted,
+            reason,
+            detail: None,
+            captured_ms: 42,
+            backend_ms: 1234,
+            // Irrelevant here: `log_line` deliberately never records the
+            // user's text, only metadata and timings.
+            captured_text: None,
+            result_text: None,
+        }
     }
 
     #[test]
