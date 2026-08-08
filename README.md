@@ -168,10 +168,10 @@ you want to know why.
   pasted — refusal, never empty text and never a guess at which block is the real one.
 - **Abort is not failure.** Every abort carries its own reason
   (`modifiers-stuck`, `focus-changed`, `capture-timeout`, `no-sentinel`, `empty-result`,
-  `clipboard-write-failed`, `paste-failed`, or a real `backend-error` with the underlying
-  cause attached) and is logged. History records it as "Aborted", kept distinct from a
-  "Failed" run (an actual backend error) and a "Success" — a cycle that correctly declined
-  to touch your document is not a bug to fix.
+  `modifiers-stuck-before-paste`, `clipboard-write-failed`, `paste-failed`, or a real
+  `backend-error` with the underlying cause attached) and is logged. History records it as
+  "Aborted", kept distinct from a "Failed" run (an actual backend error) and a "Success" — a
+  cycle that correctly declined to touch your document is not a bug to fix.
 
 <!-- SCREENSHOT: History tab with an expanded row showing an Aborted entry next to a Success -->
 *[Screenshot: the History tab, one row expanded to show its captured input/result, with at
@@ -235,8 +235,8 @@ tray, no hotkeys, no Rust backend behind it.
 
 **Testing:**
 
-- Rust — from `src-tauri/`: `cargo test` (139 tests).
-- Frontend — `npm run test` (Vitest, 101 tests across `test/unit/`).
+- Rust — from `src-tauri/`: `cargo test` (163 tests).
+- Frontend — `npm run test` (Vitest, 113 tests across `test/unit/`).
 - `npm run check` — `svelte-kit sync` + `svelte-check` across the frontend.
 
 **Windows/MSVC gotcha:** `cargo` needs MSVC's `link.exe` on `PATH`. If `cargo build`/`cargo

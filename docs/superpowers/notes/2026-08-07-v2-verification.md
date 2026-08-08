@@ -4,7 +4,7 @@
 **Scope:** the settings window, plus the parts of the v1 cycle that changed underneath it.
 
 Everything below needs a real GUI, a real tray, and real OS-level hotkey registration, so none of it
-is covered by the automated suites (107 Rust tests, 68 frontend tests, all passing).
+is covered by the automated suites (163 Rust tests, 113 frontend tests, all passing).
 
 ## Before you start
 
@@ -143,9 +143,11 @@ Known limit: a cycle still inside a long backend call can exceed the 2-second wa
 
 The shadcn preset changed to `rhea` — teal accents, Roboto, cooler greys.
 
-- [ ] Switch Windows between Light and Dark with the window open.
+- [ ] With the theme set to **System** (Settings section), switch Windows between Light and Dark
+      with the window open.
 
-**Pass:** the window follows the system theme, both readable. There is deliberately no in-app toggle.
+**Pass:** the window follows the OS theme, both readable. (An in-app System/Light/Dark control
+now lives in the Settings section — an explicit Light or Dark choice there overrides the OS.)
 
 - [ ] Give a command a very long name.
 
@@ -169,8 +171,6 @@ cannot succeed. A cold local model takes ~16 s, so leave the 120 s default unles
 
 Not bugs to report:
 
-- **A frontend that acknowledges the close prompt and then hangs** leaves the window open. Tray Quit
-  still works.
 - **The corrupt-config warning persists for the life of the process** — it stays visible after a
   successful save until you restart.
 - **Validation errors appear at the top of the page** as well as in the dialog.
@@ -185,3 +185,26 @@ Not bugs to report:
 cover config load, migration and hotkey registration. The tray tooltip carries the last outcome.
 Backend failures now carry their real cause (wrong key, connection refused, `claude` not on PATH)
 rather than a bare `backend-error`.
+
+## Addendum: 2026-08-09 — security hardening and later work
+
+The checks above still apply as written. These cover what changed since: the ACL/capability
+split (`capabilities/default.json` + `capabilities/overlay.json` plus `build.rs`'s app permission
+manifest), the cursor-following indicator, whole-window i18n, and history/cycle concurrency.
+
+- [ ] **All six IPC commands still work after the ACL hardening.** From the settings window,
+      exercise each of `get_config`, `save_config`, `suspend_hotkeys`/`resume_hotkeys` (record a
+      hotkey), `get_history`, `clear_history`. **Pass:** all six behave normally. Then check the
+      failure side is visible, not silent: temporarily remove one `allow-*` permission line from
+      `capabilities/default.json`, restart, and try the matching action.
+      **Pass:** it fails with a visible error, not a silent no-op.
+- [ ] **The in-flight indicator is a small pulsing dot that follows the cursor.** Run a command
+      and watch it track the mouse. **Pass:** a slow backend call visibly escalates after ~2.5s;
+      an aborted cycle and a real backend failure render with distinctly different colors, not
+      the same treatment.
+- [ ] **Switching language translates the whole window, not just the sidebar.** Change the
+      language in Settings. **Pass:** the History tab and the Settings panel itself (not only
+      Commands/Backends) are translated too.
+- [ ] **History survives a Clear-during-cycle attempt.** Start a slow-backend command, then click
+      "Clear" in the History tab while it is still running. **Pass:** `history.json` is not left
+      corrupt or duplicated once the cycle finishes; the app does not crash.
