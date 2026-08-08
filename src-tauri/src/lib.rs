@@ -5,6 +5,7 @@ mod cycle;
 mod hotkeys;
 mod history;
 mod osops;
+mod overlay;
 mod sentinel;
 mod settings;
 mod status;
@@ -503,6 +504,13 @@ pub fn run() {
             // wired.
             app.manage((*state).clone());
 
+            // The overlay window is declared in tauri.conf.json and so
+            // already exists by now; this only applies the one property that
+            // config cannot express. Pre-created and reused rather than built
+            // per cycle: building a WebviewWindow costs 100 ms+, which would
+            // eat a quarter of the 400 ms cycle it is meant to report on.
+            overlay::prepare(&handle);
+
             // Registered before any `settings::apply_autostart` call below:
             // that helper reaches the plugin through `ManagerExt`, which
             // resolves nothing until the plugin is on the handle.
@@ -511,12 +519,17 @@ pub fn run() {
             let handler_state = state.clone();
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
-                    .with_handler(move |_app, shortcut, event| {
+                    .with_handler(move |app, shortcut, event| {
                         if event.state() != ShortcutState::Released {
                             return;
                         }
                         let key = *shortcut;
                         let state = handler_state.clone();
+                        // Cloned per press from the handler's own handle
+                        // rather than captured from `setup`: this closure is
+                        // `Fn`, so it may run many times and cannot move an
+                        // outer variable into the thread it spawns below.
+                        let app = app.clone();
 
                         if state.busy.swap(true, Ordering::SeqCst) {
                             let line = "busy; hotkey ignored".to_string();
@@ -565,6 +578,16 @@ pub fn run() {
                                     id, name, system_prompt, backend, ..
                                 }) = entry
                                 {
+                                    // Armed before the cycle and released
+                                    // after it, with no disarm on the failure
+                                    // path -- the same shape as
+                                    // `cycle::ClipboardGuard`. If `cycle::run`
+                                    // panics, unwinding drops this and the
+                                    // indicator disappears; an indicator that
+                                    // outlives its work is worse than none,
+                                    // and is the single most repeated bug in
+                                    // comparable tools.
+                                    let indicator = overlay::CycleOverlay::begin(app.clone());
                                     let cycle_start = state.ops.now_ms();
                                     let outcome = cycle::run(
                                         backend.as_ref(),
@@ -573,6 +596,8 @@ pub fn run() {
                                     );
                                     let total_cycle_ms =
                                         state.ops.now_ms().saturating_sub(cycle_start);
+                                    indicator
+                                        .finish(overlay::Outcome::from_pasted(outcome.pasted));
                                     let line = status::log_line(&outcome, &name, backend.name());
                                     println!("{line}");
                                     status::append_log(&state.config_dir, &line);

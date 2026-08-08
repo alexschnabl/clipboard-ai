@@ -128,6 +128,28 @@ fn emit_state(app: &AppHandle, state: &'static str) {
     let _ = app.emit_to(LABEL, EVENT, StatePayload { state });
 }
 
+/// One-time startup preparation for the pre-created overlay window.
+///
+/// The window is declared in `tauri.conf.json`, so Tauri builds it before
+/// `setup` runs -- but click-through is not expressible there. Without this
+/// call the overlay would swallow clicks in whatever the user was working
+/// on, which for a window that appears *at their cursor* is worse than
+/// showing nothing at all.
+///
+/// Best-effort by design: a failure here must not stop the app from
+/// starting, and every cycle still works without it. Logged rather than
+/// propagated for that reason.
+pub fn prepare(app: &AppHandle) {
+    match app.get_webview_window(LABEL) {
+        Some(window) => {
+            if let Err(e) = window.set_ignore_cursor_events(true) {
+                eprintln!("overlay: could not make the window click-through: {e}");
+            }
+        }
+        None => eprintln!("overlay: window '{LABEL}' not found at startup; indicator disabled"),
+    }
+}
+
 /// Hides the window and tells the frontend so, unconditionally. The single
 /// choke point every "stop showing" path (success, the failure timer,
 /// `Drop`, and the next cycle's defensive reset in `begin`) funnels
