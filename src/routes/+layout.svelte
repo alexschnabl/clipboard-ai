@@ -3,6 +3,7 @@
 	import { ModeWatcher, setMode } from 'mode-watcher';
 	import { untrack, type Snippet } from 'svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { i18n } from '$lib/i18n/i18n.svelte';
 
 	let { children }: { children: Snippet } = $props();
 
@@ -34,6 +35,28 @@
 	$effect(() => {
 		const theme = configState.config.settings.theme;
 		untrack(() => setMode(theme));
+	});
+
+	// The counterpart to the theme effect above, and it was simply missing:
+	// `i18n.setLanguage` had no caller anywhere in the app, so the store sat
+	// on its `'system'` default forever and choosing a language persisted to
+	// config.json without ever changing a word on screen. The i18n module's
+	// own doc comment specifies this caller ("typically once after
+	// `configState.load()` resolves, and again whenever the user changes the
+	// setting"); it just never got written, because the module and the
+	// settings UI were built separately and each assumed the other end
+	// existed.
+	//
+	// Driving it from the persisted value covers both cases at once: `load()`
+	// replaces `config`, and the settings control writes through `commit()`,
+	// so this one effect handles startup and every later change.
+	//
+	// `untrack` around the call for the same reason as the theme effect --
+	// `setLanguage` writes reactive state, and only the read above should be
+	// this effect's dependency.
+	$effect(() => {
+		const language = configState.config.settings.language;
+		untrack(() => i18n.setLanguage(language));
 	});
 </script>
 
