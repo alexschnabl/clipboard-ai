@@ -35,7 +35,7 @@ export type Theme = 'system' | 'light' | 'dark';
 /** Wire values match `config::Language`'s `#[serde(rename_all =
  *  "lowercase")]` exactly -- `system` means "detect the OS locale, fall
  *  back to English", same division of labour as `Theme` above. */
-export type Language = 'system' | 'en' | 'de';
+export type Language = 'system' | 'en' | 'de' | 'fr' | 'es' | 'it';
 
 export interface Settings {
 	theme: Theme;

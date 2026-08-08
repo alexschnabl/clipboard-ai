@@ -126,6 +126,9 @@ pub enum Language {
     System,
     En,
     De,
+    Fr,
+    Es,
+    It,
 }
 
 /// Plain enums, not `BackendConfig.kind`'s raw-`String`-plus-`validate()`
@@ -511,10 +514,27 @@ mod tests {
         assert!(matches!(parse(&json), Err(ConfigError::Parse(_))));
     }
 
+    // Deliberately not a real ISO code: this test previously used "fr",
+    // which stopped being unknown the moment French shipped -- so it started
+    // failing for the right reason, but it was pinning the wrong thing. A
+    // string that can never become a language keeps testing "serde rejects
+    // values outside the enum" rather than "we happen not to ship French".
     #[test]
     fn rejects_an_unknown_language_value() {
-        let json = json_with_settings(serde_json::json!({"language": "fr"}));
+        let json = json_with_settings(serde_json::json!({"language": "not-a-language"}));
         assert!(matches!(parse(&json), Err(ConfigError::Parse(_))));
+    }
+
+    // The counterpart to the test above: every language the app actually
+    // ships must round-trip. Adding a variant to `Language` without adding
+    // its dictionary and registry entry on the frontend would otherwise be
+    // caught nowhere on this side of the bridge.
+    #[test]
+    fn accepts_every_shipped_language() {
+        for code in ["system", "en", "de", "fr", "es", "it"] {
+            let json = json_with_settings(serde_json::json!({ "language": code }));
+            assert!(parse(&json).is_ok(), "{code} must be a legal language value");
+        }
     }
 
     // A config written by *this* version (settings present, fully

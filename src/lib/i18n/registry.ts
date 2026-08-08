@@ -19,6 +19,9 @@
 
 import { en } from './en';
 import { de } from './de';
+import { fr } from './fr';
+import { es } from './es';
+import { it } from './it';
 
 /** `nativeName` is the language's own name for itself (e.g. "Français", not
  *  "French"), shown in the picker regardless of which locale is currently
@@ -39,7 +42,10 @@ interface LanguageEntry {
 // precise. `satisfies` checks the shape without doing that widening.
 export const registry = {
 	en: { nativeName: 'English', dictionary: en },
-	de: { nativeName: 'Deutsch', dictionary: de }
+	de: { nativeName: 'Deutsch', dictionary: de },
+	fr: { nativeName: 'Français', dictionary: fr },
+	es: { nativeName: 'Español', dictionary: es },
+	it: { nativeName: 'Italiano', dictionary: it }
 } satisfies Record<string, LanguageEntry>;
 
 /** Every code this build ships a dictionary for. Derived from `registry`'s
