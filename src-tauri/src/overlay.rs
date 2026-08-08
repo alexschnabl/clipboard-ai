@@ -104,6 +104,15 @@ const FAILURE_VISIBLE_MS: u64 = 1500;
 /// escalation.
 const POLL_MS: u64 = 40;
 
+/// How often the follow loop samples the cursor while the indicator is up.
+/// ~30 Hz reads as attached to the pointer without sampling so hard that a
+/// 16-second cold start spends its whole life repositioning a window.
+const FOLLOW_POLL_MS: u64 = 33;
+
+/// How far, in physical pixels, the cursor must travel before the window is
+/// moved. See `follow_cursor` for why this matters more than it looks.
+const FOLLOW_DEAD_ZONE_PX: f64 = 2.0;
+
 /// Placed this far below-right of the raw cursor point (in physical
 /// pixels) so the glyph doesn't render directly under the pointer
 /// hot-spot.
@@ -320,10 +329,49 @@ fn run_escalation(app: AppHandle, cancel: Arc<AtomicBool>) {
     }
     show(&app, "working");
 
-    if !wait_or_cancelled(&cancel, ESCALATE_AFTER_MS - SHOW_DELAY_MS) {
+    // From here the thread stays alive for the rest of the cycle instead of
+    // returning after escalation: it is what keeps the indicator under the
+    // cursor. Positioning once at show() left it stranded wherever the
+    // pointer happened to be when the run started, which read as stale the
+    // moment the user moved the mouse -- and a 16 s cold start gives them
+    // plenty of time to.
+    let mut anchor = app.cursor_position().map(|p| (p.x, p.y)).unwrap_or((f64::MIN, f64::MIN));
+    let mut elapsed = SHOW_DELAY_MS;
+    let mut escalated = false;
+
+    loop {
+        if cancel.load(Ordering::SeqCst) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(FOLLOW_POLL_MS));
+        elapsed += FOLLOW_POLL_MS;
+
+        if !escalated && elapsed >= ESCALATE_AFTER_MS {
+            escalated = true;
+            show(&app, "escalated");
+        }
+
+        follow_cursor(&app, &mut anchor);
+    }
+}
+
+/// Moves the window to the cursor, but only once it has actually travelled.
+///
+/// Every reposition is a hop to the main thread. Without the dead zone the
+/// sub-pixel jitter of a resting hand would dispatch one on every tick for
+/// the whole run -- up to sixteen seconds of pointless main-thread traffic
+/// competing with the very cycle the user is waiting on.
+fn follow_cursor(app: &AppHandle, anchor: &mut (f64, f64)) {
+    let Ok(cursor) = app.cursor_position() else { return };
+    if (cursor.x - anchor.0).abs() < FOLLOW_DEAD_ZONE_PX
+        && (cursor.y - anchor.1).abs() < FOLLOW_DEAD_ZONE_PX
+    {
         return;
     }
-    show(&app, "escalated");
+    *anchor = (cursor.x, cursor.y);
+    if let Some(window) = app.get_webview_window(LABEL) {
+        position_near_cursor(app, &window);
+    }
 }
 
 /// Sleeps up to `total_ms`, checking `cancel` every `POLL_MS`. Returns
