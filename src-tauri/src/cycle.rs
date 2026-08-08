@@ -694,6 +694,42 @@ mod tests {
         );
     }
 
+    // B6: `captured_text`/`result_text` are the whole reason `run`'s
+    // wrapper split from `run_inner` exists (see `CycleOutcome::captured_text`'s
+    // doc comment), yet nothing in this module's other 20 tests ever reads
+    // either field. Three cases, one per stage capture can reach:
+    #[test]
+    fn a_successful_cycle_carries_both_captured_and_result_text() {
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        let outcome = run(&StubBackend::ok("<output>Corrected.</output>"), "Fix.", &ops);
+        assert_eq!(outcome.captured_text.as_deref(), Some("corected"));
+        assert_eq!(outcome.result_text.as_deref(), Some("Corrected."));
+    }
+
+    #[test]
+    fn an_abort_after_capture_carries_the_capture_but_no_result() {
+        // Sentinel missing: capture succeeded (there is something the user
+        // selected), but the backend's reply was never going to be pasted,
+        // so there is no result text to report.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        let outcome = run(&StubBackend::ok("no sentinel here"), "Fix.", &ops);
+        assert_eq!(outcome.reason, "no-sentinel");
+        assert_eq!(outcome.captured_text.as_deref(), Some("corected"));
+        assert!(outcome.result_text.is_none());
+    }
+
+    #[test]
+    fn an_early_abort_before_capture_carries_neither_text_field() {
+        // Stuck modifiers: the cycle aborts before `send_copy` ever runs,
+        // so there is genuinely nothing captured to report either.
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        *ops.modifiers_sequence.lock().unwrap() = vec![true; 500];
+        let outcome = run(&StubBackend::ok("<output>x</output>"), "Fix.", &ops);
+        assert_eq!(outcome.reason, "modifiers-stuck");
+        assert!(outcome.captured_text.is_none());
+        assert!(outcome.result_text.is_none());
+    }
+
     #[test]
     fn the_wrapped_system_prompt_reaches_the_backend() {
         struct Capturing(Mutex<Option<String>>);

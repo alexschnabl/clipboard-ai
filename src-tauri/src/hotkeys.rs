@@ -198,6 +198,59 @@ mod build_command_map_tests {
     }
 
     #[test]
+    fn a_command_naming_an_unknown_backend_is_skipped_with_a_problem() {
+        let cfg = Config {
+            version: 1,
+            backends: vec![backend_cfg()],
+            commands: vec![CommandConfig {
+                id: "orphan".into(),
+                name: "Orphan".into(),
+                backend_id: "does-not-exist".into(),
+                hotkey: "Ctrl+Alt+J".into(),
+                system_prompt: "x".into(),
+            }],
+            settings: config::Settings::default(),
+        };
+        let (map, problems) = build_command_map(&cfg);
+        assert!(map.is_empty(), "a command with no valid backend must not reach the map");
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].command_id.as_deref(), Some("orphan"));
+        assert!(problems[0].message.contains("unknown backend"), "got: {}", problems[0].message);
+    }
+
+    #[test]
+    fn a_command_with_an_unparseable_hotkey_is_skipped_with_a_problem() {
+        let cfg = Config {
+            version: 1,
+            backends: vec![backend_cfg()],
+            commands: vec![command("bad-hotkey", "Bad Hotkey", "")],
+            settings: config::Settings::default(),
+        };
+        let (map, problems) = build_command_map(&cfg);
+        assert!(map.is_empty());
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].command_id.as_deref(), Some("bad-hotkey"));
+        assert!(problems[0].message.contains("unparseable"), "got: {}", problems[0].message);
+    }
+
+    #[test]
+    fn one_bad_entry_does_not_take_down_the_entries_after_it() {
+        let cfg = Config {
+            version: 1,
+            backends: vec![backend_cfg()],
+            commands: vec![
+                command("bad", "Bad", ""),
+                command("good", "Good", "Ctrl+Alt+K"),
+            ],
+            settings: config::Settings::default(),
+        };
+        let (map, problems) = build_command_map(&cfg);
+        assert_eq!(map.len(), 1, "the good entry after the bad one must still register");
+        assert!(map.values().any(|e| e.name == "Good"));
+        assert_eq!(problems.len(), 1, "only the bad entry should produce a problem");
+    }
+
+    #[test]
     fn non_colliding_hotkeys_register_cleanly_with_no_problems() {
         let cfg = Config {
             version: 1,
@@ -311,6 +364,21 @@ mod register_hotkeys_tests {
         let problems = register_hotkeys_with::<_, &str>(&registrations, |_| Ok(()));
 
         assert!(problems.is_empty(), "expected no problems, got: {problems:?}");
+    }
+
+    #[test]
+    fn two_failing_registrations_in_one_batch_are_both_separately_attributed() {
+        let registrations = vec![
+            registration("Ctrl+Alt+J", "cmd-1", "Fix grammar"),
+            registration("Ctrl+Alt+K", "cmd-2", "Summarise"),
+        ];
+
+        let problems =
+            register_hotkeys_with(&registrations, |_| Err("already registered by another app"));
+
+        assert_eq!(problems.len(), 2);
+        assert_eq!(problems[0].command_id.as_deref(), Some("cmd-1"));
+        assert_eq!(problems[1].command_id.as_deref(), Some("cmd-2"));
     }
 
     #[test]

@@ -423,6 +423,17 @@ fn run_escalation(app: AppHandle, cancel: Arc<AtomicBool>) {
     }
 }
 
+/// Whether the cursor has travelled far enough from `anchor` to justify a
+/// reposition. Pure and unit-tested on purpose -- the one piece of
+/// `follow_cursor`'s logic that needs no `AppHandle` to verify -- because
+/// its `&&` (both axes must stay inside the dead zone to skip a move) is
+/// easy to flip to `||` unnoticed, which would make the window twitch on
+/// any diagonal jitter instead of only a real move.
+fn moved_enough(cursor: (f64, f64), anchor: (f64, f64)) -> bool {
+    (cursor.0 - anchor.0).abs() >= FOLLOW_DEAD_ZONE_PX
+        || (cursor.1 - anchor.1).abs() >= FOLLOW_DEAD_ZONE_PX
+}
+
 /// Moves the window to the cursor, but only once it has actually travelled.
 ///
 /// Every reposition is a hop to the main thread. Without the dead zone the
@@ -431,9 +442,7 @@ fn run_escalation(app: AppHandle, cancel: Arc<AtomicBool>) {
 /// competing with the very cycle the user is waiting on.
 fn follow_cursor(app: &AppHandle, anchor: &mut (f64, f64)) {
     let Ok(cursor) = app.cursor_position() else { return };
-    if (cursor.x - anchor.0).abs() < FOLLOW_DEAD_ZONE_PX
-        && (cursor.y - anchor.1).abs() < FOLLOW_DEAD_ZONE_PX
-    {
+    if !moved_enough((cursor.x, cursor.y), *anchor) {
         return;
     }
     *anchor = (cursor.x, cursor.y);
@@ -500,6 +509,34 @@ mod tests {
         // Degenerate but must not panic (`i32::clamp` panics if min > max)
         // and must not report a position past the area's own left edge.
         assert_eq!(clamp_to_area(500, 0, 3000, 56, (0, 0, 1920, 1080)), (0, 0));
+    }
+
+    // The `max_y` counterpart to the wider-than-area test above -- without
+    // its own case, the y-axis `.max(area_y)` guard is never independently
+    // exercised, and a regression there risks the same documented
+    // `i32::clamp` panic (min > max), just on the other axis.
+    #[test]
+    fn clamp_prefers_the_near_edge_when_the_window_is_taller_than_the_area() {
+        assert_eq!(clamp_to_area(0, 500, 56, 3000, (0, 0, 1920, 1080)), (0, 0));
+    }
+
+    #[test]
+    fn clamp_pulls_back_from_both_the_right_and_bottom_edges_at_once() {
+        assert_eq!(clamp_to_area(1900, 1070, 56, 56, (0, 0, 1920, 1080)), (1864, 1024));
+    }
+
+    #[test]
+    fn moved_enough_is_false_within_the_dead_zone_on_both_axes() {
+        assert!(!moved_enough((100.0, 100.0), (101.0, 101.0)));
+    }
+
+    #[test]
+    fn moved_enough_is_true_once_either_axis_alone_clears_the_dead_zone() {
+        // The `&&`/`||` this function's own doc comment warns about: if it
+        // were backwards (requiring both axes to move, matching neither),
+        // a real move confined to one axis would be missed.
+        assert!(moved_enough((110.0, 100.0), (100.0, 100.0)), "x-axis move alone must count");
+        assert!(moved_enough((100.0, 110.0), (100.0, 100.0)), "y-axis move alone must count");
     }
 
     #[test]

@@ -125,7 +125,6 @@ pub fn save_config(
 mod save_config_tests {
     use super::*;
     use std::fs;
-    use std::sync::Mutex;
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir()
@@ -136,61 +135,43 @@ mod save_config_tests {
     }
 
     // 4b (spec Testing section): validate-then-apply ordering. A config
-    // that is well-typed as `config::Config` but semantically invalid (a
-    // command naming a backend that doesn't exist) must be rejected before
-    // anything reaches disk -- the write in `decide_save` only ever runs on
-    // the `Ready` branch.
+    // that is well-typed as `config::Config` but semantically invalid --
+    // either a command naming a backend that doesn't exist, or a duplicate
+    // command id -- must be rejected before anything reaches disk; the
+    // write in `decide_save` only ever runs on the `Ready` branch.
+    //
+    // The in-memory config invariant (4c) is not tested here separately: it
+    // is structural, not a runtime property this function's own logic
+    // could get wrong. `state.config` is only ever mutated inside
+    // `apply_config` (see its doc comment in lib.rs), and `decide_save`
+    // never takes an `AppState`/`state.config` argument at all -- so a
+    // caller holding an `Err` result has no `state` to reach in the first
+    // place, by the function's own signature, not by anything asserted at
+    // runtime.
     #[test]
     fn an_invalid_config_is_rejected_before_anything_is_written_to_disk() {
-        let dir = temp_dir("rejected");
-        let path = dir.join("config.json");
-        let mut bad = config::default_config();
-        bad.commands[0].backend_id = "does-not-exist".into();
+        let cases: [(&str, fn(&mut config::Config)); 2] = [
+            ("a command naming an unknown backend must be rejected", |bad| {
+                bad.commands[0].backend_id = "does-not-exist".into();
+            }),
+            ("a duplicate command id must be rejected", |bad| {
+                bad.commands.push(bad.commands[0].clone());
+            }),
+        ];
 
-        let decision = decide_save(&bad, &path);
+        for (description, mutate) in cases {
+            let dir = temp_dir("rejected");
+            let path = dir.join("config.json");
+            let mut bad = config::default_config();
+            mutate(&mut bad);
 
-        assert!(
-            matches!(decision, Err(_)),
-            "a command naming an unknown backend must be rejected"
-        );
-        assert!(!path.exists(), "a rejected config must never be written to disk");
+            let decision = decide_save(&bad, &path);
 
-        let _ = fs::remove_dir_all(&dir);
-    }
+            assert!(matches!(decision, Err(_)), "{description}");
+            assert!(!path.exists(), "a rejected config must never be written to disk ({description})");
 
-    // 4c: the in-memory config invariant. `state.config` is only ever
-    // mutated inside `apply_config` (see its doc comment in lib.rs), and
-    // `save_config` only calls `apply_config` on the `Ready` branch -- so a
-    // `Rejected` decision structurally cannot reach it. This test stands in
-    // an `Arc<Mutex<Config>>` for `state.config` and confirms directly that
-    // nothing here would have touched it.
-    #[test]
-    fn a_rejected_config_leaves_a_stand_in_for_the_in_memory_config_untouched() {
-        let dir = temp_dir("in-memory");
-        let path = dir.join("config.json");
-        let state_config = std::sync::Arc::new(Mutex::new(config::default_config()));
-        let original_commands = state_config.lock().unwrap().commands.len();
-
-        let mut bad = config::default_config();
-        bad.commands.push(bad.commands[0].clone()); // duplicate id -> rejected
-
-        match decide_save(&bad, &path) {
-            Err(_) => {
-                // Mirrors save_config's own control flow: on `Err` it
-                // returns immediately and never calls `apply_config`, the
-                // only function that ever locks and overwrites
-                // `state.config`.
-            }
-            Ok(_) => panic!("a duplicate id must be rejected"),
+            let _ = fs::remove_dir_all(&dir);
         }
-
-        assert_eq!(
-            state_config.lock().unwrap().commands.len(),
-            original_commands,
-            "a rejected save must never mutate the in-memory config"
-        );
-
-        let _ = fs::remove_dir_all(&dir);
     }
 
     // The other half of the ordering: a valid config really is written to

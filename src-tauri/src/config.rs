@@ -598,22 +598,24 @@ mod tests {
     // a file claiming a version in the billions -- bypassing the "reject
     // unknown versions rather than guess" guarantee for precisely the kind
     // of corrupted value it exists for.
+    // Merged (was 5 tests: overflow, negative, float, string, null): each
+    // is a "version" value that is present but not a non-negative u32, and
+    // every one must be rejected rather than silently treated as v1 --
+    // table-driven like `accepts_every_shipped_language` above.
+    // The old `as u32` cast wrapped the overflow case to exactly 1 and
+    // silently migrated a file claiming a version in the billions --
+    // bypassing the "reject unknown versions rather than guess" guarantee
+    // for precisely the kind of corrupted value it exists for.
     #[test]
-    fn rejects_a_version_that_overflows_u32_instead_of_wrapping_into_migration() {
-        let json = valid_json().replace("\"version\": 2", "\"version\": 4294967297");
-        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
-    }
-
-    #[test]
-    fn rejects_a_negative_version() {
-        let json = valid_json().replace("\"version\": 2", "\"version\": -1");
-        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
-    }
-
-    #[test]
-    fn rejects_a_float_version() {
-        let json = valid_json().replace("\"version\": 2", "\"version\": 1.5");
-        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
+    fn rejects_every_malformed_version_value_instead_of_silently_migrating() {
+        for bad_version in ["4294967297", "-1", "1.5", "\"2\"", "null"] {
+            let json =
+                valid_json().replace("\"version\": 2", &format!("\"version\": {bad_version}"));
+            assert!(
+                matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })),
+                "expected {bad_version} to be rejected as malformed"
+            );
+        }
     }
 
     // Hand-editing is a supported path, and "I deleted the whole prompts
@@ -631,22 +633,32 @@ mod tests {
         assert_eq!(cfg.backends.len(), 1);
     }
 
+    // Merged: both parse the identical mutated JSON, one asserting the
+    // error variant and the other its message text -- combined into one
+    // test with both assertions.
     #[test]
-    fn rejects_a_timeout_below_the_floor() {
+    fn rejects_a_timeout_below_the_floor_naming_the_backend_and_the_minimum() {
         let json = valid_json().replace(r#""timeoutMs":120000"#, r#""timeoutMs":1"#);
         let err = parse(&json).expect_err("a 1 ms timeout must be rejected");
         assert!(
             matches!(err, ConfigError::TimeoutTooLow { timeout_ms: 1, .. }),
             "got: {err:?}"
         );
-    }
-
-    #[test]
-    fn the_timeout_error_names_the_offending_backend_and_the_minimum() {
-        let json = valid_json().replace(r#""timeoutMs":120000"#, r#""timeoutMs":1"#);
-        let message = parse(&json).expect_err("must reject").to_string();
+        let message = err.to_string();
         assert!(message.contains("ollama"), "must name the backend, got: {message}");
         assert!(message.contains("5000"), "must state the minimum, got: {message}");
+    }
+
+    // A backend entry that omits `timeoutMs` entirely (not just sets it to
+    // null) relies on `#[serde(default = "default_timeout")]` -- this must
+    // still parse and land safely above MIN_TIMEOUT_MS, not just when the
+    // key is explicitly present.
+    #[test]
+    fn a_backend_omitting_timeout_ms_entirely_gets_the_default_and_passes_the_floor() {
+        let json = valid_json().replace(r#","timeoutMs":120000"#, "");
+        let cfg = parse(&json).expect("an omitted timeoutMs must fall back to the default");
+        assert_eq!(cfg.backends[0].timeout_ms, default_timeout());
+        assert!(cfg.backends[0].timeout_ms >= MIN_TIMEOUT_MS);
     }
 
     #[test]
@@ -698,10 +710,49 @@ mod tests {
         assert!(matches!(parse(&json), Err(ConfigError::DuplicateHotkey { .. })));
     }
 
+    // The existing test above reuses the identical byte-for-byte hotkey
+    // string; `validate` actually dedups via `.to_lowercase()`, which that
+    // case can never exercise. A regression dropping the normalization
+    // would pass every existing test without this one.
+    #[test]
+    fn rejects_duplicate_hotkeys_that_differ_only_in_case() {
+        let json = valid_json().replace(
+            r#""systemPrompt":"Fix grammar."}"#,
+            r#""systemPrompt":"Fix grammar."},
+               {"id":"other","name":"Other","backendId":"ollama",
+                "hotkey":"ctrl+alt+j","systemPrompt":"Other."}"#,
+        );
+        assert!(matches!(parse(&json), Err(ConfigError::DuplicateHotkey { .. })));
+    }
+
+    #[test]
+    fn rejects_duplicate_command_ids() {
+        // Only backend ids were covered before this -- command ids go
+        // through the identical `HashSet::insert` check in `validate` and
+        // deserve the same coverage.
+        let json = valid_json().replace(
+            r#""systemPrompt":"Fix grammar."}"#,
+            r#""systemPrompt":"Fix grammar."},
+               {"id":"fix","name":"Other","backendId":"ollama",
+                "hotkey":"Ctrl+Alt+K","systemPrompt":"Other."}"#,
+        );
+        assert!(matches!(parse(&json), Err(ConfigError::DuplicateId { .. })));
+    }
+
     #[test]
     fn rejects_an_unknown_backend_kind() {
         let json = valid_json().replace(r#""kind":"openai-compatible""#, r#""kind":"telepathy""#);
         assert!(matches!(parse(&json), Err(ConfigError::UnknownKind { .. })));
+    }
+
+    // KIND_ANTHROPIC never appears in any fixture in this file; without
+    // this, a typo in the constant or a dropped match arm in `validate`
+    // would go undetected.
+    #[test]
+    fn accepts_anthropic_api_as_a_backend_kind() {
+        let json =
+            valid_json().replace(r#""kind":"openai-compatible""#, r#""kind":"anthropic-api""#);
+        assert!(parse(&json).is_ok(), "anthropic-api must be a legal backend kind");
     }
 
     #[test]
@@ -998,15 +1049,4 @@ mod tests {
         assert_eq!(cfg.commands[0].id, "fix");
     }
 
-    #[test]
-    fn rejects_a_string_version_instead_of_silently_migrating() {
-        let json = valid_json().replace(r#""version": 2"#, r#""version": "2""#);
-        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
-    }
-
-    #[test]
-    fn rejects_a_null_version_instead_of_silently_migrating() {
-        let json = valid_json().replace(r#""version": 2"#, r#""version": null"#);
-        assert!(matches!(parse(&json), Err(ConfigError::MalformedVersion { .. })));
-    }
 }

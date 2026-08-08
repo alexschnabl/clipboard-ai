@@ -570,6 +570,96 @@ mod tests {
     }
 
     #[test]
+    fn truncation_is_safe_on_a_multi_byte_character_boundary() {
+        // `truncate_text`'s doc comment promises char-boundary-safe
+        // truncation specifically because slicing a `String` by byte count
+        // risks landing mid-codepoint and panicking. "é" is 2 bytes but 1
+        // char, so a naive byte-count truncation would be exercised here
+        // where a plain ASCII fixture (see the other truncation tests)
+        // could not catch it.
+        let dir = temp_dir("multibyte");
+        let path = dir.join(FILE_NAME);
+
+        let long_text: String = "é".repeat(MAX_TEXT_CHARS + 500);
+        let mut e = entry("multibyte-doc");
+        e.input_text = Some(long_text);
+        append(&path, e).unwrap(); // must not panic
+
+        let stored = &load(&path)[0];
+        let stored_input = stored.input_text.as_ref().unwrap();
+        assert!(
+            stored_input.starts_with(&"é".repeat(MAX_TEXT_CHARS)),
+            "the retained prefix must be exactly the first MAX_TEXT_CHARS characters"
+        );
+        assert!(stored_input.contains("truncated"), "truncation must be visible, not silent");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_real_append_after_a_corrupt_file_overwrites_it_with_just_the_new_entry() {
+        // Pins that a corrupt on-disk file does not somehow survive or get
+        // merged with the next real write: `append`'s `load()` treats it as
+        // empty (see `a_corrupt_file_starts_fresh_rather_than_erroring`),
+        // and its `write_atomic` then replaces the corrupt bytes entirely.
+        let dir = temp_dir("corrupt-then-append");
+        let path = dir.join(FILE_NAME);
+        fs::write(&path, "{ not valid json, trailing comma, }").unwrap();
+
+        append(&path, entry("first-good-entry")).unwrap();
+
+        let entries = load(&path);
+        assert_eq!(
+            entries.len(),
+            1,
+            "the corrupt bytes must be overwritten, not merged with the new entry"
+        );
+        assert_eq!(entries[0].command_id, "first-good-entry");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // Unlike `a_concurrent_append_and_clear_cannot_interleave_into_a_lost_update`
+    // above (which reaches past `append`/`clear` to grab `HISTORY_LOCK`
+    // directly, deliberately widening a too-fast-to-hit window), this calls
+    // the real public `append`/`clear` with no sleeps at all, from two
+    // threads, a few hundred times each. It is what actually exercises
+    // `append`'s own lock acquisition -- deleting that lock line fails
+    // nothing in the white-box test above, since that test takes the lock
+    // itself either way. The property under test is "never panics and never
+    // produces a corrupt/unparseable file", not a specific final entry
+    // count: the interleaving is nondeterministic by design.
+    #[test]
+    fn append_and_clear_survive_a_few_hundred_concurrent_iterations() {
+        let dir = temp_dir("stress");
+        let path = dir.join(FILE_NAME);
+
+        let path_for_append = path.clone();
+        let appender = std::thread::spawn(move || {
+            for i in 0..300 {
+                append(&path_for_append, entry(&format!("stress-{i}"))).unwrap();
+            }
+        });
+        let path_for_clear = path.clone();
+        let clearer = std::thread::spawn(move || {
+            for _ in 0..300 {
+                clear(&path_for_clear).unwrap();
+            }
+        });
+
+        appender.join().unwrap();
+        clearer.join().unwrap();
+
+        let log = fs::read_to_string(dir.join("clipboard-ai.log")).unwrap_or_default();
+        assert!(
+            !log.contains("corrupt-file-starting-fresh"),
+            "every write must land as a complete, parseable file even under concurrent access, got: {log}"
+        );
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn text_exactly_at_the_cap_is_not_truncated() {
         let dir = temp_dir("at-cap");
         let path = dir.join(FILE_NAME);

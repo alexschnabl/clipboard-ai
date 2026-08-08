@@ -344,6 +344,61 @@ fn handle_config_load_failure(
 }
 
 #[cfg(test)]
+mod recover_lock_tests {
+    use super::*;
+
+    // Poison a plain `std::sync::Mutex` with a panicking thread -- the same
+    // shape as a real panic elsewhere in this app while a shared `AppState`
+    // lock happened to be held -- and confirm `recover_lock` both recovers
+    // the guard and that the data it protected survives intact.
+    #[test]
+    fn recovers_a_poisoned_mutex_and_the_data_survives() {
+        let mutex = Mutex::new(vec![1, 2, 3]);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = mutex.lock().unwrap();
+            panic!("simulated panic while holding the lock");
+        }));
+        assert!(result.is_err(), "the panic must have actually happened");
+        assert!(mutex.is_poisoned(), "the mutex should now be poisoned");
+
+        let guard = recover_lock(mutex.lock(), "test", None);
+        assert_eq!(*guard, vec![1, 2, 3], "the data must survive the poisoning intact");
+    }
+}
+
+#[cfg(test)]
+mod panic_message_tests {
+    use super::*;
+
+    #[test]
+    fn extracts_a_str_literal_panic_payload() {
+        let result: std::thread::Result<()> = std::panic::catch_unwind(|| panic!("literal message"));
+        let payload = result.unwrap_err();
+        assert_eq!(panic_message(&*payload), "literal message");
+    }
+
+    #[test]
+    fn extracts_a_formatted_string_panic_payload() {
+        let detail = "detail";
+        let result: std::thread::Result<()> =
+            std::panic::catch_unwind(move || panic!("formatted: {detail}"));
+        let payload = result.unwrap_err();
+        assert_eq!(panic_message(&*payload), "formatted: detail");
+    }
+
+    // A payload that is neither `&str` nor `String` -- most realistically a
+    // custom type from a dependency -- has no guaranteed shape at all and
+    // must fall back to the fixed string rather than panicking itself.
+    #[test]
+    fn falls_back_to_a_fixed_string_for_a_non_string_payload() {
+        let result: std::thread::Result<()> =
+            std::panic::catch_unwind(|| std::panic::panic_any(42i32));
+        let payload = result.unwrap_err();
+        assert_eq!(panic_message(&*payload), "non-string panic payload");
+    }
+}
+
+#[cfg(test)]
 mod config_load_failure_tests {
     use super::*;
 
@@ -373,7 +428,7 @@ mod config_load_failure_tests {
             .expect("an existing file must be preserved and its path reported");
         assert!(std::path::Path::new(preserved).exists());
         assert!(
-            load_error.reason.contains("valid JSON") || !load_error.reason.is_empty(),
+            load_error.reason.contains("valid JSON"),
             "reason should describe the parse failure, got: {}",
             load_error.reason
         );

@@ -63,12 +63,16 @@ impl Backend for OpenAiCompatible {
 
         // Unlike `anthropic.rs`'s `x-api-key`, this is a bearer token in the
         // standard `Authorization` header -- the OpenAI convention every
-        // compatible server also follows. Sent only when configured: a
-        // local server (Ollama, ...) typically has no auth at all, and
-        // sending an empty/absent key as a header some servers would still
-        // parse is worse than omitting the header entirely.
+        // compatible server also follows. Sent only when configured and
+        // non-blank -- matching the `base_url`/`model` blank-is-absent
+        // treatment above: a local server (Ollama, ...) typically has no
+        // auth at all, and sending a blank key as `Authorization: Bearer
+        // ` (a header some servers would still parse) is worse than
+        // omitting the header entirely. Unlike `base_url`/`model`, a blank
+        // key is not an error -- the key is optional here, so absent is
+        // always legal.
         let mut headers = Vec::new();
-        if let Some(key) = &self.api_key {
+        if let Some(key) = self.api_key.as_deref().filter(|s| !s.trim().is_empty()) {
             headers.push(("Authorization".to_string(), format!("Bearer {key}")));
         }
 
@@ -106,6 +110,16 @@ impl Backend for OpenAiCompatible {
                 BackendError::BadResponse(format!("no assistant content in {response}"))
             })?;
 
+        // Distinct from the missing-field case just above: `content` was
+        // present but empty or whitespace-only, which is exactly as
+        // unusable -- matching `anthropic.rs`'s "no text blocks in
+        // response" and `claude_cli.rs`'s "claude returned no output"
+        // checks, both of which reject this same shape of response rather
+        // than let it through to fail opaquely downstream.
+        if content.trim().is_empty() {
+            return Err(BackendError::BadResponse("assistant returned empty content".into()));
+        }
+
         Ok(content.to_string())
     }
 }
@@ -122,7 +136,7 @@ mod tests {
 
     struct FakeHttp {
         response: Result<serde_json::Value, String>,
-        seen: Mutex<Option<(String, serde_json::Value)>>,
+        seen: Mutex<Option<(String, Vec<(String, String)>, serde_json::Value, u64)>>,
     }
 
     impl FakeHttp {
@@ -138,11 +152,12 @@ mod tests {
         fn post_json(
             &self,
             url: &str,
-            _headers: &[(String, String)],
+            headers: &[(String, String)],
             body: &serde_json::Value,
-            _timeout_ms: u64,
+            timeout_ms: u64,
         ) -> Result<serde_json::Value, BackendError> {
-            *self.seen.lock().unwrap() = Some((url.to_string(), body.clone()));
+            *self.seen.lock().unwrap() =
+                Some((url.to_string(), headers.to_vec(), body.clone(), timeout_ms));
             self.response
                 .clone()
                 .map_err(|m| BackendError::Transport(m))
@@ -177,7 +192,7 @@ mod tests {
         let http = FakeHttp::ok(chat("ok"));
         let backend = OpenAiCompatible::new(&cfg(), http.clone());
         backend.transform("Fix it.", "input text").unwrap();
-        let (url, body) = http.seen.lock().unwrap().clone().unwrap();
+        let (url, _headers, body, _timeout_ms) = http.seen.lock().unwrap().clone().unwrap();
         assert_eq!(url, "http://localhost:11434/v1/chat/completions");
         assert_eq!(body["model"], "qwen2.5:32b-instruct");
         assert_eq!(body["stream"], false);
@@ -194,7 +209,7 @@ mod tests {
         let http = FakeHttp::ok(chat("ok"));
         let backend = OpenAiCompatible::new(&config, http.clone());
         backend.transform("s", "t").unwrap();
-        let (url, _) = http.seen.lock().unwrap().clone().unwrap();
+        let (url, ..) = http.seen.lock().unwrap().clone().unwrap();
         assert_eq!(url, "http://localhost:11434/v1/chat/completions");
     }
 
@@ -223,40 +238,72 @@ mod tests {
         }
     }
 
+    // Merged (base_url x2, model x2 -- missing and blank for each): only
+    // hand-editing config.json can produce the blank cases, since the
+    // settings UI trims empty fields to null, but a blank value is exactly
+    // as unusable as an absent one and must fail the same way, not ship to
+    // the server.
     #[test]
-    fn missing_base_url_is_a_backend_error() {
-        let mut config = cfg();
-        config.base_url = None;
-        let backend = OpenAiCompatible::new(&config, FakeHttp::ok(chat("ok")));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+    fn a_missing_or_blank_base_url_or_model_is_a_backend_error() {
+        let cases: [(&str, fn(&mut BackendConfig)); 4] = [
+            ("missing base_url", |c| c.base_url = None),
+            ("blank base_url", |c| c.base_url = Some("   ".into())),
+            ("missing model", |c| c.model = None),
+            ("blank model", |c| c.model = Some("".into())),
+        ];
+        for (description, mutate) in cases {
+            let mut config = cfg();
+            mutate(&mut config);
+            let backend = OpenAiCompatible::new(&config, FakeHttp::ok(chat("ok")));
+            assert!(
+                matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))),
+                "{description}"
+            );
+        }
     }
 
-    // Only hand-editing config.json can produce these -- the settings UI
-    // trims empty fields to null -- but a blank value is exactly as unusable
-    // as an absent one and must fail the same way, not ship to the server.
+    // C15: a blank key is legal (it's optional here, unlike base_url/model)
+    // -- it must be treated as absent, not sent as an empty bearer token
+    // some servers would still parse.
     #[test]
-    fn a_blank_base_url_is_treated_as_missing() {
+    fn a_blank_api_key_sends_no_authorization_header() {
         let mut config = cfg();
-        config.base_url = Some("   ".into());
-        let backend = OpenAiCompatible::new(&config, FakeHttp::ok(chat("ok")));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+        config.api_key = Some("   ".into());
+        let http = FakeHttp::ok(chat("ok"));
+        let backend = OpenAiCompatible::new(&config, http.clone());
+        backend.transform("s", "t").unwrap();
+        let (_, headers, ..) = http.seen.lock().unwrap().clone().unwrap();
+        assert!(
+            !headers.iter().any(|(k, _)| k == "Authorization"),
+            "a blank api key must not be sent as an empty bearer token, got headers: {headers:?}"
+        );
     }
 
+    // C14: `content` present but empty/whitespace-only is exactly as
+    // unusable as a missing one -- matches `anthropic.rs`'s "no text
+    // blocks" and `claude_cli.rs`'s "no output" checks, both of which
+    // already reject this shape rather than let it through to fail
+    // opaquely once pasted.
     #[test]
-    fn a_blank_model_is_treated_as_missing() {
-        let mut config = cfg();
-        config.model = Some("".into());
-        let backend = OpenAiCompatible::new(&config, FakeHttp::ok(chat("ok")));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+    fn empty_or_whitespace_assistant_content_is_a_backend_error() {
+        for content in ["", "   "] {
+            let backend = OpenAiCompatible::new(&cfg(), FakeHttp::ok(chat(content)));
+            assert!(
+                matches!(backend.transform("s", "t"), Err(BackendError::BadResponse(_))),
+                "content: {content:?}"
+            );
+        }
     }
 
-    // A missing model must fail the same clear way a missing base_url does,
-    // rather than silently shipping `"model": ""` to the remote server.
+    // The configured timeout must reach the transport call unaltered.
     #[test]
-    fn missing_model_is_a_backend_error() {
+    fn the_configured_timeout_reaches_the_transport_call() {
         let mut config = cfg();
-        config.model = None;
-        let backend = OpenAiCompatible::new(&config, FakeHttp::ok(chat("ok")));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+        config.timeout_ms = 42_000;
+        let http = FakeHttp::ok(chat("ok"));
+        let backend = OpenAiCompatible::new(&config, http.clone());
+        backend.transform("s", "t").unwrap();
+        let (.., timeout_ms) = http.seen.lock().unwrap().clone().unwrap();
+        assert_eq!(timeout_ms, 42_000);
     }
 }

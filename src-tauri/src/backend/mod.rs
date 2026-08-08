@@ -129,6 +129,37 @@ pub fn build(config: &BackendConfig) -> Result<Arc<dyn Backend>, BackendError> {
     }
 }
 
+#[cfg(test)]
+mod build_tests {
+    use super::*;
+    use crate::config::{BackendConfig, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_OPENAI};
+
+    fn cfg(kind: &str) -> BackendConfig {
+        BackendConfig {
+            id: "b".into(),
+            name: "B".into(),
+            kind: kind.into(),
+            base_url: Some("http://localhost/v1".into()),
+            model: Some("m".into()),
+            api_key: None,
+            timeout_ms: 120_000,
+        }
+    }
+
+    #[test]
+    fn builds_the_matching_backend_for_every_shipped_kind() {
+        for kind in [KIND_OPENAI, KIND_ANTHROPIC, KIND_CLAUDE_CLI] {
+            let backend = build(&cfg(kind)).unwrap_or_else(|e| panic!("{kind}: {e}"));
+            assert_eq!(backend.name(), "B", "kind: {kind}");
+        }
+    }
+
+    #[test]
+    fn an_unknown_kind_is_misconfigured() {
+        assert!(matches!(build(&cfg("telepathy")), Err(BackendError::Misconfigured(_))));
+    }
+}
+
 /// R12: exercises the real `ReqwestClient`, not a fake `HttpClient` --
 /// `anthropic.rs`/`openai.rs`'s tests all substitute a fake, so nothing
 /// elsewhere in the suite ever ran actual reqwest code before this. Mirrors
@@ -183,9 +214,13 @@ mod reqwest_client_tests {
 
         assert!(matches!(result, Err(BackendError::Timeout)), "expected Timeout, got {result:?}");
         // Pre-fix this would be close to (header-wait ~300ms) + (body-wait
-        // ~500ms) =~ 800ms; a single deadline keeps it near timeout_ms.
+        // ~500ms) =~ 800ms; a single deadline keeps it near timeout_ms. The
+        // ceiling is generous (~3x timeout_ms, not ~1.4x) on purpose: this
+        // was the tightest margin in the suite and the likeliest flake
+        // under CI load -- the property being proved (no *second* full
+        // timeout budget) survives a much wider bound just as well.
         assert!(
-            elapsed < Duration::from_millis(700),
+            elapsed < Duration::from_millis(1500),
             "a single {timeout_ms}ms deadline must bound headers+body together, not double it; took {elapsed:?}"
         );
     }

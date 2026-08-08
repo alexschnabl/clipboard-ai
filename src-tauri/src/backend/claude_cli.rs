@@ -209,7 +209,7 @@ mod tests {
 
     struct FakeRunner {
         result: Result<String, BackendError>,
-        seen: Mutex<Option<(String, Vec<String>, String)>>,
+        seen: Mutex<Option<(String, Vec<String>, String, u64)>>,
     }
 
     impl FakeRunner {
@@ -227,9 +227,10 @@ mod tests {
             program: &str,
             args: &[String],
             stdin: &str,
-            _timeout_ms: u64,
+            timeout_ms: u64,
         ) -> Result<String, BackendError> {
-            *self.seen.lock().unwrap() = Some((program.into(), args.to_vec(), stdin.into()));
+            *self.seen.lock().unwrap() =
+                Some((program.into(), args.to_vec(), stdin.into(), timeout_ms));
             self.result.clone()
         }
     }
@@ -257,7 +258,7 @@ mod tests {
         let runner = FakeRunner::ok("ok");
         let backend = ClaudeCli::new(&cfg(), runner.clone());
         backend.transform("Fix it.", "input text").unwrap();
-        let (program, args, stdin) = runner.seen.lock().unwrap().clone().unwrap();
+        let (program, args, stdin, _timeout_ms) = runner.seen.lock().unwrap().clone().unwrap();
         assert_eq!(program, "claude");
         assert!(args.contains(&"-p".to_string()));
         let idx = args.iter().position(|a| a == "--system-prompt").unwrap();
@@ -275,6 +276,18 @@ mod tests {
     fn a_runner_timeout_propagates_as_a_backend_error() {
         let backend = ClaudeCli::new(&cfg(), FakeRunner::failing(BackendError::Timeout));
         assert!(matches!(backend.transform("s", "t"), Err(BackendError::Timeout)));
+    }
+
+    // The configured timeout must reach the runner unaltered.
+    #[test]
+    fn the_configured_timeout_reaches_the_runner() {
+        let mut config = cfg();
+        config.timeout_ms = 42_000;
+        let runner = FakeRunner::ok("ok");
+        let backend = ClaudeCli::new(&config, runner.clone());
+        backend.transform("s", "t").unwrap();
+        let (.., timeout_ms) = runner.seen.lock().unwrap().clone().unwrap();
+        assert_eq!(timeout_ms, 42_000);
     }
 }
 

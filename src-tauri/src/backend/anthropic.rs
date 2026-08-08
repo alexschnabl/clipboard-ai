@@ -130,7 +130,7 @@ mod tests {
 
     struct FakeHttp {
         response: serde_json::Value,
-        seen: Mutex<Option<(String, Vec<(String, String)>, serde_json::Value)>>,
+        seen: Mutex<Option<(String, Vec<(String, String)>, serde_json::Value, u64)>>,
     }
 
     impl FakeHttp {
@@ -145,9 +145,9 @@ mod tests {
             url: &str,
             headers: &[(String, String)],
             body: &serde_json::Value,
-            _timeout_ms: u64,
+            timeout_ms: u64,
         ) -> Result<serde_json::Value, BackendError> {
-            *self.seen.lock().unwrap() = Some((url.into(), headers.to_vec(), body.clone()));
+            *self.seen.lock().unwrap() = Some((url.into(), headers.to_vec(), body.clone(), timeout_ms));
             Ok(self.response.clone())
         }
     }
@@ -188,9 +188,22 @@ mod tests {
 
     #[test]
     fn a_refusal_is_a_backend_error_and_content_is_not_read() {
-        let body = json!({"content": [], "stop_reason": "refusal"});
+        // A real text block alongside `stop_reason: "refusal"` -- with the
+        // old `content: []` fixture this test could not tell "the refusal
+        // check fired" apart from "the empty-content check fired", since
+        // both produce the identical `BadResponse` outcome. A response that
+        // would otherwise succeed is the only way to pin the refusal branch
+        // specifically.
+        let body = json!({
+            "content": [{"type": "text", "text": "should never be read"}],
+            "stop_reason": "refusal"
+        });
         let backend = AnthropicApi::new(&cfg(), FakeHttp::new(body));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::BadResponse(_))));
+        let err = backend.transform("s", "t").unwrap_err();
+        assert!(
+            matches!(&err, BackendError::BadResponse(msg) if msg.contains("declined")),
+            "expected the refusal-specific message, got: {err:?}"
+        );
     }
 
     #[test]
@@ -198,7 +211,7 @@ mod tests {
         let http = FakeHttp::new(message(json!([{"type":"text","text":"ok"}])));
         let backend = AnthropicApi::new(&cfg(), http.clone());
         backend.transform("Fix it.", "input").unwrap();
-        let (url, headers, body) = http.seen.lock().unwrap().clone().unwrap();
+        let (url, headers, body, _timeout_ms) = http.seen.lock().unwrap().clone().unwrap();
         assert_eq!(url, "https://api.anthropic.com/v1/messages");
         assert!(headers.iter().any(|(k, v)| k == "x-api-key" && v == "sk-test"));
         assert!(headers.iter().any(|(k, v)| k == "anthropic-version" && v == "2023-06-01"));
@@ -210,23 +223,35 @@ mod tests {
         assert!(body.get("stream").is_none());
     }
 
+    // The configured timeout must reach the transport call unaltered --
+    // otherwise a backend-specific timeout setting would be silently
+    // ignored.
     #[test]
-    fn a_missing_api_key_is_a_backend_error() {
+    fn the_configured_timeout_reaches_the_transport_call() {
         let mut config = cfg();
-        config.api_key = None;
-        let backend = AnthropicApi::new(&config, FakeHttp::new(json!({})));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+        config.timeout_ms = 42_000;
+        let http = FakeHttp::new(message(json!([{"type":"text","text":"ok"}])));
+        let backend = AnthropicApi::new(&config, http.clone());
+        backend.transform("s", "t").unwrap();
+        let (.., timeout_ms) = http.seen.lock().unwrap().clone().unwrap();
+        assert_eq!(timeout_ms, 42_000);
     }
 
-    // Reachable only by hand-editing config.json; the settings UI trims
-    // empties to null. A blank key would otherwise be sent as an empty
-    // `x-api-key` header and come back as an opaque 401.
+    // Merged: both are the same "no usable key" outcome, one missing and
+    // one blank (reachable only by hand-editing config.json; the settings
+    // UI trims empties to null). A blank key would otherwise be sent as an
+    // empty `x-api-key` header and come back as an opaque 401.
     #[test]
-    fn a_blank_api_key_is_treated_as_missing() {
-        let mut config = cfg();
-        config.api_key = Some("  ".into());
-        let backend = AnthropicApi::new(&config, FakeHttp::new(json!({})));
-        assert!(matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))));
+    fn a_missing_or_blank_api_key_is_a_backend_error() {
+        for api_key in [None, Some("  ".to_string())] {
+            let mut config = cfg();
+            config.api_key = api_key.clone();
+            let backend = AnthropicApi::new(&config, FakeHttp::new(json!({})));
+            assert!(
+                matches!(backend.transform("s", "t"), Err(BackendError::Misconfigured(_))),
+                "api_key: {api_key:?}"
+            );
+        }
     }
 
     #[test]

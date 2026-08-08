@@ -33,12 +33,33 @@ pub fn log_line(outcome: &CycleOutcome, prompt_name: &str, backend_name: &str) -
     line
 }
 
+/// Tray menu item labels have limited horizontal room; a long command name
+/// (there is no length limit on `CommandConfig::name`) must not blow past
+/// it unbounded.
+const SUMMARY_MAX_BYTES: usize = 60;
+
 pub fn summary(outcome: &CycleOutcome, prompt_name: &str) -> String {
-    if outcome.pasted {
+    let text = if outcome.pasted {
         format!("{prompt_name}: ok ({} ms)", outcome.backend_ms)
     } else {
         format!("{prompt_name}: {}", outcome.reason)
+    };
+    truncate_for_menu(&text)
+}
+
+/// Truncates `text` to at most [`SUMMARY_MAX_BYTES`] bytes, marking the cut
+/// with `…` rather than clipping silently. Cuts on a `char` boundary --
+/// stepping back from the target byte offset, not slicing at it directly --
+/// so a multi-byte command name can never panic here.
+fn truncate_for_menu(text: &str) -> String {
+    if text.len() <= SUMMARY_MAX_BYTES {
+        return text.to_string();
     }
+    let mut cut = SUMMARY_MAX_BYTES.saturating_sub("…".len());
+    while cut > 0 && !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…", &text[..cut])
 }
 
 /// Append one line to `clipboard-ai.log`, truncating first if it has grown
@@ -134,8 +155,28 @@ mod tests {
 
     #[test]
     fn the_tray_summary_is_short_enough_for_a_menu_item() {
-        let text = summary(&outcome(true, "ok"), "Fix grammar");
+        // A long command name genuinely can reach the tray -- there is no
+        // length limit on `CommandConfig::name` -- so this must exercise
+        // real truncation, not just fixtures that happen to already be
+        // short.
+        let long_name = "A".repeat(200);
+        let text = summary(&outcome(true, "ok"), &long_name);
         assert!(text.len() <= 60, "menu labels must stay short, got {}", text.len());
+        assert!(text.ends_with('…'), "a truncated summary should be marked, got: {text}");
+    }
+
+    // The guard against someone adding `text={:?}` to `log_line`'s format
+    // string for debugging and silently logging clipboard content -- this
+    // module logs timings and outcome metadata only, never the captured or
+    // pasted text (contrast `history.rs`, which stores both by design).
+    #[test]
+    fn log_line_never_leaks_captured_or_result_text() {
+        let mut o = outcome(true, "ok");
+        o.captured_text = Some("MARKER-CAPTURED-do-not-leak".to_string());
+        o.result_text = Some("MARKER-RESULT-do-not-leak".to_string());
+        let line = log_line(&o, "Fix grammar", "Local Ollama");
+        assert!(!line.contains("MARKER-CAPTURED"), "captured_text leaked into the log line: {line}");
+        assert!(!line.contains("MARKER-RESULT"), "result_text leaked into the log line: {line}");
     }
 
     #[test]
