@@ -41,6 +41,15 @@ use tauri_plugin_autostart::ManagerExt;
 /// but the log file is where every other "something didn't apply" line in
 /// this app already ends up, and is the only copy that survives after the
 /// console window is gone.
+///
+/// Known upstream quirk, documented rather than worked around: `auto-launch`
+/// 0.5 writes the exe path into the Run value *unquoted*
+/// (`format!("{} {}", app_path, args)` in its windows.rs). A path containing
+/// spaces -- `C:\Program Files\...` -- still launches, because CreateProcess
+/// falls back through the prefixes, but it is the classic unquoted-path shape
+/// and would break outright if Windows ever stopped doing that. Nothing this
+/// side of the plugin can quote it; if it ever bites, the fix belongs
+/// upstream (or in switching how the entry is written).
 pub fn apply_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
     let manager = app.autolaunch();
 
