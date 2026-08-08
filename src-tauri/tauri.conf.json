@@ -22,6 +22,26 @@
         "visible": false,
         "resizable": true,
         "center": true
+      },
+      {
+        "label": "overlay",
+        "url": "overlay",
+        "title": "Clipboard AI — working",
+        "width": 56,
+        "height": 56,
+        "visible": false,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "resizable": false,
+        "maximizable": false,
+        "minimizable": false,
+        "closable": false,
+        "focus": false,
+        "focusable": false,
+        "center": false
       }
     ],
     "security": {
