@@ -1,4 +1,3 @@
-<!-- lib/components/BackendList.svelte — table of configured backends: add / edit / delete -->
 <script lang="ts">
 	import * as Table from '$lib/components/shadcn/table/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
@@ -36,13 +35,6 @@
 		confirmDeleteOpen = true;
 	}
 
-	/** The used-by refusal is unchanged: still attempted only after the user
-	 *  confirms, still shown as the same destructive Alert naming the
-	 *  blocking commands -- `deleteBackend` checks that locally and refuses
-	 *  before any write, so it's the only way this call resolves with a
-	 *  non-empty `usedBy`. The confirmation dialog itself closes immediately
-	 *  on confirm, same as before; the write that follows now persists to
-	 *  disk rather than only flipping a dirty flag. */
 	async function confirmDelete(): Promise<void> {
 		if (!pendingDelete) return;
 		const target = pendingDelete;
@@ -59,8 +51,6 @@
 
 </script>
 
-<!-- Same content-toolbar / content-scroll split as CommandList.svelte -- see
-     that component's comment for the spacing rationale. -->
 <div class="flex h-full min-h-0 flex-col">
 	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
 		<h2 class="text-[12.5px] font-bold">{i18n.t.backends.title}</h2>

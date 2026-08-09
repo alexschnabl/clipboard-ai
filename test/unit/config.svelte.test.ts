@@ -1,18 +1,3 @@
-// test/unit/config.svelte.test.ts — commit-and-rollback semantics for ConfigState.
-//
-// Named `*.svelte.test.ts`, not plain `*.test.ts`: the source under test
-// (`src/lib/state/config.svelte.ts`) uses runes ($state), which only
-// compile correctly through the Svelte plugin registered in
-// vitest.config.ts, and that plugin's module filter recognises files
-// containing the `.svelte.` infix (see `DEFAULT_SVELTE_MODULE_INFIX` in
-// @sveltejs/vite-plugin-svelte) -- this file's own name included, so it can
-// use runes too if a future test needs to.
-//
-// There is no more "dirty" concept to test: every mutation method commits
-// through `save_config` immediately (see `ConfigState.commit`'s doc
-// comment), so what matters here is the commit-or-rollback contract --
-// a mutation applies to `config` right away, and a rejected save must undo
-// it rather than leave the in-memory list showing something disk never got.
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const invokeMock = vi.hoisted(() => vi.fn());
@@ -231,11 +216,6 @@ describe('ConfigState commit-and-rollback semantics', () => {
 		});
 	});
 
-	// Every mutation test above uses a single-item array, which can't
-	// distinguish "the right item changed" from "the whole list got
-	// replaced with a one-item list". These pin that a mutation targets only
-	// the item it names, and that a rollback restores every item a rejected
-	// save's snapshot held, not just the one being mutated.
 	describe('multi-item lists', () => {
 		it('updateBackend on one backend leaves the other backend in the list untouched', async () => {
 			state.config.backends.push(backend({ id: 'b1', name: 'Backend A' }));
@@ -448,13 +428,6 @@ describe('ConfigState commit-and-rollback semantics', () => {
 		});
 	});
 
-	// F1 (review3-frontend.md): two overlapping commits used to each snapshot
-	// independently, so whichever one's rollback ran *last* clobbered
-	// `config` with a snapshot taken before *both* mutations -- discarding
-	// the other commit's change even when it had already saved successfully.
-	// `commit` now serialises the snapshot+mutate+save(+rollback) unit of
-	// every call behind the previous one, so each rollback can only ever
-	// undo its own change.
 	describe('overlapping commits', () => {
 		it('an earlier commit failing does not discard a later, already-succeeded change', async () => {
 			let resolveFirst!: (value: SaveResult) => void;
@@ -464,11 +437,6 @@ describe('ConfigState commit-and-rollback semantics', () => {
 				})
 			);
 
-			// Mirrors the finding's trigger: change Theme, then Language,
-			// quickly -- the second commit starts before the first's save
-			// has resolved, its payload built from the (already-mutated)
-			// state at that moment, same as SettingsPanel spreading
-			// `configState.config.settings` at click time.
 			const firstCommit = state.updateSettings({
 				theme: 'dark',
 				language: 'system',
@@ -486,13 +454,6 @@ describe('ConfigState commit-and-rollback semantics', () => {
 
 			expect(firstOk).toBe(false);
 			expect(secondOk).toBe(true);
-			// Old, unserialised `commit` rolled back to a snapshot taken
-			// before *both* mutations here, wiping the second commit's
-			// already-saved language change too. Serialised, the first
-			// commit's rollback undoes only its own change; the second
-			// commit's snapshot (taken after the first settled) is the
-			// rolled-back state, and its own successful save is what's on
-			// disk -- config and disk agree.
 			expect(state.config.settings).toEqual({ theme: 'dark', language: 'de', autostart: false });
 		});
 

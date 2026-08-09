@@ -1,4 +1,3 @@
-<!-- lib/components/CommandList.svelte — table of configured commands: add / edit / delete -->
 <script lang="ts">
 	import * as Table from '$lib/components/shadcn/table/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
@@ -53,23 +52,12 @@
 		);
 	}
 
-	/** Each `Problem` carries the id of the command it belongs to (see
-	 *  `Problem` in src-tauri/src/lib.rs) rather than a string prefix to
-	 *  match against, so this is a direct equality filter -- no fragile
-	 *  reconciliation with how Rust happens to have formatted `message`. */
 	function problemsFor(command: CommandConfig): Problem[] {
 		return configState.problems.filter((p) => p.commandId === command.id);
 	}
 
 </script>
 
-<!-- `content-toolbar` (pinned, border-b) + `content-scroll` (scrolls, padded)
-     split, matching mockup-a-compact.html's `.content` structure -- see
-     +page.svelte's comment on why this replaced one page-level scroll region.
-     `px-4`/`py-2.5` here is the 16px/10px toolbar padding the mockup uses for
-     every section's toolbar; the `p-4` on content-scroll below is the same
-     16px gutter applied to the body, which is what was missing before (the
-     reported bug: content sitting flush against the sidebar). -->
 <div class="flex h-full min-h-0 flex-col">
 	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
 		<h2 class="text-[12.5px] font-bold">{i18n.t.commands.title}</h2>

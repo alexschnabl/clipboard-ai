@@ -12,34 +12,10 @@ const RESTORE_DELAY_MS: u64 = 300;
 pub struct CycleOutcome {
     pub pasted: bool,
     pub reason: &'static str,
-    /// R5: `reason` is `&'static str` on purpose -- every caller (tests,
-    /// `status.rs`) matches or compares it by value, never by parsing free
-    /// text. That is exactly what makes it structurally unable to carry a
-    /// real error message: a wrong API key, Ollama not running, `claude`
-    /// missing from PATH, and a genuine timeout all used to collapse into
-    /// the identical `reason: "backend-error"`, with the actual cause
-    /// visible nowhere -- not the log, not the tray -- forcing a user to
-    /// guess. `detail` carries that cause alongside `reason` without
-    /// weakening `reason`'s own guarantee. `None` whenever there is nothing
-    /// more specific to say than `reason` already says.
     pub detail: Option<String>,
     pub captured_ms: u64,
     pub backend_ms: u64,
-    /// The text captured from the user's selection, once the capture
-    /// succeeded -- `None` for the aborts that happen before it (stuck
-    /// modifiers, changed focus, capture timeout), because at that point
-    /// there genuinely is nothing to record.
-    ///
-    /// Populated by `run`'s wrapper rather than by the abort paths
-    /// themselves: there are thirteen `return abort(..)` sites in `run_inner`
-    /// and threading a text argument through every one of them would mean
-    /// editing every early-exit in the file whose entire job is to *not*
-    /// touch the user's document. The out-parameter keeps those paths byte
-    /// for byte unchanged.
     pub captured_text: Option<String>,
-    /// What was pasted. Only ever `Some` on the success path -- a run that
-    /// aborted produced no text, and recording anything here would imply the
-    /// document was modified when it was not.
     pub result_text: Option<String>,
 }
 
@@ -71,22 +47,6 @@ fn wait_for_clipboard(ops: &dyn OsOps) -> Option<String> {
     }
 }
 
-/// Restores the clipboard when it goes out of scope, on every path where we
-/// know what to restore.
-///
-/// This is the Rust equivalent of a `finally` block, and it is deliberately
-/// unconditional: there is no `disarm`. Every exit from `run` — an early
-/// return, or an unwinding panic from anywhere in the cycle — drops this
-/// guard and restores what the user had. Making restoration a property of
-/// scope rather than a step someone has to remember on each path removes the
-/// entire class of "this abort forgot to restore" bug.
-///
-/// `original` is `None` only when the very first clipboard read failed — a
-/// non-text clipboard (an image, a file list) or one we could not read at
-/// all. In that case we never learned what was there, so the guard leaves
-/// the clipboard alone rather than guessing and overwriting it with an
-/// empty string. Every other path — including a panic after a successful
-/// initial read — still restores unconditionally.
 struct ClipboardGuard<'a> {
     ops: &'a dyn OsOps,
     original: Option<String>,
@@ -100,16 +60,6 @@ impl Drop for ClipboardGuard<'_> {
     }
 }
 
-/// One hotkey press, end to end.
-///
-/// Every exit restores the original clipboard, and no exit except the happy
-/// path reaches `send_paste`.
-/// Runs one cycle and records what it captured.
-///
-/// Thin wrapper over `run_inner`, which holds the actual logic and every
-/// early exit. The split exists so `captured_text` can be attached to
-/// whichever outcome comes back without any abort path having to carry it --
-/// see `CycleOutcome::captured_text`.
 pub fn run(backend: &dyn Backend, system_prompt: &str, ops: &dyn OsOps) -> CycleOutcome {
     let mut captured_text = None;
     let mut outcome = run_inner(backend, system_prompt, ops, &mut captured_text);
@@ -123,9 +73,6 @@ fn run_inner(
     ops: &dyn OsOps,
     captured_out: &mut Option<String>,
 ) -> CycleOutcome {
-    // `.ok()`, not `.unwrap_or_default()`: a read failure (non-text
-    // clipboard, or one we cannot read) must not be treated as "the
-    // clipboard held an empty string" — see ClipboardGuard.
     let original = ops.read_clipboard().ok();
     let _guard = ClipboardGuard { ops, original };
 
@@ -153,26 +100,12 @@ fn run_inner(
         return abort("modifiers-stuck", 0, 0);
     }
 
-    // Baseline focus is read before the copy is dispatched, not after: the
-    // window that had focus when the user triggered the cycle is the window
-    // we must still be focused on at paste time. Reading it any later would
-    // miss a focus change that happens during the copy/capture step itself.
     let focus_at_capture = ops.foreground_window();
 
-    // I2: GetForegroundWindow() returns 0 (NULL) when no window currently
-    // has focus. If the baseline sample is 0 and the pre-paste sample is
-    // also 0, a plain equality check reports "unchanged" and the cycle
-    // would go on to paste with no known target window at all. Reject a
-    // zero baseline outright instead of trusting it.
     if focus_at_capture == 0 {
         return abort("focus-changed", 0, 0);
     }
 
-    // A failed clear is not harmless: if it fails, the clipboard still
-    // holds the user's previous content, `wait_for_clipboard` below reads
-    // that stale content on its very first poll, and the cycle silently
-    // transforms and pastes over it instead of the real selection. Treat a
-    // failed clear the same as a failed capture.
     if ops.clear_clipboard().is_err() {
         return abort("capture-timeout", 0, 0);
     }
@@ -186,29 +119,12 @@ fn run_inner(
         None => return abort("capture-timeout", 0, 0),
     };
     let captured_ms = ops.now_ms().saturating_sub(capture_start);
-    // Recorded the moment it exists, so every abort from here on still
-    // reports what the user had selected -- knowing the input is most useful
-    // precisely on the runs that failed.
     *captured_out = Some(captured.clone());
 
     let wrapped = sentinel::wrap_system_prompt(system_prompt);
     let backend_start = ops.now_ms();
     let raw = match backend.transform(&wrapped, &captured) {
         Ok(text) => text,
-        // Minor: report the real elapsed time, not a hardcoded 0 -- a
-        // 120-second Ollama timeout must not log as an instant failure.
-        //
-        // R5: this used to be `Err(_) =>`, discarding the real
-        // `BackendError` entirely -- a bad API key, Ollama not running, and
-        // `claude` missing from PATH all surfaced as the identical
-        // "backend-error" with nothing to tell them apart. `BackendError`'s
-        // `Display` (backend/mod.rs) never interpolates a request secret
-        // into any of its variants -- the API key only ever travels in an
-        // HTTP header (anthropic.rs, openai.rs) or the CLI's own
-        // subscription auth (claude_cli.rs), neither of which these
-        // strings ever carry -- so logging it here is safe. Losing it was
-        // an accident of pattern-matching, not a deliberate redaction;
-        // this keeps the safety and drops the accident.
         Err(e) => {
             let backend_ms = ops.now_ms().saturating_sub(backend_start);
             return abort_detail("backend-error", e.to_string(), captured_ms, backend_ms);
@@ -224,11 +140,6 @@ fn run_inner(
         return abort("empty-result", captured_ms, backend_ms);
     }
 
-    // The modifier gate runs before the focus check, not after: it can
-    // block for up to MODIFIER_TIMEOUT_MS (2s), and a window switch during
-    // that wait would otherwise go unnoticed by a focus check that already
-    // ran. Checking focus last keeps the smallest possible gap between the
-    // check and the paste that follows it.
     if !wait_for_modifier_release(ops) {
         return abort("modifiers-stuck-before-paste", captured_ms, backend_ms);
     }
@@ -237,32 +148,13 @@ fn run_inner(
     }
 
     if ops.write_clipboard(&extracted).is_err() {
-        // R14: this used to also report "backend-error", contradicting the
-        // I1 comment on send_paste's failure path two lines below -- which
-        // argues against exactly this mislabelling, because "backend-error"
-        // sends the user to debug their AI backend when the fault is
-        // actually the clipboard/OS layer. Give it its own reason for the
-        // same reason I1 gave "paste-failed" its own.
         return abort("clipboard-write-failed", captured_ms, backend_ms);
     }
     if ops.send_paste().is_err() {
-        // I1: `WindowsOps::chord` dispatches Ctrl-down, the letter click
-        // and Ctrl-up before checking any of them, then returns Err if any
-        // failed -- so a chord where 'v' landed but the Ctrl release
-        // failed returns Err with the paste already in flight. Once a
-        // paste has been *attempted* we cannot know whether it landed, so
-        // we cannot skip the restore delay: doing so lets the guard write
-        // the original clipboard back microseconds later, and the target
-        // app (which reads the clipboard on its own schedule) can end up
-        // pasting the user's old clipboard contents over their selection.
-        // A distinct reason string is used deliberately: "backend-error"
-        // would send the user to debug their AI backend when the real
-        // problem is synthetic input.
         ops.sleep_ms(RESTORE_DELAY_MS);
         return abort("paste-failed", captured_ms, backend_ms);
     }
 
-    // The guard restores after this sleep, when it drops at end of scope.
     ops.sleep_ms(RESTORE_DELAY_MS);
 
     CycleOutcome {
@@ -271,7 +163,6 @@ fn run_inner(
         detail: None,
         captured_ms,
         backend_ms,
-        // Filled in by `run`; only the success path has a result at all.
         captured_text: None,
         result_text: Some(extracted),
     }
@@ -298,11 +189,6 @@ mod tests {
         read_should_fail: Mutex<bool>,
         clear_should_fail: Mutex<bool>,
         paste_should_fail: Mutex<bool>,
-        /// R14: fails exactly the next `write_clipboard` call, then clears
-        /// itself -- modelling a transient failure (e.g. another process
-        /// briefly holding the clipboard) so the guard's later restore call
-        /// can still be observed succeeding, the same way a real transient
-        /// failure would recover on its own moments later.
         write_should_fail_once: Mutex<bool>,
     }
 
@@ -365,9 +251,6 @@ mod tests {
             Ok(())
         }
         fn send_paste(&self) -> Result<(), OsError> {
-            // Mirrors WindowsOps::chord: Ctrl-down, the letter click and
-            // Ctrl-up are dispatched (logged) before failure is reported,
-            // so a "failed" paste may already be in flight -- see I1.
             self.log("paste");
             if *self.paste_should_fail.lock().unwrap() {
                 return Err(OsError::Input("ctrl release failed".into()));
@@ -452,9 +335,6 @@ mod tests {
 
     #[test]
     fn clear_clipboard_failure_never_pastes_and_restores() {
-        // I1: a failed clear (e.g. another process holds the clipboard)
-        // must not silently fall through to capturing whatever stale
-        // content is still sitting in the clipboard.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         *ops.clear_should_fail.lock().unwrap() = true;
         let outcome = run(&StubBackend::ok("<output>x</output>"), "Fix.", &ops);
@@ -476,11 +356,6 @@ mod tests {
 
     #[test]
     fn backend_error_carries_the_real_error_as_detail_not_just_the_generic_reason() {
-        // R5: "backend-error" alone cannot distinguish a bad API key from
-        // Ollama being down from `claude` missing from PATH -- all three
-        // used to produce the identical outcome. `detail` must carry the
-        // real `BackendError` so the log (and eventually the tray/settings
-        // window) can actually say which one happened.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         let outcome = run(
             &StubBackend::failing_with(BackendError::Misconfigured("apiKey is required".into())),
@@ -505,11 +380,6 @@ mod tests {
 
     #[test]
     fn clipboard_write_failure_gets_its_own_reason_distinct_from_backend_error() {
-        // R14: this used to also report "backend-error" here, contradicting
-        // the I1 comment on send_paste's failure path a few lines below --
-        // which argues against exactly this mislabelling, because
-        // "backend-error" sends the user to debug their AI backend when the
-        // real fault is the clipboard/OS layer.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         *ops.write_should_fail_once.lock().unwrap() = true;
         let outcome = run(&StubBackend::ok("<output>Corrected.</output>"), "Fix.", &ops);
@@ -575,10 +445,6 @@ mod tests {
 
     #[test]
     fn stuck_modifiers_before_paste_never_pastes_and_restores() {
-        // I3: the second modifier gate (immediately before Ctrl+V) is a
-        // distinct, independently-binding check from the first one (before
-        // Ctrl+C). Let the first gate see the modifiers already released,
-        // then keep them stuck for the whole pre-paste wait.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         let mut seq = vec![false];
         seq.extend(std::iter::repeat(true).take(500));
@@ -615,11 +481,6 @@ mod tests {
 
     #[test]
     fn unreadable_original_clipboard_is_never_overwritten_by_the_guard() {
-        // I4: if the very first read fails (a non-text clipboard, e.g. an
-        // image, or one we simply cannot read), the guard never learned
-        // what was there. It must leave the clipboard alone rather than
-        // writing an empty string over it — even on an abort path that
-        // otherwise touches nothing else.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         *ops.read_should_fail.lock().unwrap() = true;
         *ops.modifiers_sequence.lock().unwrap() = vec![true; 500];
@@ -635,14 +496,6 @@ mod tests {
 
     #[test]
     fn failing_send_paste_still_sleeps_before_the_guard_restores() {
-        // I1: WindowsOps::chord dispatches Ctrl-down, the letter click and
-        // Ctrl-up before checking any of them, then returns Err if any
-        // failed -- so a chord where 'v' landed but the Ctrl release failed
-        // returns Err with the paste already in flight. Skipping the
-        // restore delay on this path lets the guard overwrite the
-        // clipboard with the original before the target app (which reads
-        // on its own schedule) has picked up the pasted text. The delay
-        // must run on this abort just like it does on the happy path.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         *ops.paste_should_fail.lock().unwrap() = true;
         let outcome = run(&StubBackend::ok("<output>Corrected.</output>"), "Fix.", &ops);
@@ -664,11 +517,6 @@ mod tests {
 
     #[test]
     fn foreground_window_zero_at_capture_aborts_before_any_clipboard_change() {
-        // I2: GetForegroundWindow() returns 0 (NULL) when no window has
-        // focus. If the baseline sample is 0 and a later sample is also 0
-        // (still no foreground window), `0 == 0` reports "unchanged" and
-        // the cycle would paste with no known target. The baseline sample
-        // itself must be rejected.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         *ops.focus.lock().unwrap() = 0;
         let outcome = run(&StubBackend::ok("<output>x</output>"), "Fix.", &ops);
@@ -681,9 +529,6 @@ mod tests {
 
     #[test]
     fn backend_error_reports_the_real_elapsed_backend_ms_not_zero() {
-        // Minor: a hardcoded 0 here means a 120-second Ollama timeout logs
-        // as an instant failure, hiding exactly the information needed to
-        // diagnose it.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         let outcome = run(&StubBackend::failing(), "Fix.", &ops);
         assert_eq!(outcome.reason, "backend-error");
@@ -694,10 +539,6 @@ mod tests {
         );
     }
 
-    // B6: `captured_text`/`result_text` are the whole reason `run`'s
-    // wrapper split from `run_inner` exists (see `CycleOutcome::captured_text`'s
-    // doc comment), yet nothing in this module's other 20 tests ever reads
-    // either field. Three cases, one per stage capture can reach:
     #[test]
     fn a_successful_cycle_carries_both_captured_and_result_text() {
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
@@ -708,9 +549,6 @@ mod tests {
 
     #[test]
     fn an_abort_after_capture_carries_the_capture_but_no_result() {
-        // Sentinel missing: capture succeeded (there is something the user
-        // selected), but the backend's reply was never going to be pasted,
-        // so there is no result text to report.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         let outcome = run(&StubBackend::ok("no sentinel here"), "Fix.", &ops);
         assert_eq!(outcome.reason, "no-sentinel");
@@ -720,8 +558,6 @@ mod tests {
 
     #[test]
     fn an_early_abort_before_capture_carries_neither_text_field() {
-        // Stuck modifiers: the cycle aborts before `send_copy` ever runs,
-        // so there is genuinely nothing captured to report either.
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         *ops.modifiers_sequence.lock().unwrap() = vec![true; 500];
         let outcome = run(&StubBackend::ok("<output>x</output>"), "Fix.", &ops);

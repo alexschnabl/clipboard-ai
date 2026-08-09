@@ -19,19 +19,6 @@ pub trait CommandRunner: Send + Sync {
     ) -> Result<String, BackendError>;
 }
 
-/// Joins `handle`, but abandons it and returns `Timeout` if it has not
-/// finished by `deadline`.
-///
-/// `JoinHandle::join` blocks unconditionally until the thread returns.
-/// For the reader/writer threads here that means `read_to_end` /
-/// `write_all` completing -- which does not happen until every handle to
-/// the pipe's far end is closed, including ones inherited by descendants
-/// of the child that outlive it. Polling `is_finished()` against the same
-/// deadline used to wait for the child's exit keeps that bounded: on
-/// expiry the thread is abandoned (dropping an unfinished `JoinHandle`
-/// does not block) rather than joined, exactly like the existing timeout
-/// branch above abandons its reader/writer threads and for the same
-/// reason.
 fn join_with_deadline<T: Send + 'static>(
     handle: thread::JoinHandle<T>,
     deadline: Instant,
@@ -75,16 +62,10 @@ impl CommandRunner for ProcessRunner {
             return Err(BackendError::Transport("missing a stdio handle".into()));
         };
 
-        // Writing all of stdin before reading any of stdout/stderr can deadlock:
-        // if the child starts producing output before it has consumed all of
-        // stdin, and either OS pipe buffer fills before its far end is drained,
-        // both sides block forever (this is called out in the std::process
-        // docs). Doing the write and both reads on their own threads means the
-        // parent (this thread) never blocks any one of them on another.
         let stdin_payload = stdin.to_string();
         let stdin_thread = thread::spawn(move || {
             let result = stdin_handle.write_all(stdin_payload.as_bytes());
-            drop(stdin_handle); // close stdin so the child sees EOF
+            drop(stdin_handle);
             result
         });
         let stdout_thread = thread::spawn(move || {
@@ -96,8 +77,6 @@ impl CommandRunner for ProcessRunner {
             stderr_handle.read_to_end(&mut buf).map(|_| buf)
         });
 
-        // Poll for exit against a deadline so a hang is bounded rather than
-        // permanent. `Child` has no wait-with-timeout in std, so we poll.
         let deadline = Instant::now() + Duration::from_millis(timeout_ms);
         let wait_result = loop {
             match child.try_wait() {
@@ -115,26 +94,12 @@ impl CommandRunner for ProcessRunner {
         let status = match wait_result {
             Ok(status) => status,
             Err(err) => {
-                // Kill the immediate child so it can't survive as an orphan.
-                // This does not kill any of ITS descendants -- Windows does
-                // not tear down a process tree on TerminateProcess without a
-                // job object -- so a grandchild (e.g. `cmd /C ping ...`'s
-                // `ping.exe`) can keep the stdout/stderr pipes open long after
-                // the child we spawned is gone. The reader/writer threads are
-                // therefore deliberately abandoned here rather than joined:
-                // joining would block for as long as that grandchild lives,
-                // turning a bounded timeout back into an unbounded hang.
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(err);
             }
         };
 
-        // I3: the child has exited, but that says nothing about whether a
-        // descendant it spawned is still holding a pipe handle open. Carry
-        // the same `deadline` used above into these joins so a lingering
-        // descendant bounds the wait instead of hanging `run` -- and with
-        // it `BusyGuard` -- forever.
         let stdin_write = join_with_deadline(stdin_thread, deadline, "stdin writer")?;
         if let Err(e) = stdin_write {
             let _ = child.kill();
@@ -165,9 +130,6 @@ impl CommandRunner for ProcessRunner {
 
 pub struct ClaudeCli {
     name: String,
-    /// The `--model` to pass, or `None` to let the CLI use its own default.
-    /// The main lever for trading quality against speed on this backend: a
-    /// small model (e.g. `haiku`) answers noticeably faster than the default.
     model: Option<String>,
     effort: Effort,
     session_persistence: bool,
@@ -179,8 +141,6 @@ impl ClaudeCli {
     pub fn new(config: &BackendConfig, runner: Arc<dyn CommandRunner>) -> Self {
         Self {
             name: config.name.clone(),
-            // Blank-filtered like the HTTP adapters: a hand-edited empty
-            // model must mean "the CLI's default", never `--model ""`.
             model: config.model.clone().filter(|m| !m.trim().is_empty()),
             effort: config.effort,
             session_persistence: config.session_persistence,
@@ -190,9 +150,6 @@ impl ClaudeCli {
     }
 }
 
-/// The literal value `claude -p --effort <value>` expects, or `None` for
-/// `Effort::Default` -- which means "pass no `--effort` flag at all, let the
-/// CLI decide" rather than any particular level.
 fn effort_flag_value(effort: Effort) -> Option<&'static str> {
     match effort {
         Effort::Default => None,
@@ -215,13 +172,6 @@ impl Backend for ClaudeCli {
             "--system-prompt".to_string(),
             system_prompt.to_string(),
         ];
-        // Both configurable per-backend now (Backends settings, claude-cli
-        // kind only) rather than hardcoded. `low` effort and persistence off
-        // remain the schema defaults -- see `Effort`'s and
-        // `BackendConfig::session_persistence`'s doc comments in config.rs
-        // -- so a backend saved before this shipped keeps behaving exactly
-        // as it did when these were hardcoded. Neither flag touches the
-        // dominant cost, which is the CLI's own process startup.
         if let Some(level) = effort_flag_value(self.effort) {
             args.push("--effort".to_string());
             args.push(level.to_string());
@@ -355,8 +305,6 @@ mod tests {
         assert_eq!(args[idx + 1], "low");
     }
 
-    // `Effort::Default` means "let the CLI decide" -- the one level that
-    // must produce no `--effort` flag at all, not `--effort default`.
     #[test]
     fn effort_default_produces_no_effort_flag() {
         let mut config = cfg();
@@ -417,7 +365,6 @@ mod tests {
         assert!(matches!(backend.transform("s", "t"), Err(BackendError::Timeout)));
     }
 
-    // The configured timeout must reach the runner unaltered.
     #[test]
     fn the_configured_timeout_reaches_the_runner() {
         let mut config = cfg();
@@ -430,12 +377,6 @@ mod tests {
     }
 }
 
-/// I3: the success path's reader-thread joins must be bounded by the same
-/// deadline used to wait for the child to exit, exactly like the existing
-/// timeout branch. Otherwise a descendant of `claude` that outlives it and
-/// keeps holding a pipe's write end open makes `read_to_end` -- and so
-/// `join()` -- block forever, `run` never returns, `BusyGuard` never drops,
-/// and every subsequent hotkey press does nothing.
 #[cfg(test)]
 mod join_with_deadline_tests {
     use std::{
@@ -449,9 +390,6 @@ mod join_with_deadline_tests {
     fn abandons_a_hung_thread_and_returns_timeout_promptly() {
         let deadline = Instant::now() + Duration::from_millis(150);
         let handle = thread::spawn(|| {
-            // Stands in for a reader thread blocked in `read_to_end`
-            // because a lingering grandchild process still holds the
-            // pipe's write end open.
             thread::sleep(Duration::from_secs(30));
             42
         });
@@ -483,19 +421,12 @@ mod join_with_deadline_tests {
     }
 }
 
-/// These tests exercise the real `ProcessRunner`, spawning actual child processes
-/// via `cmd.exe`. They are Windows-specific by construction (the commands used are
-/// `cmd.exe` builtins), which matches the platform this app ships on.
 #[cfg(test)]
 mod process_runner_tests {
     use std::time::Instant;
 
     use super::*;
 
-    /// A payload comfortably larger than any OS pipe buffer, built as many CRLF-
-    /// terminated lines (not one giant line) so `findstr /r ".*"` -- which matches
-    /// and re-emits input line by line -- interleaves reading stdin with writing
-    /// stdout, which is what makes the write-then-read deadlock reachable.
     fn big_payload() -> String {
         let line = "x".repeat(200);
         let mut payload = String::with_capacity(600_000);
@@ -522,9 +453,6 @@ mod process_runner_tests {
 
     #[test]
     fn a_hanging_process_is_killed_and_returns_timeout() {
-        // `timeout.exe` refuses to run at all when stdin is redirected ("Input
-        // redirection is not supported"), which `ProcessRunner` always does. `ping`
-        // has no such restriction and reliably takes ~30s for 31 pings.
         let args = vec![
             "/C".to_string(),
             "ping".to_string(),

@@ -1,19 +1,7 @@
-// test/unit/time-format.test.ts — formatting rules for HistoryPanel's Time
-// and Duration columns. Both formatters take their "current time" (and, for
-// the timestamp one, locale) as explicit parameters precisely so these rules
-// are testable without mocking the system clock or depending on whatever
-// locale happens to run the suite.
 import { describe, expect, it } from 'vitest';
 import { formatDuration, formatHistoryTimestamp } from '../../src/lib/time-format';
 
 describe('formatHistoryTimestamp', () => {
-	// Built with the local-time `Date` constructor, not `Date.UTC` --
-	// `formatHistoryTimestamp` compares `getFullYear`/`getMonth`/`getDate`
-	// (local-time accessors) and `Intl.DateTimeFormat` also renders in local
-	// time by default, so a UTC-anchored fixture would silently land on a
-	// different calendar day than intended on any machine not itself in UTC
-	// (exactly what broke this test the first time it ran here).
-	// 2026-08-08 14:32:07 local, as the fixed "now" for every "today" case.
 	const today = new Date(2026, 7, 8, 14, 32, 7).getTime();
 
 	it('shows a bare time for a timestamp earlier the same day', () => {

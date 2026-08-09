@@ -5,12 +5,6 @@ use serde_json::json;
 use crate::backend::{Backend, BackendError, HttpClient};
 use crate::config::BackendConfig;
 
-/// Talks the OpenAI Chat Completions wire format -- `POST
-/// {baseUrl}/chat/completions` with a `messages` array and a `choices[0]`
-/// response -- which is also what every "OpenAI-compatible" local server
-/// (Ollama, LM Studio, llama.cpp's server mode, ...) implements. That's the
-/// entire reason this backend kind exists as one implementation rather than
-/// one per local-model server: they all speak this same shape.
 pub struct OpenAiCompatible {
     name: String,
     base_url: Option<String>,
@@ -39,10 +33,6 @@ impl Backend for OpenAiCompatible {
     }
 
     fn transform(&self, system_prompt: &str, text: &str) -> Result<String, BackendError> {
-        // `filter` before `ok_or_else`: a blank string is as unusable as an
-        // absent one, and hand-editing config.json can produce either. The
-        // settings UI already trims empties to null, so this covers the
-        // hand-edited path the UI cannot.
         let base = self
             .base_url
             .as_deref()
@@ -50,36 +40,17 @@ impl Backend for OpenAiCompatible {
             .ok_or_else(|| BackendError::Misconfigured("baseUrl is required".into()))?;
         let url = format!("{}/chat/completions", base.trim_end_matches('/'));
 
-        // Matches the `base_url` check above: a missing model must fail
-        // clearly here, not ship as `"model": ""` and fail opaquely once it
-        // reaches the remote server (an unrecognized-model HTTP error, or a
-        // provider that silently falls back to whatever it treats as
-        // "default").
         let model = self
             .model
             .as_deref()
             .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| BackendError::Misconfigured("model is required".into()))?;
 
-        // Unlike `anthropic.rs`'s `x-api-key`, this is a bearer token in the
-        // standard `Authorization` header -- the OpenAI convention every
-        // compatible server also follows. Sent only when configured and
-        // non-blank -- matching the `base_url`/`model` blank-is-absent
-        // treatment above: a local server (Ollama, ...) typically has no
-        // auth at all, and sending a blank key as `Authorization: Bearer
-        // ` (a header some servers would still parse) is worse than
-        // omitting the header entirely. Unlike `base_url`/`model`, a blank
-        // key is not an error -- the key is optional here, so absent is
-        // always legal.
         let mut headers = Vec::new();
         if let Some(key) = self.api_key.as_deref().filter(|s| !s.trim().is_empty()) {
             headers.push(("Authorization".to_string(), format!("Bearer {key}")));
         }
 
-        // `"stream": false` is not the wire format's default -- omitting it
-        // would get an SSE chunk stream back instead of one JSON object, and
-        // `post_json`'s `HttpClient` contract only ever returns a single
-        // parsed `Value`, not an event stream.
         let body = json!({
             "model": model,
             "stream": false,
@@ -91,15 +62,6 @@ impl Backend for OpenAiCompatible {
 
         let response = self.http.post_json(&url, &headers, &body, self.timeout_ms)?;
 
-        // `choices[0]` only: with `"n"` left unset (its default is 1) and no
-        // multi-completion feature this app exposes, a compliant server
-        // never returns more than one choice anyway. The whole chain is one
-        // `.and_then()` collapsing every way a compliant-looking response
-        // can still fail to carry usable text -- an empty `choices` array,
-        // a `null` `message` (seen from at least one real Ollama build), a
-        // `null` `content` -- into the same `BadResponse` rather than a
-        // `.unwrap()`/index panic on a field a malformed or unusual server
-        // response left out.
         let content = response
             .get("choices")
             .and_then(|c| c.get(0))
@@ -110,12 +72,6 @@ impl Backend for OpenAiCompatible {
                 BackendError::BadResponse(format!("no assistant content in {response}"))
             })?;
 
-        // Distinct from the missing-field case just above: `content` was
-        // present but empty or whitespace-only, which is exactly as
-        // unusable -- matching `anthropic.rs`'s "no text blocks in
-        // response" and `claude_cli.rs`'s "claude returned no output"
-        // checks, both of which reject this same shape of response rather
-        // than let it through to fail opaquely downstream.
         if content.trim().is_empty() {
             return Err(BackendError::BadResponse("assistant returned empty content".into()));
         }
@@ -221,10 +177,6 @@ mod tests {
         assert!(matches!(backend.transform("s", "t"), Err(BackendError::Transport(_))));
     }
 
-    // Same code path (`transform`'s `.and_then()` chain over
-    // `choices[0].message.content`), exercised with a different link of
-    // that chain missing/null each time -- all three must fail cleanly as
-    // a `BadResponse`, never panic.
     #[test]
     fn malformed_choices_are_a_backend_error_not_a_panic() {
         for body in [
@@ -240,11 +192,6 @@ mod tests {
         }
     }
 
-    // Merged (base_url x2, model x2 -- missing and blank for each): only
-    // hand-editing config.json can produce the blank cases, since the
-    // settings UI trims empty fields to null, but a blank value is exactly
-    // as unusable as an absent one and must fail the same way, not ship to
-    // the server.
     #[test]
     fn a_missing_or_blank_base_url_or_model_is_a_backend_error() {
         let cases: [(&str, fn(&mut BackendConfig)); 4] = [
@@ -264,9 +211,6 @@ mod tests {
         }
     }
 
-    // C15: a blank key is legal (it's optional here, unlike base_url/model)
-    // -- it must be treated as absent, not sent as an empty bearer token
-    // some servers would still parse.
     #[test]
     fn a_blank_api_key_sends_no_authorization_header() {
         let mut config = cfg();
@@ -281,11 +225,6 @@ mod tests {
         );
     }
 
-    // C14: `content` present but empty/whitespace-only is exactly as
-    // unusable as a missing one -- matches `anthropic.rs`'s "no text
-    // blocks" and `claude_cli.rs`'s "no output" checks, both of which
-    // already reject this shape rather than let it through to fail
-    // opaquely once pasted.
     #[test]
     fn empty_or_whitespace_assistant_content_is_a_backend_error() {
         for content in ["", "   "] {
@@ -297,7 +236,6 @@ mod tests {
         }
     }
 
-    // The configured timeout must reach the transport call unaltered.
     #[test]
     fn the_configured_timeout_reaches_the_transport_call() {
         let mut config = cfg();

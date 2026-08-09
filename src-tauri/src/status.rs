@@ -11,9 +11,6 @@ const MAX_LOG_BYTES: u64 = 1_048_576;
 
 pub fn log_line(outcome: &CycleOutcome, prompt_name: &str, backend_name: &str) -> String {
     let verdict = if outcome.pasted { "PASTED" } else { "ABORTED" };
-    // Unix seconds, not a formatted date: no new dependency needed, and a
-    // log line with no timestamp at all is useless for correlating a
-    // failure with what the user was doing at the time.
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -22,20 +19,12 @@ pub fn log_line(outcome: &CycleOutcome, prompt_name: &str, backend_name: &str) -
         "ts={ts} {verdict} prompt={prompt_name:?} backend={backend_name:?} reason={} capture_ms={} backend_ms={}",
         outcome.reason, outcome.captured_ms, outcome.backend_ms
     );
-    // R5: this is the one place `CycleOutcome::detail` -- the real
-    // `BackendError`, not just the generic `reason` -- actually reaches
-    // anywhere a human can read it. `{detail:?}` (Debug, not Display) keeps
-    // a multi-line stderr blob or an embedded quote from breaking the log's
-    // one-line-per-entry shape.
     if let Some(detail) = &outcome.detail {
         line.push_str(&format!(" detail={detail:?}"));
     }
     line
 }
 
-/// Tray menu item labels have limited horizontal room; a long command name
-/// (there is no length limit on `CommandConfig::name`) must not blow past
-/// it unbounded.
 const SUMMARY_MAX_BYTES: usize = 60;
 
 pub fn summary(outcome: &CycleOutcome, prompt_name: &str) -> String {
@@ -47,10 +36,6 @@ pub fn summary(outcome: &CycleOutcome, prompt_name: &str) -> String {
     truncate_for_menu(&text)
 }
 
-/// Truncates `text` to at most [`SUMMARY_MAX_BYTES`] bytes, marking the cut
-/// with `…` rather than clipping silently. Cuts on a `char` boundary --
-/// stepping back from the target byte offset, not slicing at it directly --
-/// so a multi-byte command name can never panic here.
 fn truncate_for_menu(text: &str) -> String {
     if text.len() <= SUMMARY_MAX_BYTES {
         return text.to_string();
@@ -62,9 +47,6 @@ fn truncate_for_menu(text: &str) -> String {
     format!("{}…", &text[..cut])
 }
 
-/// Append one line to `clipboard-ai.log`, truncating first if it has grown
-/// past MAX_LOG_BYTES. A logging failure is swallowed deliberately: losing a
-/// log line must never take down a cycle that otherwise succeeded.
 pub fn append_log(dir: &Path, line: &str) {
     let path = dir.join("clipboard-ai.log");
     if let Ok(meta) = fs::metadata(&path) {
@@ -89,8 +71,6 @@ mod tests {
             detail: None,
             captured_ms: 42,
             backend_ms: 1234,
-            // Irrelevant here: `log_line` deliberately never records the
-            // user's text, only metadata and timings.
             captured_text: None,
             result_text: None,
         }
@@ -113,9 +93,6 @@ mod tests {
         assert!(line.contains("ABORTED"));
     }
 
-    // R5: the log line is the one place `CycleOutcome::detail` -- the real
-    // `BackendError` behind a generic "backend-error" -- must actually
-    // surface, or the field is pointless plumbing.
     #[test]
     fn a_backend_error_detail_is_included_in_the_log_line() {
         let mut o = outcome(false, "backend-error");
@@ -155,20 +132,12 @@ mod tests {
 
     #[test]
     fn the_tray_summary_is_short_enough_for_a_menu_item() {
-        // A long command name genuinely can reach the tray -- there is no
-        // length limit on `CommandConfig::name` -- so this must exercise
-        // real truncation, not just fixtures that happen to already be
-        // short.
         let long_name = "A".repeat(200);
         let text = summary(&outcome(true, "ok"), &long_name);
         assert!(text.len() <= 60, "menu labels must stay short, got {}", text.len());
         assert!(text.ends_with('…'), "a truncated summary should be marked, got: {text}");
     }
 
-    // The guard against someone adding `text={:?}` to `log_line`'s format
-    // string for debugging and silently logging clipboard content -- this
-    // module logs timings and outcome metadata only, never the captured or
-    // pasted text (contrast `history.rs`, which stores both by design).
     #[test]
     fn log_line_never_leaks_captured_or_result_text() {
         let mut o = outcome(true, "ok");

@@ -19,11 +19,6 @@ pub enum OsError {
     Input(String),
 }
 
-/// R13: how many times `chord` retries a failed Control-release before
-/// giving up and surfacing the failure. A stuck-down Control is bad enough
-/// (see `chord`'s doc comment) that a couple of cheap extra attempts are
-/// worth it even though a `SendInput` failure is not usually the kind of
-/// thing that clears up on its own.
 const CONTROL_RELEASE_RETRIES: u32 = 3;
 
 pub trait OsOps: Send + Sync {
@@ -58,17 +53,6 @@ impl WindowsOps {
     }
 
     fn chord(&self, letter: char) -> Result<(), OsError> {
-        // A panic while holding this lock (e.g. inside `enigo`) poisons the
-        // mutex; the default `?` on `.lock()` would then make every future
-        // cycle abort forever while the app still looks alive, with no way
-        // to recover short of a restart. There is no invariant of ours to
-        // protect here -- `Enigo` holds no partially-mutated state of ours
-        // across calls -- so recover the guard instead of propagating the
-        // poison. Logged, matching `lib.rs`'s `recover_lock` (its own doc
-        // comment states that logging every recovery, not just performing
-        // it silently, was the intent) -- `status::append_log` isn't
-        // reachable from here without threading a path through `OsOps`, but
-        // the console line costs nothing.
         let mut enigo = self.enigo.lock().unwrap_or_else(|e| {
             eprintln!("enigo mutex was poisoned by an earlier panic; recovering");
             e.into_inner()
@@ -77,21 +61,6 @@ impl WindowsOps {
             .key(Key::Control, Direction::Press)
             .map_err(|e| OsError::Input(e.to_string()))?;
         let click = enigo.key(Key::Unicode(letter), Direction::Click);
-        // Release Control even if the letter failed, so a failure never leaves
-        // a modifier logically stuck down for the user.
-        //
-        // R13: a failed release here is worse than a failed click -- it can
-        // leave Control synthetically held down OS-wide, so the user's very
-        // next ordinary keystroke in *any* application fires as a Ctrl
-        // shortcut, silently, until they happen to tap Control themselves.
-        // Retry it a few times before giving up, and -- unlike before,
-        // where a release failure alongside a click failure was never even
-        // inspected, because the click's own `?` returned first and threw
-        // the release's `Result` away unread -- always surface a release
-        // failure, in preference to a click failure if both happened: a
-        // missed paste is recoverable by pressing the hotkey again, a
-        // stuck Control is not something the user can diagnose from inside
-        // the app that caused it.
         let mut release = enigo.key(Key::Control, Direction::Release);
         for attempt in 1..CONTROL_RELEASE_RETRIES {
             if release.is_ok() {
@@ -113,25 +82,14 @@ impl WindowsOps {
 
 impl OsOps for WindowsOps {
     fn read_clipboard(&self) -> Result<String, OsError> {
-        // See the comment on `chord`: recover a poisoned lock rather than
-        // propagate it, and log it, matching `chord`. Losing one in-flight
-        // clipboard operation to a panic is not an invariant violation worth
-        // permanently disabling every future cycle over.
         let mut cb = self.clipboard.lock().unwrap_or_else(|e| {
             eprintln!("clipboard mutex was poisoned by an earlier panic; recovering");
             e.into_inner()
         });
-        // Do not flatten a read failure into `Ok(String::new())`: a non-text
-        // clipboard (an image, a file list) and a locked/unreadable one both
-        // fail here, and the caller must be able to tell that apart from a
-        // clipboard that genuinely holds an empty string. Callers that treat
-        // "unreadable" the same as "empty" risk overwriting content they
-        // never actually read (see cycle::ClipboardGuard).
         cb.get_text().map_err(|e| OsError::Clipboard(e.to_string()))
     }
 
     fn write_clipboard(&self, text: &str) -> Result<(), OsError> {
-        // See `read_clipboard`: recover a poisoned lock and log it.
         let mut cb = self.clipboard.lock().unwrap_or_else(|e| {
             eprintln!("clipboard mutex was poisoned by an earlier panic; recovering");
             e.into_inner()
@@ -172,14 +130,6 @@ impl OsOps for WindowsOps {
     }
 }
 
-/// A safe no-op `OsOps` used only when `WindowsOps::new()` itself fails to
-/// initialize (no clipboard or input subsystem available, e.g. a
-/// non-interactive session). Every clipboard/input operation reports
-/// failure and `foreground_window` reports 0, so a cycle run against it
-/// hits the I2 zero-focus guard and aborts immediately, before any
-/// clipboard mutation or synthetic input -- harmless rather than a panic.
-/// This exists so a broken OS layer still lets the app reach a tray icon
-/// (see I5) instead of the whole process dying with no message at all.
 pub struct NullOps {
     start: Instant,
 }
@@ -226,20 +176,11 @@ mod tests {
 
     use super::*;
 
-    /// A panic while holding the clipboard or enigo mutex must not
-    /// permanently disable every future cycle: there is no invariant of
-    /// ours protected by the poison flag (`Clipboard`/`Enigo` hold no
-    /// partially-mutated state of ours across calls), so recovering the
-    /// guard must let normal operation continue instead of every
-    /// subsequent `read_clipboard`/`write_clipboard` failing forever.
     #[test]
     fn a_poisoned_clipboard_mutex_recovers_instead_of_disabling_every_future_call() {
         let ops = match WindowsOps::new() {
             Ok(ops) => ops,
             Err(e) => {
-                // No clipboard/input subsystem available in this
-                // environment (e.g. a non-interactive session) -- nothing
-                // to exercise this fix against.
                 eprintln!("skipping: WindowsOps::new() failed here: {e}");
                 return;
             }
@@ -256,9 +197,6 @@ mod tests {
         assert!(panicked.is_err(), "the spawned thread should have panicked");
         assert!(ops.clipboard.is_poisoned(), "the mutex should now be poisoned");
 
-        // Before the fix, `.lock().map_err(...)?` propagated the poison and
-        // every call below would return `Err("clipboard error: poisoned")`
-        // forever.
         ops.write_clipboard("poison-recovery-probe")
             .expect("write should recover from a poisoned lock, not fail forever");
         assert_eq!(ops.read_clipboard().unwrap(), "poison-recovery-probe");
@@ -282,9 +220,6 @@ mod tests {
 
     #[test]
     fn a_cycle_run_against_null_ops_aborts_immediately_without_touching_anything() {
-        // I5: this is the fallback used when WindowsOps::new() fails.
-        // foreground_window() == 0 must trip the I2 guard before the cycle
-        // ever calls the backend or attempts a clipboard read/write.
         let ops = NullOps::new();
         let outcome = crate::cycle::run(&PanicIfCalledBackend, "Fix.", &ops);
         assert!(!outcome.pasted);

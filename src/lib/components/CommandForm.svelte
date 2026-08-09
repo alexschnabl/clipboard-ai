@@ -1,4 +1,3 @@
-<!-- lib/components/CommandForm.svelte — add/edit dialog for a single command -->
 <script lang="ts">
 	import * as Dialog from '$lib/components/shadcn/dialog/index.js';
 	import * as Select from '$lib/components/shadcn/select/index.js';
@@ -17,7 +16,6 @@
 		command = null
 	}: {
 		open: boolean;
-		/** The command being edited, or null when adding a new one. */
 		command?: CommandConfig | null;
 	} = $props();
 
@@ -26,11 +24,6 @@
 	let hotkey = $state('');
 	let systemPrompt = $state('');
 	let saving = $state(false);
-	/** Set from `configState.error` when `save()` (via `commit`) rejects this
-	 *  dialog's edit -- shown inline, dialog left open, so the user can fix
-	 *  the field and retry (see fix3 report). Reset on open, not just on a
-	 *  fresh attempt, so a stale error from a *previous* dialog session never
-	 *  bleeds into one that hasn't tried to save yet. */
 	let submitError = $state<string | null>(null);
 
 	const isEdit = $derived(command !== null);
@@ -41,12 +34,6 @@
 	);
 
 	let wasOpen = false;
-	// Seed the form whenever the dialog opens; when it closes -- Save,
-	// Cancel, Escape or a backdrop click all flow through here since `open`
-	// is the one signal common to all of them -- clear any stale
-	// `configState.error` so the page-level banner in +page.svelte doesn't
-	// keep showing a failed-save error for an edit the user just abandoned
-	// (a successful save has already nulled it out, so this is a no-op then).
 	$effect(() => {
 		if (open) {
 			wasOpen = true;
@@ -100,11 +87,6 @@
 			</Dialog.Description>
 		</Dialog.Header>
 
-		<!-- `gap-3` (12px), not the more common `gap-4`: matches
-		     mockup-a-compact.html's `.dialog-body { gap: 12px }` -- Dialog.Content
-		     itself (shadcn-owned, not ours to edit) already wraps this in its own
-		     `p-6 gap-6`, so tightening the *inter-field* rhythm here is the one
-		     spacing lever this component has toward the mockup's denser dialog. -->
 		<div class="flex flex-col gap-3">
 			<div class="flex flex-col gap-1.5">
 				<Label for="command-name">{i18n.t.commands.form.nameLabel}</Label>
@@ -148,9 +130,6 @@
 					placeholder={i18n.t.commands.form.promptPlaceholder}
 					rows={4}
 				/>
-				<!-- Transparency: the app silently appends the sentinel
-				     instruction (sentinel.rs) to every prompt, so the user
-				     knows why the model is told to answer only inside tags. -->
 				<p class="text-xs text-muted-foreground">{i18n.t.commands.form.promptSentinelHint}</p>
 			</div>
 		</div>

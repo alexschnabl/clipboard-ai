@@ -1,16 +1,3 @@
-<!--
-	lib/components/SettingsSidebar.svelte — vertical nav rail for the settings window.
-
-	Shell for the chosen design direction (.superpowers/mockups/mockup-a-compact.html,
-	"Mockup A: Compact Utility"): a ~176px rail of icon + label + count badge replaces
-	all top chrome, including the page title -- the OS title bar already names the app.
-
-	The mockup pinned a System/Light/Dark theme toggle to the bottom of this rail; theme
-	was later moved to the Settings section (one place it's set), freeing that footer. It
-	now holds the in-window activity indicator: while a hotkey cycle runs, a pulsing dot
-	appears here, mirroring the tray-icon breathing off the same `cycle://state` event --
-	so a slow backend is visible from inside the window too, not only in the tray.
--->
 <script module lang="ts">
 	export type SectionId = 'commands' | 'backends' | 'history' | 'settings';
 </script>
@@ -63,10 +50,6 @@
 			<Icon class="size-[15px] shrink-0 opacity-80" />
 			<span class="truncate">{item.label}</span>
 			{#if item.count !== undefined}
-				<!-- F3 (review3-frontend.md): text-muted-foreground on bg-muted is
-				     4.15:1 in light mode, under AA's 4.5:1 -- text-foreground/65
-				     clears both themes (6.03:1 light, 6.88:1 dark), the same fix
-				     TABLE_HEAD_CLASS in $lib/table.ts carries. -->
 				<span
 					class="ml-auto flex h-[15px] shrink-0 items-center rounded-full bg-muted px-1.5 text-[10.5px] font-semibold text-foreground/65"
 				>
@@ -76,9 +59,6 @@
 		</button>
 	{/each}
 
-	<!-- Pinned to the bottom (`mt-auto`). Only present while a cycle is
-	     visibly running; `role="status"` + `aria-live` so a screen reader
-	     announces it, since it conveys transient state with no other cue. -->
 	{#if activity.running}
 		<div
 			class="mt-auto flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground"

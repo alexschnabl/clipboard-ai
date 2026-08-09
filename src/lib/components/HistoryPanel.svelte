@@ -1,5 +1,3 @@
-<!-- lib/components/HistoryPanel.svelte — last 100 cycle runs: view, expand to
-     recover input/result text, copy the result, clear the whole log. -->
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import * as Table from '$lib/components/shadcn/table/index.js';
@@ -17,21 +15,10 @@
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { HistoryEntry } from '$lib/types';
 
-	/** The retention cap history.rs enforces (`history::MAX_ENTRIES`) -- not
-	 *  exported to the frontend anywhere, so mirrored here as a literal to
-	 *  feed `i18n.t.history.hint`. Matches the brief ("last 100 runs"). */
 	const HISTORY_LIMIT = 100;
 
 	let confirmClearOpen = $state(false);
-	/** Index into `configState.history` of the currently expanded row, or
-	 *  `null` when none is. A single value, not a Set -- the mockup and the
-	 *  density goal both point at "one row's detail open at a time", and a
-	 *  single value is what makes "click the open row again to close it"
-	 *  trivial below. */
 	let expandedIndex = $state<number | null>(null);
-	/** Which copy button last succeeded, keyed by `${rowKey}-input`/`-result`
-	 *  so the transient "Copied" label can't bleed onto the wrong button when
-	 *  two rows are copied in quick succession. */
 	let copiedKey = $state<string | null>(null);
 	let copyError = $state<string | null>(null);
 	let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
@@ -40,14 +27,6 @@
 		void configState.loadHistory();
 	});
 
-	// F5 (review3-frontend.md): every other timer/listener in this codebase
-	// (HotkeyRecorder's `onDestroy` backstop, +page.svelte's `unlisten`) is
-	// cleared on unmount; this one wasn't. A
-	// settings-window hide within 1.5s of "Copy" used to destroy this
-	// component (it lives inside +page.svelte's `{#key configState.revision}`
-	// block) while the timeout was still pending -- harmless (nothing reads
-	// `copiedKey` on a dead instance), but inconsistent with the rest of the
-	// app's cleanup discipline.
 	onDestroy(() => {
 		clearTimeout(copiedResetTimer);
 	});
@@ -62,20 +41,6 @@
 		dot: string;
 		text: string;
 	} {
-		// Tokens only, per the brief: --primary for a real success (this
-		// project's teal, not an invented green), --muted-foreground for an
-		// abort (a cycle stopping itself on purpose is not an error), and
-		// --destructive reserved for an actual backend failure.
-		//
-		// F2 (review3-frontend.md): plain `text-primary` on `bg-background`
-		// computes to 2.62:1 in dark mode (well under AA's 4.5:1) -- dark
-		// mode's --primary is a deliberately dark teal, calibrated against
-		// `--primary-foreground` for use as a *background*, not as text on
-		// `--background`. `dark:text-chart-2` overrides it only in dark mode
-		// (light mode's plain `text-primary` already passes at 5.39:1) with
-		// a brighter step from the same teal family already defined in
-		// app.css's chart tokens -- computed at 8.14:1 against dark mode's
-		// `--background`, comfortable margin above the 4.5:1 floor.
 		switch (outcome.status) {
 			case 'succeeded':
 				return {
@@ -98,11 +63,6 @@
 		}
 	}
 
-	/** `navigator.clipboard`, not `@tauri-apps/plugin-clipboard-manager` --
-	 *  that plugin is not in package.json's dependencies (checked before
-	 *  writing this), and the task brief says to reach for it only if it's
-	 *  already a dependency. The Tauri webview exposes the standard Clipboard
-	 *  API, so this needs nothing extra. */
 	async function copyText(text: string, key: string): Promise<void> {
 		copyError = null;
 		try {
@@ -124,12 +84,6 @@
 	}
 </script>
 
-<!-- Same content-toolbar / content-scroll split as CommandList.svelte -- see
-     that component's comment for the spacing rationale. History's table
-     previously sat in its own `max-h-[28rem]` box regardless of the window's
-     actual height; it now fills whatever the toolbar leaves behind, matching
-     the mockup's `.content-scroll { flex: 1 1 auto }` instead of an
-     arbitrary cap. -->
 <div class="flex h-full min-h-0 flex-col">
 	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
 		<h2 class="text-[12.5px] font-bold">{i18n.t.history.title}</h2>

@@ -1,28 +1,3 @@
-// lib/i18n/de.ts — German UI text. Typed against `typeof en` (not
-// independently declared): TypeScript rejects this file at compile time if
-// a key is missing, a key exists here that `en.ts` doesn't have, or a
-// function's parameter types don't match — that check is the entire reason
-// this project chose a hand-rolled dictionary over a message-file toolchain.
-// Do not add `as const` or a standalone type annotation other than the one
-// below; either would weaken or break that guarantee.
-//
-// Terminology, kept consistent everywhere in this file (not swapped for a
-// synonym anywhere, per the task brief):
-//   - "command"  -> Befehl / Befehle
-//   - "backend"  -> Backend (kept as the English loanword — there is no
-//     shorter native alternative in common German technical use, and every
-//     backend *kind* label is already an English technical term too).
-//   - "hotkey"   -> Hotkey (kept as a loanword rather than "Tastenkombination"
-//     specifically so the Commands table's ~108px hotkey column and the
-//     Backends table's ~90px timeout-style columns in
-//     .superpowers/mockups/mockup-a-compact.html don't overflow — see
-//     v3-i18n-report.md for the full overflow note).
-//
-// Register: formal-neutral, imperative for buttons ("Speichern",
-// "Abbrechen", "Hinzufügen"), matching typical Windows desktop software.
-// Quotation marks use German typography ( „…“ ), not the English “…” pair
-// en.ts uses.
-
 import type { en } from './en';
 
 export const de: typeof en = {

@@ -1,39 +1,3 @@
-//! In-flight feedback via the tray icon.
-//!
-//! Replaces the earlier cursor-anchored overlay window. That approach had
-//! two problems inherent to "move a separate always-on-top window to follow
-//! the pointer": it lagged behind fast cursor motion (a window repositioned
-//! through the message pump can never be glued to the hardware cursor), and
-//! its placement was a DPI/physical-vs-logical rabbit hole. Animating the
-//! tray icon sidesteps both by construction -- there is no position to get
-//! wrong and nothing chasing anything. The cost is that the feedback lives
-//! in the corner rather than next to the user's text; that trade was the
-//! author's call.
-//!
-//! # Shape
-//!
-//! One [`TrayAnimation`] guard wraps `cycle::run`, exactly as
-//! `cycle::ClipboardGuard` and the old overlay did:
-//!
-//! ```ignore
-//! let anim = tray_anim::TrayAnimation::begin(app.clone());
-//! let outcome = cycle::run(...);
-//! anim.finish(); // stop the animation, restore the idle icon
-//! ```
-//!
-//! `begin` spawns a delay-gated timer thread that breathes the icon's
-//! opacity while the cycle runs. `finish` (and `Drop`, if `finish` is never
-//! reached -- an early return or a panic unwinding out of `cycle::run`)
-//! cancels that thread and restores the idle icon. There is no disarm: the
-//! restore is a property of scope, so no exit path can leave the tray stuck
-//! breathing. This mirrors the discipline the whole cycle engine is built
-//! on.
-//!
-//! No cross-cycle machinery (the generation counter the overlay needed) is
-//! required here: `lib.rs`'s `busy` re-entrancy flag already serialises the
-//! hotkey handler so exactly one cycle -- and therefore one `TrayAnimation`
-//! -- can exist at a time.
-
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     OnceLock,
@@ -44,67 +8,30 @@ use std::time::Duration;
 use tauri::image::Image;
 use tauri::{AppHandle, Emitter};
 
-/// Event the settings window listens for to mirror the tray animation in its
-/// own nav rail (`SettingsSidebar`). Payload is a bool: `true` once a cycle
-/// has run long enough to show (past the delay gate), `false` when it ends.
-/// Broadcast, not targeted -- only the settings window listens, and it may
-/// not be open, in which case it harmlessly reaches nobody.
 pub const CYCLE_STATE_EVENT: &str = "cycle://state";
 
-/// Best-effort, like every other tray/window update here: a dropped event is
-/// a missed flicker, never a stuck cycle (the `false` emit sits on the same
-/// guaranteed exit path as the idle-icon restore).
 fn emit_running(app: &AppHandle, running: bool) {
     let _ = app.emit(CYCLE_STATE_EVENT, running);
 }
 
-/// Must match the id given to the tray in `lib.rs`'s `TrayIconBuilder`. The
-/// animation thread reaches the (single) tray icon by this id rather than
-/// holding a `TrayIcon` handle, so nothing new has to be threaded onto
-/// `AppState`.
 pub const TRAY_ID: &str = "clipboard-ai-tray";
 
-/// Below this, a cycle is indistinguishable from instant (the spike measured
-/// a warm local model at ~400 ms). Waiting this long before touching the
-/// icon keeps a fast cycle -- or a burst of them -- from flickering the tray.
 const SHOW_DELAY_MS: u64 = 250;
 
-/// Time between animation frames. ~11 fps: a calm breath, not a strobe, and
-/// far under any rate where the shell would coalesce updates.
 const FRAME_INTERVAL_MS: u64 = 90;
 
-/// How finely the cancellable sleeps below poll the cancel flag -- bounds
-/// how long after `finish()` the thread can still be mid-sleep before it
-/// notices and restores the idle icon.
 const POLL_MS: u64 = 30;
 
-/// The icon breathes between full opacity and this fraction of it. Kept well
-/// above zero so the glyph dims rather than vanishing -- a pulse, not a
-/// blink.
 const MIN_ALPHA_SCALE: f64 = 0.4;
 
-/// Frames in one breath cycle. A full loop is `FRAME_COUNT *
-/// FRAME_INTERVAL_MS` ~= 1.3 s.
 const FRAME_COUNT: usize = 14;
 
-/// The dedicated tray icon, embedded at compile time. This is the
-/// author's tray-optimised export (a simplified mark that stays legible at
-/// 16-32 px), distinct from the full app icon used for the window, taskbar
-/// and installer -- the full mark turns to mush at tray size. `lib.rs` sets
-/// the tray to this same asset, and the breathing frames below are built
-/// from it, so the animation pulses exactly what the tray shows at rest.
 const TRAY_ICON_PNG: &[u8] = include_bytes!("../icons/tray-32.png");
 
-/// Decodes [`TRAY_ICON_PNG`] into an owned `Image`. `None` only if the
-/// embedded PNG somehow fails to decode -- a build-time constant, so in
-/// practice never, but the tray simply shows nothing to animate if it does.
 pub fn tray_icon() -> Option<Image<'static>> {
     Image::from_bytes(TRAY_ICON_PNG).ok()
 }
 
-/// The idle icon and the pre-built breathing frames, computed once from the
-/// tray icon and reused for every cycle. `None` if the embedded tray PNG
-/// fails to decode (see [`tray_icon`]).
 struct Frames {
     idle: Image<'static>,
     busy: Vec<Image<'static>>,
@@ -112,8 +39,6 @@ struct Frames {
 
 static FRAMES: OnceLock<Option<Frames>> = OnceLock::new();
 
-/// Scales one frame's alpha by `scale`, cloning the RGBA and multiplying
-/// every 4th byte. Pure so it can be unit-tested without a tray.
 fn scale_alpha(rgba: &[u8], scale: f64) -> Vec<u8> {
     let mut out = rgba.to_vec();
     let mut i = 3;
@@ -124,12 +49,9 @@ fn scale_alpha(rgba: &[u8], scale: f64) -> Vec<u8> {
     out
 }
 
-/// The alpha multiplier for frame `i`: a cosine breath from 1.0 down to
-/// `MIN_ALPHA_SCALE` and back, so the loop is seamless. Pure/unit-tested.
 fn breath_scale(i: usize, count: usize) -> f64 {
     let phase = (i as f64 / count as f64) * std::f64::consts::TAU;
-    // cos runs 1 -> -1 -> 1 over a full turn; remap to [MIN, 1].
-    let unit = 0.5 * (1.0 + phase.cos()); // 1 at i=0, 0 at the midpoint
+    let unit = 0.5 * (1.0 + phase.cos());
     MIN_ALPHA_SCALE + (1.0 - MIN_ALPHA_SCALE) * unit
 }
 
@@ -143,10 +65,6 @@ fn build_frames() -> Option<Frames> {
     Some(Frames { idle, busy })
 }
 
-/// Borrows `frame`'s bytes into a transient `Image` rather than cloning them
-/// -- `set_icon` copies into an OS icon synchronously, so the borrow is only
-/// alive for the call, and this keeps the ~11-per-second updates from
-/// churning a fresh RGBA `Vec` each tick.
 fn set_tray_icon(app: &AppHandle, frame: &Image<'_>) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let borrowed = Image::new(frame.rgba(), frame.width(), frame.height());
@@ -154,9 +72,6 @@ fn set_tray_icon(app: &AppHandle, frame: &Image<'_>) {
     }
 }
 
-/// Sleeps up to `total_ms`, waking early if `cancel` is set. Returns `true`
-/// if it was cancelled (the caller should stop), `false` if the full
-/// duration elapsed.
 fn sleep_cancellable(cancel: &AtomicBool, total_ms: u64) -> bool {
     let mut slept = 0;
     while slept < total_ms {
@@ -171,17 +86,11 @@ fn sleep_cancellable(cancel: &AtomicBool, total_ms: u64) -> bool {
 }
 
 fn run_animation(app: AppHandle, cancel: std::sync::Arc<AtomicBool>) {
-    // Delay gate: a cycle that finishes inside this window never touched the
-    // icon, so there is nothing to restore -- return without setting idle.
     if sleep_cancellable(&cancel, SHOW_DELAY_MS) {
         return;
     }
     let Some(Some(frames)) = FRAMES.get() else { return };
 
-    // Tell the settings window (if open) a cycle is now visibly running --
-    // emitted here, past the delay gate, so its in-window indicator appears
-    // on exactly the same "this is taking long enough to notice" boundary
-    // the tray breathing does, rather than flickering for a 400ms cycle.
     emit_running(&app, true);
 
     let mut i = 0;
@@ -195,16 +104,10 @@ fn run_animation(app: AppHandle, cancel: std::sync::Arc<AtomicBool>) {
             break;
         }
     }
-    // We changed the icon, so restore it, and clear the window indicator.
-    // These are the animation thread's last acts, and `Drop` joins it before
-    // returning, so no stray frame or stale "running" can outlive the cycle
-    // -- including when `Drop` runs during a panic unwinding out of the
-    // cycle, which is the whole reason this lives on the guaranteed path.
     set_tray_icon(&app, &frames.idle);
     emit_running(&app, false);
 }
 
-/// Animates the tray icon for the lifetime of one cycle. See the module doc.
 pub struct TrayAnimation {
     cancel: std::sync::Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
@@ -223,19 +126,12 @@ impl TrayAnimation {
         Self { cancel, handle }
     }
 
-    /// Stop animating and restore the idle icon. Consumes `self` so this
-    /// reads as a deliberate end-of-cycle call; the work happens in `Drop`,
-    /// which also covers the paths that never reach here.
     pub fn finish(self) {}
 }
 
 impl Drop for TrayAnimation {
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::SeqCst);
-        // Join so the idle-restore the thread performs on its way out has
-        // completed before this returns -- otherwise a caller that starts a
-        // new cycle immediately could race a lingering frame from this one.
-        // Bounded: the thread checks `cancel` at least every POLL_MS.
         if let Some(handle) = self.handle.take() {
             let _ = handle.join();
         }
@@ -269,7 +165,6 @@ mod tests {
 
     #[test]
     fn scale_alpha_touches_only_the_alpha_byte_and_preserves_color() {
-        // One opaque teal pixel: R,G,B must survive, A halves.
         let px = [10u8, 120, 90, 200];
         let out = scale_alpha(&px, 0.5);
         assert_eq!(&out[0..3], &[10, 120, 90], "color channels must be untouched");
@@ -284,9 +179,6 @@ mod tests {
 
     #[test]
     fn the_embedded_tray_icon_decodes_to_a_non_empty_square() {
-        // Guards the build against a corrupt or wrong-format tray asset:
-        // `tray_icon()` decodes the compiled-in PNG, and the tray plus the
-        // breathing frames both depend on it.
         let icon = tray_icon().expect("the embedded tray PNG must decode");
         assert_eq!(icon.width(), icon.height(), "the tray icon should be square");
         assert!(icon.width() >= 16, "a tray icon smaller than 16px would not render usefully");

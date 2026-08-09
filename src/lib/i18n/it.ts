@@ -1,51 +1,3 @@
-// lib/i18n/it.ts — Italian UI text. Typed against `typeof en` (not
-// independently declared): TypeScript rejects this file at compile time if
-// a key is missing, a key exists here that `en.ts` doesn't have, or a
-// function's parameter types don't match — that check is the entire reason
-// this project chose a hand-rolled dictionary over a message-file toolchain.
-// Do not add `as const` or a standalone type annotation other than the one
-// below; either would weaken or break that guarantee.
-//
-// Terminology, kept consistent everywhere in this file (not swapped for a
-// synonym anywhere, per the task brief):
-//   - "command"  -> comando / comandi (the saved hotkey+prompt pair; never
-//     confused with a shell command, which never appears in this UI).
-//   - "backend"  -> backend (kept as the English loanword, invariant for
-//     plural like all such loanwords in Italian — "i backend" — there is no
-//     shorter native alternative in common Italian technical use).
-//   - "hotkey"   -> hotkey (kept as a loanword rather than "combinazione di
-//     tasti" or "scorciatoia", specifically so the Commands table's narrow
-//     hotkey column doesn't overflow; "hotkey" is also standard in Italian
-//     technical software, not a stretch loanword).
-//   - "prompt"   -> prompt (kept as the loanword — the term Italian AI
-//     tooling actually uses; "istruzione"/"richiesta" would be unusual).
-//   - "timeout"  -> timeout (kept as the loanword — standard, unremarkable
-//     Italian IT usage; "tempo massimo" appears nowhere in real software).
-//
-// Register: informal-neutral. Buttons and menu-style actions use the short
-// tu-imperative ("Salva", "Annulla", "Elimina", "Aggiungi", "Mostra",
-// "Nascondi") — this is the form Italian Windows dialogs and menus actually
-// use (File > Salva, Modifica > Elimina, ...), not the longer infinitive
-// ("Salvare"). Short instructional captions (e.g. form addDescription/
-// editDescription, hints) use the same imperative register for consistency.
-// Sentences that state a consequence rather than an instruction
-// (delete-confirmation bodies) stay declarative instead, mirroring how
-// en.ts phrases those same sentences with an explicit subject ("This
-// removes…").
-//
-// Dynamic values are quoted with Italian guillemets («…»), the quotation
-// mark real Microsoft Italian localizations use for interpolated names —
-// not the English “…” pair. Confirmation-dialog titles that ask a yes/no
-// question ("Delete “X”?") use the infinitive-as-question form standard in
-// Italian Windows dialogs ("Eliminare «X»?", cf. "Uscire senza salvare?"),
-// which is distinct from — and not in conflict with — the button
-// imperative above.
-//
-// statusFailed vs statusAborted (history): "Fallito" (failed) is reserved
-// for a genuine error. "Interrotto" (aborted) deliberately reads as a
-// neutral, controlled stop — never as an error or a crash — because an
-// aborted run is the app correctly declining to paste, not a malfunction.
-
 import type { en } from './en';
 
 export const it: typeof en = {
@@ -163,9 +115,6 @@ export const it: typeof en = {
 			showApiKey: 'Mostra chiave API',
 			hideApiKey: 'Nascondi chiave API',
 			timeoutLabel: 'Timeout (ms)',
-			// `defaultMs` is passed in already formatted (the caller's
-			// `DEFAULT_TIMEOUT_MS.toLocaleString()`) so this dictionary never
-			// has to make its own locale-formatting decision.
 			timeoutHint: (defaultMs: string) =>
 				`Un modello locale a freddo può richiedere fino a circa 16.000 ms alla prima richiesta della giornata — il valore predefinito di ${defaultMs} ms evita un timeout falso in quel caso.`,
 			timeoutTooLow: (minMs: number) => `Il timeout deve essere di almeno ${minMs} ms.`,
@@ -185,12 +134,8 @@ export const it: typeof en = {
 		ariaEmpty: 'Nessun hotkey impostato. Clicca per registrarne uno.'
 	},
 
-	// New section (mockup-a-compact.html): run history.
 	history: {
 		title: 'Cronologia',
-		// `limit` is the retention cap (100 — see `history::MAX_ENTRIES` in
-		// src-tauri/src/history.rs), passed in rather than hard-coded so this
-		// stays correct if that constant ever changes.
 		hint: (limit: number) => `ultime ${limit} esecuzioni`,
 		clear: 'Svuota',
 		columnTime: 'Ora',
@@ -213,19 +158,14 @@ export const it: typeof en = {
 		resultLabel: 'Risultato',
 		noInputCaptured: 'nulla è stato acquisito per questa esecuzione',
 		noResultPasted: 'nulla è stato incollato per questa esecuzione',
-		// Short tu-imperative, matching this file's button register
-		// ("Salva", "Annulla", "Elimina", ...).
 		copy: 'Copia',
 		copied: 'Copiato',
 		copyResult: 'Copia risultato',
-		// Infinitive-as-question, same form the header comment documents for
-		// `deleteTitle` ("Eliminare «X»?").
 		clearTitle: 'Svuotare la cronologia?',
 		clearDescription: (count: number) =>
 			`Rimuove definitivamente tutte le ${count} esecuzioni registrate, incluso qualsiasi testo di input e risultato ancora conservato qui per il recupero. Questa azione non può essere annullata.`
 	},
 
-	// New section (mockup-a-compact.html): theme / language / autostart.
 	settings: {
 		title: 'Impostazioni',
 		themeLabel: 'Tema',
