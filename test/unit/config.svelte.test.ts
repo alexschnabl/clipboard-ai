@@ -22,7 +22,6 @@ function backend(overrides: Partial<BackendConfig> = {}): BackendConfig {
 		apiKey: null,
 		timeoutMs: 120_000,
 		effort: 'low',
-		sessionPersistence: false,
 		...overrides
 	};
 }

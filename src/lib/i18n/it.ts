@@ -107,9 +107,6 @@ export const it: typeof en = {
 			effortOptionMax: 'Massimo',
 			effortHint:
 				'Un effort più basso risponde più rapidamente ed è sufficiente per testi brevi. Predefinito lascia decidere alla CLI.',
-			sessionPersistenceLabel: 'Mantieni cronologia sessione',
-			sessionPersistenceHint:
-				'Disattivato tiene queste esecuzioni estemporanee fuori dalla cronologia sessioni della CLI.',
 			apiKeyLabel: 'Chiave API',
 			apiKeyOptional: '(opzionale)',
 			showApiKey: 'Mostra chiave API',

@@ -130,7 +130,6 @@ mod tests {
             api_key: None,
             timeout_ms: 120_000,
             effort: Effort::Low,
-            session_persistence: false,
         }
     }
 

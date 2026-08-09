@@ -132,7 +132,6 @@ pub struct ClaudeCli {
     name: String,
     model: Option<String>,
     effort: Effort,
-    session_persistence: bool,
     timeout_ms: u64,
     runner: Arc<dyn CommandRunner>,
 }
@@ -143,7 +142,6 @@ impl ClaudeCli {
             name: config.name.clone(),
             model: config.model.clone().filter(|m| !m.trim().is_empty()),
             effort: config.effort,
-            session_persistence: config.session_persistence,
             timeout_ms: config.timeout_ms,
             runner,
         }
@@ -176,9 +174,7 @@ impl Backend for ClaudeCli {
             args.push("--effort".to_string());
             args.push(level.to_string());
         }
-        if !self.session_persistence {
-            args.push("--no-session-persistence".to_string());
-        }
+        args.push("--no-session-persistence".to_string());
         if let Some(model) = &self.model {
             args.push("--model".to_string());
             args.push(model.clone());
@@ -238,7 +234,6 @@ mod tests {
             api_key: None,
             timeout_ms: 120_000,
             effort: Effort::Low,
-            session_persistence: false,
         }
     }
 
@@ -329,28 +324,12 @@ mod tests {
     }
 
     #[test]
-    fn session_persistence_false_produces_the_no_session_persistence_flag() {
-        let mut config = cfg();
-        config.session_persistence = false;
+    fn always_passes_no_session_persistence() {
         let runner = FakeRunner::ok("ok");
-        let backend = ClaudeCli::new(&config, runner.clone());
+        let backend = ClaudeCli::new(&cfg(), runner.clone());
         backend.transform("s", "t").unwrap();
         let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
         assert!(args.contains(&"--no-session-persistence".to_string()));
-    }
-
-    #[test]
-    fn session_persistence_true_produces_neither_session_flag() {
-        let mut config = cfg();
-        config.session_persistence = true;
-        let runner = FakeRunner::ok("ok");
-        let backend = ClaudeCli::new(&config, runner.clone());
-        backend.transform("s", "t").unwrap();
-        let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
-        assert!(
-            !args.contains(&"--no-session-persistence".to_string()),
-            "persistence on must not pass --no-session-persistence"
-        );
     }
 
     #[test]

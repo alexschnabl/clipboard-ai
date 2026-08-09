@@ -108,9 +108,6 @@ export const de: typeof en = {
 			effortOptionMax: 'Maximal',
 			effortHint:
 				'Ein niedrigerer Effort antwortet schneller und reicht für kurze Texte aus. Standard überlässt die Wahl der CLI.',
-			sessionPersistenceLabel: 'Sitzungsverlauf behalten',
-			sessionPersistenceHint:
-				'Aus hält Fire-and-Forget-Läufe aus dem eigenen Sitzungsverlauf der CLI heraus.',
 			apiKeyLabel: 'API-Schlüssel',
 			apiKeyOptional: '(optional)',
 			showApiKey: 'API-Schlüssel anzeigen',

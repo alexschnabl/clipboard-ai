@@ -104,9 +104,6 @@ export const en = {
 			effortOptionMax: 'Maximum',
 			effortHint:
 				'Lower effort answers faster and is enough for short text. Default lets the CLI decide.',
-			sessionPersistenceLabel: 'Keep session history',
-			sessionPersistenceHint:
-				'Off keeps fire-and-forget runs out of the CLI’s own session history.',
 			apiKeyLabel: 'API key',
 			apiKeyOptional: '(optional)',
 			showApiKey: 'Show API key',

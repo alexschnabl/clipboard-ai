@@ -5,7 +5,6 @@
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import { Input } from '$lib/components/shadcn/input/index.js';
 	import { Label } from '$lib/components/shadcn/label/index.js';
-	import { Switch } from '$lib/components/shadcn/switch/index.js';
 	import RiEyeLine from 'remixicon-svelte/icons/eye-line';
 	import RiEyeOffLine from 'remixicon-svelte/icons/eye-off-line';
 	import { configState } from '$lib/state/config.svelte.js';
@@ -32,7 +31,6 @@
 	let apiKey = $state('');
 	let timeoutMs = $state(DEFAULT_TIMEOUT_MS);
 	let effort = $state<Effort>('low');
-	let sessionPersistence = $state(false);
 	let revealed = $state(false);
 	let saving = $state(false);
 	let submitError = $state<string | null>(null);
@@ -61,7 +59,6 @@
 			apiKey = backend?.apiKey ?? '';
 			timeoutMs = backend?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 			effort = backend?.effort ?? 'low';
-			sessionPersistence = backend?.sessionPersistence ?? false;
 			revealed = false;
 			submitError = null;
 		} else if (wasOpen) {
@@ -95,8 +92,7 @@
 			model: model.trim() || null,
 			apiKey: usesKey ? apiKey.trim() || null : null,
 			timeoutMs,
-			effort: kind === 'claude-cli' ? effort : 'low',
-			sessionPersistence: kind === 'claude-cli' ? sessionPersistence : false
+			effort: kind === 'claude-cli' ? effort : 'low'
 		};
 		saving = true;
 		submitError = null;
@@ -187,18 +183,6 @@
 						</Select.Content>
 					</Select.Root>
 					<p class="text-xs text-muted-foreground">{i18n.t.backends.form.effortHint}</p>
-				</div>
-
-				<div class="flex items-center justify-between gap-3">
-					<div class="flex flex-col gap-0.5">
-						<Label for="backend-session-persistence"
-							>{i18n.t.backends.form.sessionPersistenceLabel}</Label
-						>
-						<p class="text-xs text-muted-foreground">
-							{i18n.t.backends.form.sessionPersistenceHint}
-						</p>
-					</div>
-					<Switch id="backend-session-persistence" bind:checked={sessionPersistence} />
 				</div>
 			{/if}
 

@@ -17,7 +17,6 @@ export interface BackendConfig {
 	apiKey: string | null;
 	timeoutMs: number;
 	effort: Effort;
-	sessionPersistence: boolean;
 }
 
 export interface CommandConfig {

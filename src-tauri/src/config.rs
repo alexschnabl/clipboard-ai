@@ -55,8 +55,6 @@ pub struct BackendConfig {
     pub timeout_ms: u64,
     #[serde(default)]
     pub effort: Effort,
-    #[serde(default)]
-    pub session_persistence: bool,
 }
 
 pub const MIN_TIMEOUT_MS: u64 = 5_000;
@@ -221,7 +219,6 @@ pub fn default_config() -> Config {
                 api_key: None,
                 timeout_ms: 120_000,
                 effort: Effort::Low,
-                session_persistence: false,
             },
             BackendConfig {
                 id: "claude-sub".into(),
@@ -232,7 +229,6 @@ pub fn default_config() -> Config {
                 api_key: None,
                 timeout_ms: 120_000,
                 effort: Effort::Low,
-                session_persistence: false,
             },
         ],
         commands: vec![CommandConfig {
@@ -409,10 +405,9 @@ mod tests {
     }
 
     #[test]
-    fn a_backend_with_no_effort_or_session_persistence_keys_keeps_todays_behaviour() {
-        let cfg = parse(valid_json()).expect("a backend missing these keys should still parse");
+    fn a_backend_with_no_effort_key_keeps_todays_behaviour() {
+        let cfg = parse(valid_json()).expect("a backend missing this key should still parse");
         assert_eq!(cfg.backends[0].effort, Effort::Low);
-        assert!(!cfg.backends[0].session_persistence);
     }
 
     #[test]
