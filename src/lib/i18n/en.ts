@@ -132,6 +132,9 @@ export const en = {
 			modelLabel: 'Model',
 			modelPlaceholderOpenAiCompatible: 'qwen2.5:32b-instruct',
 			modelPlaceholderOther: 'claude-opus-5',
+			modelPlaceholderClaudeCli: 'haiku',
+			modelHintClaudeCli:
+				'Optional. A smaller model such as haiku answers faster; blank uses the CLI’s default.',
 			apiKeyLabel: 'API key',
 			apiKeyOptional: '(optional)',
 			showApiKey: 'Show API key',

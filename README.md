@@ -89,9 +89,10 @@ Quit.]*
   servers usually don't need one).
 - **Anthropic API** - requires an API key (`x-api-key`); the model field is optional and
   falls back to a built-in default if left blank.
-- **Claude CLI** - no base URL, model or API key: it shells out to a `claude` executable on
-  `PATH` and uses that CLI's own subscription login. Nothing to configure beyond a name and
-  a timeout.
+- **Claude CLI** - no base URL or API key: it shells out to a `claude` executable on `PATH`
+  and uses that CLI's own subscription login. The model is optional and maps to the CLI's
+  `--model` flag - the main way to trade quality for speed here, since a smaller model such
+  as `haiku` answers noticeably faster; leave it blank for the CLI's default.
 
 <!-- TODO(screenshot): Add backend dialog, kind = OpenAI-compatible, filled in with the Ollama example -->
 *[TODO screenshot: the "Add backend" dialog with Name "Local Ollama", Kind "OpenAI-compatible",

@@ -132,6 +132,9 @@ export const es: typeof en = {
 			modelLabel: 'Modelo',
 			modelPlaceholderOpenAiCompatible: 'qwen2.5:32b-instruct',
 			modelPlaceholderOther: 'claude-opus-5',
+			modelPlaceholderClaudeCli: 'haiku',
+			modelHintClaudeCli:
+				'Opcional. Un modelo más pequeño como haiku responde más rápido; en blanco usa el predeterminado de la CLI.',
 			apiKeyLabel: 'Clave de API',
 			apiKeyOptional: '(opcional)',
 			showApiKey: 'Mostrar clave de API',

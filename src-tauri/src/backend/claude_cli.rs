@@ -165,6 +165,10 @@ impl CommandRunner for ProcessRunner {
 
 pub struct ClaudeCli {
     name: String,
+    /// The `--model` to pass, or `None` to let the CLI use its own default.
+    /// The main lever for trading quality against speed on this backend: a
+    /// small model (e.g. `haiku`) answers noticeably faster than the default.
+    model: Option<String>,
     timeout_ms: u64,
     runner: Arc<dyn CommandRunner>,
 }
@@ -173,6 +177,9 @@ impl ClaudeCli {
     pub fn new(config: &BackendConfig, runner: Arc<dyn CommandRunner>) -> Self {
         Self {
             name: config.name.clone(),
+            // Blank-filtered like the HTTP adapters: a hand-edited empty
+            // model must mean "the CLI's default", never `--model ""`.
+            model: config.model.clone().filter(|m| !m.trim().is_empty()),
             timeout_ms: config.timeout_ms,
             runner,
         }
@@ -185,11 +192,15 @@ impl Backend for ClaudeCli {
     }
 
     fn transform(&self, system_prompt: &str, text: &str) -> Result<String, BackendError> {
-        let args = vec![
+        let mut args = vec![
             "-p".to_string(),
             "--system-prompt".to_string(),
             system_prompt.to_string(),
         ];
+        if let Some(model) = &self.model {
+            args.push("--model".to_string());
+            args.push(model.clone());
+        }
         let output = self.runner.run("claude", &args, text, self.timeout_ms)?;
         let trimmed = output.trim();
         if trimmed.is_empty() {
@@ -264,6 +275,38 @@ mod tests {
         let idx = args.iter().position(|a| a == "--system-prompt").unwrap();
         assert_eq!(args[idx + 1], "Fix it.");
         assert_eq!(stdin, "input text");
+    }
+
+    #[test]
+    fn a_configured_model_is_passed_as_a_model_flag() {
+        let mut config = cfg();
+        config.model = Some("haiku".into());
+        let runner = FakeRunner::ok("ok");
+        let backend = ClaudeCli::new(&config, runner.clone());
+        backend.transform("s", "t").unwrap();
+        let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
+        let idx = args.iter().position(|a| a == "--model").expect("--model must be present");
+        assert_eq!(args[idx + 1], "haiku");
+    }
+
+    #[test]
+    fn no_model_flag_is_passed_when_none_is_configured() {
+        let runner = FakeRunner::ok("ok");
+        let backend = ClaudeCli::new(&cfg(), runner.clone());
+        backend.transform("s", "t").unwrap();
+        let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
+        assert!(!args.contains(&"--model".to_string()), "no --model without a configured one");
+    }
+
+    #[test]
+    fn a_blank_model_is_treated_as_absent_not_passed_as_an_empty_flag() {
+        let mut config = cfg();
+        config.model = Some("   ".into());
+        let runner = FakeRunner::ok("ok");
+        let backend = ClaudeCli::new(&config, runner.clone());
+        backend.transform("s", "t").unwrap();
+        let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
+        assert!(!args.contains(&"--model".to_string()), "a blank model must not send --model");
     }
 
     #[test]

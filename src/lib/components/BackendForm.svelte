@@ -51,10 +51,12 @@
 	// suggesting one.
 	const timeoutTooLow = $derived(timeoutMs < MIN_TIMEOUT_MS);
 	const canSave = $derived(name.trim().length > 0 && !timeoutTooLow);
-	/** `claude-cli` needs neither -- it shells out to a locally-installed CLI
-	 *  that handles its own auth and model choice. Used both here (what to
-	 *  send on save) and in the template (which fields to show). */
-	const usesModelAndKey = $derived(kind === 'openai-compatible' || kind === 'anthropic-api');
+	/** Only the two HTTP backends take an API key -- `claude-cli` shells out
+	 *  to a locally-installed CLI that handles its own auth. A model, though,
+	 *  applies to all three: on `claude-cli` it maps to the CLI's `--model`
+	 *  flag, the main lever for trading quality for speed (a small model like
+	 *  haiku answers faster). */
+	const usesKey = $derived(kind === 'openai-compatible' || kind === 'anthropic-api');
 
 	let wasOpen = false;
 	// Seed the form whenever the dialog opens; when it closes -- Save,
@@ -97,8 +99,8 @@
 			name: name.trim(),
 			kind,
 			baseUrl: kind === 'openai-compatible' ? baseUrl.trim() || null : null,
-			model: usesModelAndKey ? model.trim() || null : null,
-			apiKey: usesModelAndKey ? apiKey.trim() || null : null,
+			model: model.trim() || null,
+			apiKey: usesKey ? apiKey.trim() || null : null,
 			timeoutMs
 		};
 		saving = true;
@@ -168,18 +170,24 @@
 				</div>
 			{/if}
 
-			{#if usesModelAndKey}
-				<div class="flex flex-col gap-1.5">
-					<Label for="backend-model">{i18n.t.backends.form.modelLabel}</Label>
-					<Input
-						id="backend-model"
-						bind:value={model}
-						placeholder={kind === 'openai-compatible'
-							? i18n.t.backends.form.modelPlaceholderOpenAiCompatible
+			<div class="flex flex-col gap-1.5">
+				<Label for="backend-model">{i18n.t.backends.form.modelLabel}</Label>
+				<Input
+					id="backend-model"
+					bind:value={model}
+					placeholder={kind === 'openai-compatible'
+						? i18n.t.backends.form.modelPlaceholderOpenAiCompatible
+						: kind === 'claude-cli'
+							? i18n.t.backends.form.modelPlaceholderClaudeCli
 							: i18n.t.backends.form.modelPlaceholderOther}
-						autocomplete="off"
-					/>
-				</div>
+					autocomplete="off"
+				/>
+				{#if kind === 'claude-cli'}
+					<p class="text-xs text-muted-foreground">{i18n.t.backends.form.modelHintClaudeCli}</p>
+				{/if}
+			</div>
+
+			{#if usesKey}
 				<div class="flex flex-col gap-1.5">
 					<Label for="backend-api-key">
 						{i18n.t.backends.form.apiKeyLabel}
