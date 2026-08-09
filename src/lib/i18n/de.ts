@@ -30,7 +30,8 @@ export const de: typeof en = {
 		commands: 'Befehle',
 		backends: 'Backends',
 		history: 'Verlauf',
-		settings: 'Einstellungen'
+		settings: 'Einstellungen',
+		working: 'Arbeitet…'
 	},
 
 	common: {
@@ -82,6 +83,8 @@ export const de: typeof en = {
 			hotkeyLabel: 'Hotkey',
 			promptLabel: 'Systemprompt',
 			promptPlaceholder: 'Grammatik und Rechtschreibung korrigieren. Bedeutung beibehalten.',
+			promptSentinelHint:
+				'Die App weist das Modell automatisch an, nur den transformierten Text zurückzugeben und sonst nichts — das müssen Sie im Prompt nicht angeben.',
 			saveError: 'Befehl konnte nicht gespeichert werden',
 			saveFailedFallback: 'Speichern fehlgeschlagen.',
 			addSubmit: 'Befehl hinzufügen',

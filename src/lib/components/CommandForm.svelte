@@ -148,6 +148,10 @@
 					placeholder={i18n.t.commands.form.promptPlaceholder}
 					rows={4}
 				/>
+				<!-- Transparency: the app silently appends the sentinel
+				     instruction (sentinel.rs) to every prompt, so the user
+				     knows why the model is told to answer only inside tags. -->
+				<p class="text-xs text-muted-foreground">{i18n.t.commands.form.promptSentinelHint}</p>
 			</div>
 		</div>
 

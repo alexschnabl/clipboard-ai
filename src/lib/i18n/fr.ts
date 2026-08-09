@@ -39,7 +39,8 @@ export const fr: typeof en = {
 		commands: 'Commandes',
 		backends: 'Backends',
 		history: 'Historique',
-		settings: 'Paramètres'
+		settings: 'Paramètres',
+		working: 'En cours…'
 	},
 
 	common: {
@@ -94,6 +95,8 @@ export const fr: typeof en = {
 			hotkeyLabel: 'Raccourci',
 			promptLabel: 'Prompt système',
 			promptPlaceholder: 'Corriger la grammaire et l’orthographe. Conserver le sens.',
+			promptSentinelHint:
+				'L’application demande automatiquement au modèle de ne renvoyer que le texte transformé, rien d’autre ; inutile de le préciser dans votre invite.',
 			saveError: 'Impossible d’enregistrer la commande',
 			saveFailedFallback: 'Échec de l’enregistrement.',
 			addSubmit: 'Ajouter la commande',

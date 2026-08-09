@@ -27,7 +27,8 @@ export const en = {
 		commands: 'Commands',
 		backends: 'Backends',
 		history: 'History',
-		settings: 'Settings'
+		settings: 'Settings',
+		working: 'Working…'
 	},
 
 	// Shared across more than one dialog verbatim (e.g. both delete
@@ -94,6 +95,8 @@ export const en = {
 			hotkeyLabel: 'Hotkey',
 			promptLabel: 'System prompt',
 			promptPlaceholder: 'Fix grammar and spelling. Keep the meaning.',
+			promptSentinelHint:
+				'The app automatically tells the model to return only the transformed text and nothing else, so you don’t need to say that in your prompt.',
 			saveError: 'Couldn’t save command',
 			saveFailedFallback: 'Save failed.',
 			addSubmit: 'Add command',

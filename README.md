@@ -1,7 +1,13 @@
-# Clipboard AI
+<p align="center">
+  <img src="src-tauri/icons/128x128@2x.png" alt="Clipboard AI logo" width="128" height="128" />
+</p>
 
-Select text in any Windows application, press a hotkey, and get it transformed by an AI
-backend - pasted back in place, over your original selection.
+<h1 align="center">Clipboard AI</h1>
+
+<p align="center">
+  Select text in any Windows application, press a hotkey, and get it transformed by an AI
+  backend - pasted back in place, over your original selection.
+</p>
 
 <!-- TODO(screenshot): hero - animated GIF of the select -> hotkey -> result loop in Notepad -->
 *[TODO animated GIF: selecting a sentence in Notepad, pressing the "Fix grammar" hotkey, the

@@ -5,10 +5,11 @@
 	"Mockup A: Compact Utility"): a ~176px rail of icon + label + count badge replaces
 	all top chrome, including the page title -- the OS title bar already names the app.
 
-	The mockup also pinned a System/Light/Dark theme toggle to the bottom of this rail.
-	That was pulled from scope mid-flight: the author decided theme belongs solely in the
-	Settings section (built separately), so there is exactly one place it's set. This
-	component is nav-only as a result -- no footer, no theme control.
+	The mockup pinned a System/Light/Dark theme toggle to the bottom of this rail; theme
+	was later moved to the Settings section (one place it's set), freeing that footer. It
+	now holds the in-window activity indicator: while a hotkey cycle runs, a pulsing dot
+	appears here, mirroring the tray-icon breathing off the same `cycle://state` event --
+	so a slow backend is visible from inside the window too, not only in the tray.
 -->
 <script module lang="ts">
 	export type SectionId = 'commands' | 'backends' | 'history' | 'settings';
@@ -16,6 +17,7 @@
 
 <script lang="ts">
 	import { cn } from '$lib/utils.js';
+	import { activity } from '$lib/state/activity.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import RiCommandLine from 'remixicon-svelte/icons/command-line';
 	import RiServerLine from 'remixicon-svelte/icons/server-line';
@@ -73,4 +75,18 @@
 			{/if}
 		</button>
 	{/each}
+
+	<!-- Pinned to the bottom (`mt-auto`). Only present while a cycle is
+	     visibly running; `role="status"` + `aria-live` so a screen reader
+	     announces it, since it conveys transient state with no other cue. -->
+	{#if activity.running}
+		<div
+			class="mt-auto flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground"
+			role="status"
+			aria-live="polite"
+		>
+			<span class="size-2 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden="true"></span>
+			<span class="truncate">{i18n.t.nav.working}</span>
+		</div>
+	{/if}
 </nav>

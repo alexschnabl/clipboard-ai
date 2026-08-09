@@ -53,7 +53,8 @@ export const it: typeof en = {
 		commands: 'Comandi',
 		backends: 'Backend',
 		history: 'Cronologia',
-		settings: 'Impostazioni'
+		settings: 'Impostazioni',
+		working: 'In corso…'
 	},
 
 	common: {
@@ -105,6 +106,8 @@ export const it: typeof en = {
 			hotkeyLabel: 'Hotkey',
 			promptLabel: 'Prompt di sistema',
 			promptPlaceholder: 'Correggi grammatica e ortografia. Mantieni il significato.',
+			promptSentinelHint:
+				'L’app chiede automaticamente al modello di restituire solo il testo trasformato e nient’altro, quindi non serve indicarlo nel prompt.',
 			saveError: 'Impossibile salvare il comando',
 			saveFailedFallback: 'Salvataggio non riuscito.',
 			addSubmit: 'Aggiungi comando',

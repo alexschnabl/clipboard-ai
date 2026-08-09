@@ -196,6 +196,16 @@ impl Backend for ClaudeCli {
             "-p".to_string(),
             "--system-prompt".to_string(),
             system_prompt.to_string(),
+            // `--effort low`: this app runs short one-shot text transforms,
+            // not multi-step reasoning, so the lowest effort is both enough
+            // and faster on the model's side. `--no-session-persistence`:
+            // never write a session file for a fire-and-forget grammar fix
+            // -- it can't help (we never `--continue`), and it keeps the
+            // user's `claude` session history clean. Neither touches the
+            // dominant cost, which is the CLI's own process startup.
+            "--effort".to_string(),
+            "low".to_string(),
+            "--no-session-persistence".to_string(),
         ];
         if let Some(model) = &self.model {
             args.push("--model".to_string());

@@ -10,6 +10,7 @@
 	import HistoryPanel from '$lib/components/HistoryPanel.svelte';
 	import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { activity } from '$lib/state/activity.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { onMount } from 'svelte';
 	import { listen } from '@tauri-apps/api/event';
@@ -35,11 +36,26 @@
 		// Listening for this event specifically, rather than
 		// `document.visibilitychange`, is deliberate -- WebView2 firing that
 		// on a native window hide is not guaranteed.
-		const unlisten = listen('settings://window-hidden', () => {
+		const unlistenHidden = listen('settings://window-hidden', () => {
 			configState.revision++;
 		});
+
+		// The in-window activity indicator (SettingsSidebar): mirrors the
+		// tray-icon breathing that `tray_anim` drives, off the same
+		// `cycle://state` event. `false` on window-hidden too, so the
+		// indicator never comes back showing a stale "running" from a cycle
+		// that finished while the window was closed.
+		const unlistenCycle = listen<boolean>('cycle://state', (event) => {
+			activity.running = event.payload;
+		});
+		const unlistenHiddenReset = listen('settings://window-hidden', () => {
+			activity.running = false;
+		});
+
 		return () => {
-			void unlisten.then((f) => f());
+			void unlistenHidden.then((f) => f());
+			void unlistenCycle.then((f) => f());
+			void unlistenHiddenReset.then((f) => f());
 		};
 	});
 </script>

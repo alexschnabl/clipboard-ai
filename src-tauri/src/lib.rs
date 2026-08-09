@@ -634,6 +634,11 @@ pub fn run() {
                                     // this and the icon is restored; an
                                     // indicator that outlives its work is
                                     // worse than none.
+                                    // Drives both the tray-icon breathing and
+                                    // the settings window's own in-window
+                                    // indicator (see tray_anim) -- both
+                                    // delay-gated together, both cleared on
+                                    // every exit path including a panic.
                                     let indicator = tray_anim::TrayAnimation::begin(app.clone());
                                     let cycle_start = state.ops.now_ms();
                                     let outcome = cycle::run(

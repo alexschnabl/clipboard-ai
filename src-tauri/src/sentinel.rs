@@ -1,6 +1,7 @@
 pub const SENTINEL_INSTRUCTION: &str =
-    "Return only the result, wrapped in <output></output> tags. \
-     Emit nothing after the closing tag.";
+    "Return only the result itself -- no explanations, no alternatives, no \
+     labels or headings, nothing but the transformed text. Wrap it in a \
+     single <output></output> block and emit nothing after the closing tag.";
 
 const OPEN: &str = "<output>";
 const CLOSE: &str = "</output>";

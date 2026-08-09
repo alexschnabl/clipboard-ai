@@ -42,7 +42,21 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use tauri::image::Image;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
+
+/// Event the settings window listens for to mirror the tray animation in its
+/// own nav rail (`SettingsSidebar`). Payload is a bool: `true` once a cycle
+/// has run long enough to show (past the delay gate), `false` when it ends.
+/// Broadcast, not targeted -- only the settings window listens, and it may
+/// not be open, in which case it harmlessly reaches nobody.
+pub const CYCLE_STATE_EVENT: &str = "cycle://state";
+
+/// Best-effort, like every other tray/window update here: a dropped event is
+/// a missed flicker, never a stuck cycle (the `false` emit sits on the same
+/// guaranteed exit path as the idle-icon restore).
+fn emit_running(app: &AppHandle, running: bool) {
+    let _ = app.emit(CYCLE_STATE_EVENT, running);
+}
 
 /// Must match the id given to the tray in `lib.rs`'s `TrayIconBuilder`. The
 /// animation thread reaches the (single) tray icon by this id rather than
@@ -164,6 +178,12 @@ fn run_animation(app: AppHandle, cancel: std::sync::Arc<AtomicBool>) {
     }
     let Some(Some(frames)) = FRAMES.get() else { return };
 
+    // Tell the settings window (if open) a cycle is now visibly running --
+    // emitted here, past the delay gate, so its in-window indicator appears
+    // on exactly the same "this is taking long enough to notice" boundary
+    // the tray breathing does, rather than flickering for a 400ms cycle.
+    emit_running(&app, true);
+
     let mut i = 0;
     loop {
         if cancel.load(Ordering::SeqCst) {
@@ -175,10 +195,13 @@ fn run_animation(app: AppHandle, cancel: std::sync::Arc<AtomicBool>) {
             break;
         }
     }
-    // We changed the icon, so restore it. This is the animation thread's
-    // last act, and `Drop` joins it before returning, so no stray frame can
-    // land after the idle icon.
+    // We changed the icon, so restore it, and clear the window indicator.
+    // These are the animation thread's last acts, and `Drop` joins it before
+    // returning, so no stray frame or stale "running" can outlive the cycle
+    // -- including when `Drop` runs during a panic unwinding out of the
+    // cycle, which is the whole reason this lives on the guaranteed path.
     set_tray_icon(&app, &frames.idle);
+    emit_running(&app, false);
 }
 
 /// Animates the tray icon for the lifetime of one cycle. See the module doc.
