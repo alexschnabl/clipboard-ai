@@ -5,8 +5,7 @@ backend - pasted back in place, over your original selection.
 
 <!-- TODO(screenshot): hero - animated GIF of the select -> hotkey -> result loop in Notepad -->
 *[TODO animated GIF: selecting a sentence in Notepad, pressing the "Fix grammar" hotkey, the
-cursor-following indicator appearing briefly, and the corrected text landing over the
-selection.]*
+tray icon pulsing while it works, and the corrected text landing over the selection.]*
 
 ## How it works
 
@@ -44,9 +43,8 @@ open its settings from the tray icon.
   viewable and copyable from the History tab, clearable at any time.
 - **Settings**: theme (system/light/dark), five UI languages (English, German, French,
   Spanish, Italian, or follow the OS), and launch-on-sign-in.
-- **A cursor-following indicator** appears while a cycle is running, escalates after ~2.5s
-  if a backend is slow to answer, and flashes distinctly on a real failure versus a
-  deliberate abort.
+- **The tray icon pulses** while a command is running and returns to solid when the result
+  lands, so a slow backend never leaves you wondering whether the hotkey registered.
 - **Corrupt config.json is preserved, not overwritten** - an unreadable config file is moved
   aside (`config.json.corrupt`) rather than silently replaced with an empty one.
 - **Abort rather than guess**: clipboard, window focus and modifier-key state are all
@@ -180,10 +178,10 @@ least one "Aborted" and one "Success" entry visible in the list for contrast.]*
 For contributors: this all lives mainly in `src-tauri/src/cycle.rs` (the capture → transform
 → paste engine and its guards), `src-tauri/src/osops.rs` (the Win32 clipboard/focus/modifier
 reads, behind the `OsOps` trait so `cycle.rs` can be tested against a fake), and
-`src-tauri/src/sentinel.rs` (the `<output>` wrap/extract contract). The cursor-following
-indicator (`src-tauri/src/overlay.rs`) follows the identical guard-plus-`Drop` shape as the
-clipboard guard, for the same reason: "stop showing" has to be a property of scope, not a
-step any one exit path can forget.
+`src-tauri/src/sentinel.rs` (the `<output>` wrap/extract contract). The tray-icon in-flight
+animation (`src-tauri/src/tray_anim.rs`) follows the identical guard-plus-`Drop` shape as the
+clipboard guard, for the same reason: "stop animating and restore the icon" has to be a
+property of scope, not a step any one exit path can forget.
 
 ## Architecture
 
@@ -200,7 +198,7 @@ step any one exit path can forget.
 | `osops.rs` | The `OsOps` trait plus its Windows implementation: clipboard, synthetic copy/paste, focus and modifier-key reads. |
 | `history.rs` | The last-100-runs store (`history.json`). |
 | `status.rs` | Log-line formatting and log file writes. |
-| `overlay.rs` | The cursor-following in-flight indicator window. |
+| `tray_anim.rs` | Animates the tray icon while a command runs (the in-flight indicator). |
 | `settings.rs` | Applies persisted settings that reach outside the process (currently just autostart). |
 | `backend/` | The `Backend` trait plus one adapter each for `openai.rs`, `anthropic.rs`, `claude_cli.rs`. |
 
@@ -211,7 +209,6 @@ server at runtime.
 | Path | Responsibility |
 |---|---|
 | `routes/+page.svelte` | The settings window shell: sidebar navigation over Commands, Backends, History and Settings. |
-| `routes/overlay/` | The in-flight indicator's own tiny page, driven purely by the `overlay://state` event stream. |
 | `lib/components/` | Hand-written UI: `CommandList`/`CommandForm`, `BackendList`/`BackendForm`, `HotkeyRecorder`, `HistoryPanel`, `SettingsPanel`, `SettingsSidebar`. |
 | `lib/components/shadcn/` | Generated shadcn-svelte primitives - regenerate via the shadcn CLI, don't hand-edit. |
 | `lib/state/config.svelte.ts` | The single reactive source of truth for config and history: load, immediate-commit-with-rollback edits, history load/clear. |
@@ -230,8 +227,8 @@ tray, no hotkeys, no Rust backend behind it.
 
 **Testing:**
 
-- Rust - from `src-tauri/`: `cargo test` (163 tests).
-- Frontend - `npm run test` (Vitest, 113 tests across `test/unit/`).
+- Rust - from `src-tauri/`: `cargo test` (153 tests).
+- Frontend - `npm run test` (Vitest, 107 tests across `test/unit/`).
 - `npm run check` - `svelte-kit sync` + `svelte-check` across the frontend.
 
 **Windows/MSVC gotcha:** `cargo` needs MSVC's `link.exe` on `PATH`. If `cargo build`/`cargo

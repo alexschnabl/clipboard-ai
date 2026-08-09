@@ -59,10 +59,9 @@ pub struct BackendConfig {
 ///
 /// A timeout is a failure bound, not a latency target: lowering it does not
 /// make a response arrive sooner, it only converts slow successes into
-/// failures. R16: this floor guarantees exactly one thing, from this
-/// project's own measurements
-/// (`docs/superpowers/notes/2026-08-06-spike-results.md`) -- below it, even
-/// a *warm* backend cannot succeed. The fastest measured warm response was
+/// failures. R16: this floor guarantees exactly one thing, from the
+/// project's own latency measurements -- below it, even a *warm* backend
+/// cannot succeed. The fastest measured warm response was
 /// `claude -p` at 3,290-4,126 ms, so anything under 5 s is a value that
 /// could only ever produce a false timeout, on any backend, under any
 /// conditions. It does *not* guarantee protection against a cold local

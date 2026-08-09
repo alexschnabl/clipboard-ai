@@ -193,6 +193,8 @@ export const it: typeof en = {
 		failedPrefix: 'Fallito:',
 		inputLabel: 'Ingresso',
 		resultLabel: 'Risultato',
+		noInputCaptured: 'nulla è stato acquisito per questa esecuzione',
+		noResultPasted: 'nulla è stato incollato per questa esecuzione',
 		// Short tu-imperative, matching this file's button register
 		// ("Salva", "Annulla", "Elimina", ...).
 		copy: 'Copia',

@@ -7,8 +7,8 @@ fn main() {
     // or `get_history`, and the runtime would never consult it (verified in
     // tauri 2.11.5 webview/mod.rs -- the check is skipped for local origins
     // when no app manifest exists). With it, the capability file becomes the
-    // real authority: the settings window is granted these six, the overlay
-    // window none of them.
+    // real authority: only the settings window (the sole window that calls
+    // them) is granted these six.
     tauri_build::try_build(
         tauri_build::Attributes::new().app_manifest(tauri_build::AppManifest::new().commands(&[
             "get_config",

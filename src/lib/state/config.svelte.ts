@@ -39,7 +39,6 @@ export class ConfigState {
 	// ── State ─────────────────────────────────────────────────────────
 	config = $state<Config>(emptyConfig());
 	loading = $state(true);
-	saving = $state(false);
 	error = $state<ConfigError | null>(null);
 	problems = $state<Problem[]>([]);
 	/** Set by `load()` whenever the backend's real config.json failed to
@@ -88,7 +87,6 @@ export class ConfigState {
 	 *  outside this file goes through `commit` below instead -- there is no
 	 *  page-level Save button anymore, every edit persists on its own. */
 	private async save(): Promise<boolean> {
-		this.saving = true;
 		try {
 			const result = await invoke<SaveResult>('save_config', { config: this.config });
 			this.error = result.error ? { message: result.error, source: 'save' } : null;
@@ -98,8 +96,6 @@ export class ConfigState {
 			this.error = { message: String(e), source: 'save' };
 			this.problems = [];
 			return false;
-		} finally {
-			this.saving = false;
 		}
 	}
 
@@ -129,12 +125,11 @@ export class ConfigState {
 	 *  non-proxied clone; mutating the live proxy afterwards can't alias it.
 	 *
 	 *  Not declared `async` itself -- it needs to tell, synchronously,
-	 *  whether another commit is already in flight *before* deciding
-	 *  whether to run immediately or queue behind it. An `await` on an
-	 *  already-resolved promise still defers to a microtask, which would
-	 *  delay `save()`'s synchronous `this.saving = true` by a tick for the
-	 *  common (single, non-overlapping) case and break callers that check
-	 *  `saving` right after calling a commit method without awaiting it. */
+	 *  whether another commit is already in flight *before* deciding whether
+	 *  to run immediately or queue behind it (see `commitChain` below). An
+	 *  `await` on an already-resolved promise still defers to a microtask, so
+	 *  making this `async` would blur that "is one in flight right now?"
+	 *  check that the overlapping-commit serialisation depends on. */
 	private commit(mutate: (config: Config) => void): Promise<boolean> {
 		const run = async (): Promise<boolean> => {
 			const snapshot = $state.snapshot(this.config) as Config;

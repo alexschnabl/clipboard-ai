@@ -192,6 +192,8 @@ export const fr: typeof en = {
 		failedPrefix: 'Échoué :',
 		inputLabel: 'Entrée',
 		resultLabel: 'Résultat',
+		noInputCaptured: 'rien n’a été capturé pour cette exécution',
+		noResultPasted: 'rien n’a été collé pour cette exécution',
 		copy: 'Copier',
 		copied: 'Copié',
 		copyResult: 'Copier le résultat',

@@ -9,6 +9,7 @@
 	import RiDeleteBinLine from 'remixicon-svelte/icons/delete-bin-line';
 	import CommandForm from './CommandForm.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { TABLE_HEAD_CLASS } from '$lib/table';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { CommandConfig, Problem } from '$lib/types';
 
@@ -60,20 +61,6 @@
 		return configState.problems.filter((p) => p.commandId === command.id);
 	}
 
-	// Dense sticky header strip, matching mockup-a-compact.html's `.col-headers`
-	// (and copied verbatim from HistoryPanel's own `headClass` rather than a
-	// shared import -- this project's existing idiom for this small a style
-	// string, see that component). `sticky top-0` sticks to the nearest
-	// scrolling ancestor, which is this component's own `content-scroll` div
-	// below, not the page -- each section scrolls independently now.
-	//
-	// F3 (review3-frontend.md): `text-muted-foreground` on `bg-muted` is
-	// 4.15:1 in light mode, just under AA's 4.5:1 for this small, non-bold
-	// text. `text-foreground/65` is theme-aware for free and, computed from
-	// app.css's own oklch tokens, clears AA in both themes against this same
-	// `bg-muted`: 6.03:1 light, 6.88:1 dark (was 4.15:1 / 6.05:1).
-	const headClass =
-		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-foreground/65 uppercase';
 </script>
 
 <!-- `content-toolbar` (pinned, border-b) + `content-scroll` (scrolls, padded)
@@ -100,10 +87,10 @@
 		<Table.Root>
 			<Table.Header>
 				<Table.Row class="hover:bg-transparent">
-					<Table.Head class={headClass}>{i18n.t.commands.columnName}</Table.Head>
-					<Table.Head class={headClass}>{i18n.t.commands.columnHotkey}</Table.Head>
-					<Table.Head class={headClass}>{i18n.t.commands.columnBackend}</Table.Head>
-					<Table.Head class="{headClass} text-right">{i18n.t.commands.columnActions}</Table.Head>
+					<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.commands.columnName}</Table.Head>
+					<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.commands.columnHotkey}</Table.Head>
+					<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.commands.columnBackend}</Table.Head>
+					<Table.Head class="{TABLE_HEAD_CLASS} text-right">{i18n.t.commands.columnActions}</Table.Head>
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>

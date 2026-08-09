@@ -12,6 +12,7 @@
 	import RiArrowRightSLine from 'remixicon-svelte/icons/arrow-right-s-line';
 	import RiHistoryLine from 'remixicon-svelte/icons/history-line';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { TABLE_HEAD_CLASS } from '$lib/table';
 	import { formatDuration, formatHistoryTimestamp } from '$lib/time-format';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { HistoryEntry } from '$lib/types';
@@ -51,15 +52,6 @@
 		clearTimeout(copiedResetTimer);
 	});
 
-	// F3 (review3-frontend.md): `text-muted-foreground` on `bg-muted` is
-	// 4.15:1 in light mode -- just under WCAG AA's 4.5:1 for this small
-	// (10px), non-bold text. `text-foreground/65` is theme-aware for free
-	// (`--foreground` itself flips between near-black and near-white), and
-	// computed from the app's own oklch tokens it clears AA in both themes
-	// with margin to spare against this same `bg-muted`: 6.03:1 light,
-	// 6.88:1 dark (was 4.15:1 / 6.05:1).
-	const headClass =
-		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-foreground/65 uppercase';
 
 	function toggleExpand(index: number): void {
 		expandedIndex = expandedIndex === index ? null : index;
@@ -181,11 +173,11 @@
 			<Table.Root class="text-xs">
 				<Table.Header>
 					<Table.Row class="hover:bg-transparent">
-						<Table.Head class="{headClass} w-20">{i18n.t.history.columnTime}</Table.Head>
-						<Table.Head class={headClass}>{i18n.t.history.columnCommand}</Table.Head>
-						<Table.Head class={headClass}>{i18n.t.history.columnBackend}</Table.Head>
-						<Table.Head class="{headClass} w-24">{i18n.t.history.columnOutcome}</Table.Head>
-						<Table.Head class="{headClass} w-20 text-right"
+						<Table.Head class="{TABLE_HEAD_CLASS} w-20">{i18n.t.history.columnTime}</Table.Head>
+						<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.history.columnCommand}</Table.Head>
+						<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.history.columnBackend}</Table.Head>
+						<Table.Head class="{TABLE_HEAD_CLASS} w-24">{i18n.t.history.columnOutcome}</Table.Head>
+						<Table.Head class="{TABLE_HEAD_CLASS} w-20 text-right"
 							>{i18n.t.history.columnDuration}</Table.Head
 						>
 					</Table.Row>
@@ -273,7 +265,7 @@
 												</div>
 												<pre
 													class="max-h-40 overflow-auto rounded-md border bg-background p-2 text-[11px] whitespace-pre-wrap">{entry.inputText ??
-														'— nothing was captured for this run —'}</pre>
+														`— ${i18n.t.history.noInputCaptured} —`}</pre>
 											</div>
 
 											<div class="flex flex-col gap-1">
@@ -300,7 +292,7 @@
 												</div>
 												<pre
 													class="max-h-40 overflow-auto rounded-md border bg-background p-2 text-[11px] whitespace-pre-wrap">{entry.resultText ??
-														'— nothing was pasted for this run —'}</pre>
+														`— ${i18n.t.history.noResultPasted} —`}</pre>
 											</div>
 										</div>
 									</div>

@@ -187,6 +187,8 @@ export const es: typeof en = {
 		failedPrefix: 'Fallido:',
 		inputLabel: 'Entrada',
 		resultLabel: 'Resultado',
+		noInputCaptured: 'no se capturó nada en esta ejecución',
+		noResultPasted: 'no se pegó nada en esta ejecución',
 		copy: 'Copiar',
 		copied: 'Copiado',
 		copyResult: 'Copiar resultado',

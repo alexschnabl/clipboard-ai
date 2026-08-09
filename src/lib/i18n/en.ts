@@ -190,6 +190,8 @@ export const en = {
 		failedPrefix: 'Failed:',
 		inputLabel: 'Input',
 		resultLabel: 'Result',
+		noInputCaptured: 'nothing was captured for this run',
+		noResultPasted: 'nothing was pasted for this run',
 		copy: 'Copy',
 		copied: 'Copied',
 		copyResult: 'Copy result',

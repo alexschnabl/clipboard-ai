@@ -9,6 +9,7 @@
 	import RiDeleteBinLine from 'remixicon-svelte/icons/delete-bin-line';
 	import BackendForm from './BackendForm.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { TABLE_HEAD_CLASS } from '$lib/table';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { KIND_LABELS, type BackendConfig } from '$lib/types';
 
@@ -56,13 +57,6 @@
 		pendingDelete = null;
 	}
 
-	// Copied verbatim from HistoryPanel/CommandList's own `headClass` -- see
-	// CommandList's comment on this string for why it isn't a shared import.
-	// F3 (review3-frontend.md): text-foreground/65 replaces text-muted-foreground
-	// here for AA contrast against bg-muted -- see CommandList's comment for
-	// the computed ratios.
-	const headClass =
-		'sticky top-0 z-10 h-7 bg-muted px-2 text-[10px] font-semibold tracking-wide text-foreground/65 uppercase';
 </script>
 
 <!-- Same content-toolbar / content-scroll split as CommandList.svelte -- see
@@ -93,10 +87,10 @@
 		<Table.Root>
 			<Table.Header>
 				<Table.Row class="hover:bg-transparent">
-					<Table.Head class={headClass}>{i18n.t.backends.columnName}</Table.Head>
-					<Table.Head class={headClass}>{i18n.t.backends.columnKind}</Table.Head>
-					<Table.Head class={headClass}>{i18n.t.backends.columnModel}</Table.Head>
-					<Table.Head class="{headClass} text-right">{i18n.t.backends.columnActions}</Table.Head>
+					<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.backends.columnName}</Table.Head>
+					<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.backends.columnKind}</Table.Head>
+					<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.backends.columnModel}</Table.Head>
+					<Table.Head class="{TABLE_HEAD_CLASS} text-right">{i18n.t.backends.columnActions}</Table.Head>
 				</Table.Row>
 			</Table.Header>
 			<Table.Body>

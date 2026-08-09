@@ -165,6 +165,8 @@ export const de: typeof en = {
 		failedPrefix: 'Fehlgeschlagen:',
 		inputLabel: 'Eingabe',
 		resultLabel: 'Ergebnis',
+		noInputCaptured: 'für diesen Lauf wurde nichts erfasst',
+		noResultPasted: 'für diesen Lauf wurde nichts eingefügt',
 		copy: 'Kopieren',
 		copied: 'Kopiert',
 		copyResult: 'Ergebnis kopieren',

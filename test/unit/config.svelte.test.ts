@@ -306,26 +306,6 @@ describe('ConfigState commit-and-rollback semantics', () => {
 		});
 	});
 
-	describe('saving', () => {
-		it('is true only while a commit is in flight', async () => {
-			let resolveSave!: (value: SaveResult) => void;
-			invokeMock.mockReturnValue(
-				new Promise<SaveResult>((resolve) => {
-					resolveSave = resolve;
-				})
-			);
-
-			expect(state.saving).toBe(false);
-			const pending = state.addBackend(backend());
-			expect(state.saving).toBe(true);
-
-			resolveSave(ok());
-			await pending;
-
-			expect(state.saving).toBe(false);
-		});
-	});
-
 	describe('save() problems channel', () => {
 		it('surfaces problems from a successful save, the same channel load() uses for startupProblems', async () => {
 			invokeMock.mockResolvedValue({

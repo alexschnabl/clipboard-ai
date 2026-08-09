@@ -33,8 +33,7 @@
 //! hand-edit of a hotkey a place history could be affected, and clutter the
 //! one file this project's README treats as a supported hand-editing
 //! surface. A sibling file with its own, much lighter durability contract
-//! is the better fit -- see `.superpowers/sdd/v3-research.md` for the full
-//! comparison this module follows.
+//! is the better fit.
 //!
 //! ## Durability: same atomic-write shape as `config.rs`, lighter contract
 //!
