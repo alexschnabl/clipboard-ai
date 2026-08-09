@@ -2,7 +2,8 @@
 name = "clipboard-ai-app"
 version = "0.1.0"
 description = "System-wide AI text assistant: select text anywhere, press a hotkey, get the transformed result pasted back over the selection"
-authors = ["Alex Schnabl"]
+authors = ["Alexander Schnabl <alexander.schnabl@sus-tech.at>"]
+license = "MIT"
 edition = "2021"
 # `smoke` is a second binary (the input-stack diagnostic), so a bare `cargo run`
 # -- which is what `tauri dev` issues -- cannot pick one. Name the app explicitly.

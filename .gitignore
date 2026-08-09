@@ -8,6 +8,9 @@ venv/
 env/
 .pytest_cache/
 
+# Design history / working docs -- kept locally, not published
+/docs/
+
 # Agent working notes (draft brainstorming, per-task reviews/diffs) --
 # never meant to be committed
 .superpowers/
