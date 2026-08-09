@@ -40,8 +40,8 @@
 	});
 
 	// F5 (review3-frontend.md): every other timer/listener in this codebase
-	// (the overlay's `clearWatchdog`, HotkeyRecorder's `onDestroy` backstop,
-	// +page.svelte's `unlisten`) is cleared on unmount; this one wasn't. A
+	// (HotkeyRecorder's `onDestroy` backstop, +page.svelte's `unlisten`) is
+	// cleared on unmount; this one wasn't. A
 	// settings-window hide within 1.5s of "Copy" used to destroy this
 	// component (it lives inside +page.svelte's `{#key configState.revision}`
 	// block) while the timeout was still pending -- harmless (nothing reads

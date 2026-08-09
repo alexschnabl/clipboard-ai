@@ -44,9 +44,9 @@
 	});
 </script>
 
-<!-- `h-screen`, not `h-full`: the shared root layout's `<main>` (+layout.svelte,
-     also used by the overlay window) intentionally keeps `min-h-screen`, not a
-     definite height, so this reaches for the viewport unit directly instead of
+<!-- `h-screen`, not `h-full`: the root layout's `<main>` (+layout.svelte)
+     intentionally keeps `min-h-screen`, not a definite height, so this
+     reaches for the viewport unit directly instead of
      depending on an ancestor whose sizing isn't this component's to change.
      `overflow-hidden` here, plus `overflow-hidden` on the section wrapper below
      and `overflow-y-auto` scoped to just the alerts strip and each section's own

@@ -13,11 +13,6 @@
 	// that makes `<ModeWatcher />` *follow* it, so there's a single source of truth
 	// for which theme renders, not a second one living in this layout.
 	//
-	// This layout is shared with the overlay window's route (src/routes/overlay/,
-	// not ours to touch) via the same component tree, so this runs there too --
-	// harmlessly: that window's own `configState` instance never calls `load()`,
-	// stays on the `'system'` fallback below, which is exactly what an unwired
-	// `<ModeWatcher />` already defaulted to before this effect existed.
 	// The read is deliberately outside `untrack` and the write inside it.
 	//
 	// `setMode` assigns to mode-watcher's own `userPrefersMode.current`, whose
