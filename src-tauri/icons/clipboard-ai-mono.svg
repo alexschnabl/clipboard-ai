@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="512" height="512" role="img" aria-label="Clipboard AI">
+  <defs>
+    <mask id="cutm" maskUnits="userSpaceOnUse" x="0" y="0" width="100" height="100">
+      <rect x="0" y="0" width="100" height="100" fill="#ffffff"></rect>
+      <rect x="24" y="22" width="36" height="38" rx="7" fill="#000000"></rect>
+      <rect x="29" y="27" width="60" height="64" rx="16" fill="#000000"></rect>
+    </mask>
+  </defs>
+  <rect x="15" y="13" width="54" height="56" rx="13" fill="currentColor" mask="url(#cutm)"></rect>
+  <rect x="33" y="31" width="52" height="56" rx="13" fill="currentColor"></rect>
+</svg>

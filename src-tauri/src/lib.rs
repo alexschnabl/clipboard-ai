@@ -796,15 +796,17 @@ pub fn run() {
             let mut tray_builder = TrayIconBuilder::with_id(tray_anim::TRAY_ID)
                 .tooltip("Clipboard AI")
                 .menu(&menu);
-            // R17: `.unwrap()` on a missing bundled icon used to panic
-            // during `setup`, and `windows_subsystem = "windows"` means a
-            // release build has no console to show that panic on -- the app
-            // would just never reach a tray icon, with nothing to tell the
-            // user why. `.icon(...)` is optional on the builder; skipping it
-            // still yields a working tray (menu, click handling, status
-            // text) with no glyph rather than no tray at all.
-            match app.default_window_icon() {
-                Some(icon) => tray_builder = tray_builder.icon(icon.clone()),
+            // The tray gets its own dedicated, tray-optimised icon
+            // (`tray_anim::tray_icon`, the author's simplified mark that
+            // stays legible at 16-32 px), not the full app icon used for the
+            // window and installer -- and it is the same asset the in-flight
+            // animation breathes. Falls back to the app window icon, then to
+            // no glyph: `.icon(...)` is optional on the builder, and a
+            // release build (`windows_subsystem = "windows"`) has no console
+            // to surface a panic on, so a missing icon must degrade to a
+            // working-but-glyphless tray rather than never reaching one.
+            match tray_anim::tray_icon().or_else(|| app.default_window_icon().cloned()) {
+                Some(icon) => tray_builder = tray_builder.icon(icon),
                 None => {
                     let line = "STARTUP tray-icon-missing; continuing without one".to_string();
                     eprintln!("{line}");

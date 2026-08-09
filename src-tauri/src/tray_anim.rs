@@ -73,10 +73,24 @@ const MIN_ALPHA_SCALE: f64 = 0.4;
 /// FRAME_INTERVAL_MS` ~= 1.3 s.
 const FRAME_COUNT: usize = 14;
 
+/// The dedicated tray icon, embedded at compile time. This is the
+/// author's tray-optimised export (a simplified mark that stays legible at
+/// 16-32 px), distinct from the full app icon used for the window, taskbar
+/// and installer -- the full mark turns to mush at tray size. `lib.rs` sets
+/// the tray to this same asset, and the breathing frames below are built
+/// from it, so the animation pulses exactly what the tray shows at rest.
+const TRAY_ICON_PNG: &[u8] = include_bytes!("../icons/tray-32.png");
+
+/// Decodes [`TRAY_ICON_PNG`] into an owned `Image`. `None` only if the
+/// embedded PNG somehow fails to decode -- a build-time constant, so in
+/// practice never, but the tray simply shows nothing to animate if it does.
+pub fn tray_icon() -> Option<Image<'static>> {
+    Image::from_bytes(TRAY_ICON_PNG).ok()
+}
+
 /// The idle icon and the pre-built breathing frames, computed once from the
-/// app's own window icon and reused for every cycle. `None` if the app has
-/// no window icon (the tray then simply shows nothing to animate -- see
-/// `lib.rs`, where a missing icon is already a tolerated startup state).
+/// tray icon and reused for every cycle. `None` if the embedded tray PNG
+/// fails to decode (see [`tray_icon`]).
 struct Frames {
     idle: Image<'static>,
     busy: Vec<Image<'static>>,
@@ -105,8 +119,8 @@ fn breath_scale(i: usize, count: usize) -> f64 {
     MIN_ALPHA_SCALE + (1.0 - MIN_ALPHA_SCALE) * unit
 }
 
-fn build_frames(app: &AppHandle) -> Option<Frames> {
-    let icon = app.default_window_icon()?;
+fn build_frames() -> Option<Frames> {
+    let icon = tray_icon()?;
     let (rgba, w, h) = (icon.rgba(), icon.width(), icon.height());
     let idle = Image::new_owned(rgba.to_vec(), w, h);
     let busy = (0..FRAME_COUNT)
@@ -175,7 +189,7 @@ pub struct TrayAnimation {
 
 impl TrayAnimation {
     pub fn begin(app: AppHandle) -> Self {
-        let has_frames = FRAMES.get_or_init(|| build_frames(&app)).is_some();
+        let has_frames = FRAMES.get_or_init(build_frames).is_some();
         let cancel = std::sync::Arc::new(AtomicBool::new(false));
         let handle = if has_frames {
             let cancel = cancel.clone();
@@ -243,6 +257,21 @@ mod tests {
     fn scale_alpha_at_full_scale_is_the_identity() {
         let rgba = [1u8, 2, 3, 255, 4, 5, 6, 128];
         assert_eq!(scale_alpha(&rgba, 1.0), rgba.to_vec());
+    }
+
+    #[test]
+    fn the_embedded_tray_icon_decodes_to_a_non_empty_square() {
+        // Guards the build against a corrupt or wrong-format tray asset:
+        // `tray_icon()` decodes the compiled-in PNG, and the tray plus the
+        // breathing frames both depend on it.
+        let icon = tray_icon().expect("the embedded tray PNG must decode");
+        assert_eq!(icon.width(), icon.height(), "the tray icon should be square");
+        assert!(icon.width() >= 16, "a tray icon smaller than 16px would not render usefully");
+        assert_eq!(
+            icon.rgba().len() as u32,
+            icon.width() * icon.height() * 4,
+            "decoded RGBA length must match the dimensions"
+        );
     }
 
     #[test]
