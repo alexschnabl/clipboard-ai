@@ -132,7 +132,7 @@ pub fn build(config: &BackendConfig) -> Result<Arc<dyn Backend>, BackendError> {
 #[cfg(test)]
 mod build_tests {
     use super::*;
-    use crate::config::{BackendConfig, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_OPENAI};
+    use crate::config::{BackendConfig, Effort, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_OPENAI};
 
     fn cfg(kind: &str) -> BackendConfig {
         BackendConfig {
@@ -143,6 +143,8 @@ mod build_tests {
             model: Some("m".into()),
             api_key: None,
             timeout_ms: 120_000,
+            effort: Effort::Low,
+            session_persistence: false,
         }
     }
 

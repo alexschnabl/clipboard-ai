@@ -123,7 +123,7 @@ fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, 
 #[cfg(test)]
 mod build_command_map_tests {
     use super::*;
-    use crate::config::{BackendConfig, CommandConfig, Config, KIND_CLAUDE_CLI};
+    use crate::config::{BackendConfig, CommandConfig, Config, Effort, KIND_CLAUDE_CLI};
 
     fn backend_cfg() -> BackendConfig {
         BackendConfig {
@@ -134,6 +134,8 @@ mod build_command_map_tests {
             model: None,
             api_key: None,
             timeout_ms: 120_000,
+            effort: Effort::Low,
+            session_persistence: false,
         }
     }
 

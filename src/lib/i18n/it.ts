@@ -146,6 +146,18 @@ export const it: typeof en = {
 			modelPlaceholderClaudeCli: 'haiku',
 			modelHintClaudeCli:
 				'Facoltativo. Un modello più piccolo come haiku risponde più rapidamente; vuoto usa il valore predefinito della CLI.',
+			effortLabel: 'Effort',
+			effortOptionDefault: 'Predefinito',
+			effortOptionLow: 'Basso',
+			effortOptionMedium: 'Medio',
+			effortOptionHigh: 'Alto',
+			effortOptionXhigh: 'Molto alto',
+			effortOptionMax: 'Massimo',
+			effortHint:
+				'Un effort più basso risponde più rapidamente ed è sufficiente per testi brevi. Predefinito lascia decidere alla CLI.',
+			sessionPersistenceLabel: 'Mantieni cronologia sessione',
+			sessionPersistenceHint:
+				'Disattivato tiene queste esecuzioni estemporanee fuori dalla cronologia sessioni della CLI.',
 			apiKeyLabel: 'Chiave API',
 			apiKeyOptional: '(opzionale)',
 			showApiKey: 'Mostra chiave API',

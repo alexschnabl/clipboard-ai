@@ -132,7 +132,7 @@ mod tests {
 
     use super::*;
     use crate::backend::{BackendError, HttpClient};
-    use crate::config::{BackendConfig, KIND_OPENAI};
+    use crate::config::{BackendConfig, Effort, KIND_OPENAI};
 
     struct FakeHttp {
         response: Result<serde_json::Value, String>,
@@ -173,6 +173,8 @@ mod tests {
             model: Some("qwen2.5:32b-instruct".into()),
             api_key: None,
             timeout_ms: 120_000,
+            effort: Effort::Low,
+            session_persistence: false,
         }
     }
 

@@ -53,6 +53,19 @@ pub struct BackendConfig {
     pub api_key: Option<String>,
     #[serde(default = "default_timeout")]
     pub timeout_ms: u64,
+    /// `claude-cli`-only: the CLI's own `--effort` flag. Meaningless for the
+    /// two HTTP kinds, same as `model` is meaningless for neither -- see
+    /// `Effort`'s own doc comment for why `Low` (not `Effort::Default`) is
+    /// this field's serde default.
+    #[serde(default)]
+    pub effort: Effort,
+    /// `claude-cli`-only: whether the CLI should keep this run in its own
+    /// session history. Defaults to `false` (matches the CLI adapter's
+    /// historical hardcoded `--no-session-persistence`) so an existing
+    /// claude-cli backend's config, which predates this field, keeps
+    /// behaving exactly as it does today.
+    #[serde(default)]
+    pub session_persistence: bool,
 }
 
 /// The lowest `timeoutMs` a backend may be configured with.
@@ -128,6 +141,32 @@ pub enum Language {
     Fr,
     Es,
     It,
+}
+
+/// The `--effort` level `claude_cli::ClaudeCli` passes to `claude -p`.
+/// `Default` means "pass no `--effort` flag at all, let the CLI pick its own"
+/// -- a real, user-chosen option, and *not* the same thing as this enum's
+/// own `#[default]`.
+///
+/// `Low` carries `#[default]` instead, precisely because it is not the
+/// intuitive choice: the CLI adapter has always hardcoded `--effort low`, so
+/// an existing claude-cli backend's config -- written before this field
+/// existed, and therefore missing the `effort` key entirely -- must keep
+/// invoking the CLI exactly as it does today after this field is
+/// introduced. `#[serde(default)]` on `BackendConfig::effort` reads that
+/// missing key as `Effort::default()`, so that default has to be `Low`, not
+/// the `Default` variant, or every pre-existing config would silently
+/// switch behaviour the moment this field shipped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+    Default,
+    #[default]
+    Low,
+    Medium,
+    High,
+    Xhigh,
+    Max,
 }
 
 /// Plain enums, not `BackendConfig.kind`'s raw-`String`-plus-`validate()`
@@ -293,6 +332,8 @@ pub fn default_config() -> Config {
                 model: Some("qwen2.5:32b-instruct".into()),
                 api_key: None,
                 timeout_ms: 120_000,
+                effort: Effort::Low,
+                session_persistence: false,
             },
             BackendConfig {
                 id: "claude-sub".into(),
@@ -302,6 +343,8 @@ pub fn default_config() -> Config {
                 model: None,
                 api_key: None,
                 timeout_ms: 120_000,
+                effort: Effort::Low,
+                session_persistence: false,
             },
         ],
         commands: vec![CommandConfig {
@@ -554,6 +597,30 @@ mod tests {
             let json = json_with_settings(serde_json::json!({ "language": code }));
             assert!(parse(&json).is_ok(), "{code} must be a legal language value");
         }
+    }
+
+    // Pins today's behaviour: an existing claude-cli backend's config
+    // predates `effort`/`sessionPersistence` entirely, and `valid_json()`'s
+    // single backend already has neither key. It must load as `Effort::Low`
+    // + `session_persistence == false` -- exactly what the CLI adapter used
+    // to hardcode -- not silently switch to `Effort::Default` or `true`.
+    #[test]
+    fn a_backend_with_no_effort_or_session_persistence_keys_keeps_todays_behaviour() {
+        let cfg = parse(valid_json()).expect("a backend missing these keys should still parse");
+        assert_eq!(cfg.backends[0].effort, Effort::Low);
+        assert!(!cfg.backends[0].session_persistence);
+    }
+
+    // Same free rejection `rejects_an_unknown_theme_value` and
+    // `rejects_an_unknown_language_value` rely on: a real enum, not a
+    // stringly-typed field, so an unknown `effort` value needs no dedicated
+    // `ConfigError` variant or `validate()` branch to be refused.
+    #[test]
+    fn rejects_an_unknown_effort_value() {
+        let mut value: serde_json::Value = serde_json::from_str(valid_json()).unwrap();
+        value["backends"][0]["effort"] = serde_json::json!("turbo");
+        let json = serde_json::to_string(&value).unwrap();
+        assert!(matches!(parse(&json), Err(ConfigError::Parse(_))));
     }
 
     // A config written by *this* version (settings present, fully

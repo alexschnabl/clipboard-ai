@@ -138,6 +138,18 @@ export const en = {
 			modelPlaceholderClaudeCli: 'haiku',
 			modelHintClaudeCli:
 				'Optional. A smaller model such as haiku answers faster; blank uses the CLI’s default.',
+			effortLabel: 'Effort',
+			effortOptionDefault: 'Default',
+			effortOptionLow: 'Low',
+			effortOptionMedium: 'Medium',
+			effortOptionHigh: 'High',
+			effortOptionXhigh: 'Very high',
+			effortOptionMax: 'Maximum',
+			effortHint:
+				'Lower effort answers faster and is enough for short text. Default lets the CLI decide.',
+			sessionPersistenceLabel: 'Keep session history',
+			sessionPersistenceHint:
+				'Off keeps fire-and-forget runs out of the CLI’s own session history.',
 			apiKeyLabel: 'API key',
 			apiKeyOptional: '(optional)',
 			showApiKey: 'Show API key',

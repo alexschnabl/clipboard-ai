@@ -9,6 +9,12 @@ export const KIND_LABELS: Record<BackendKind, string> = {
 	'claude-cli': 'Claude CLI'
 };
 
+/** Wire values match `config::Effort`'s `#[serde(rename_all = "lowercase")]`
+ *  exactly (see config.rs) -- `default` means "pass no `--effort` flag,
+ *  let the CLI decide", a real user choice distinct from this field's own
+ *  wire/schema default of `low` (see that enum's doc comment for why). */
+export type Effort = 'default' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
 export interface BackendConfig {
 	id: string;
 	name: string;
@@ -17,6 +23,10 @@ export interface BackendConfig {
 	model: string | null;
 	apiKey: string | null;
 	timeoutMs: number;
+	/** `claude-cli`-only; ignored by the two HTTP kinds. */
+	effort: Effort;
+	/** `claude-cli`-only; ignored by the two HTTP kinds. */
+	sessionPersistence: boolean;
 }
 
 export interface CommandConfig {

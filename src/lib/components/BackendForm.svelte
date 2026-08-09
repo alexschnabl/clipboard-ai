@@ -6,11 +6,18 @@
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import { Input } from '$lib/components/shadcn/input/index.js';
 	import { Label } from '$lib/components/shadcn/label/index.js';
+	import { Switch } from '$lib/components/shadcn/switch/index.js';
 	import RiEyeLine from 'remixicon-svelte/icons/eye-line';
 	import RiEyeOffLine from 'remixicon-svelte/icons/eye-off-line';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
-	import { KIND_LABELS, type BackendConfig, type BackendKind } from '$lib/types';
+	import { KIND_LABELS, type BackendConfig, type BackendKind, type Effort } from '$lib/types';
+
+	/** Fixed, developer-curated set mirroring `config::Effort`'s variants --
+	 *  the labels come from the active dictionary (unlike `KIND_LABELS`,
+	 *  these are ordinary words worth translating), so this lives inside the
+	 *  component as a `$derived`, not as a module-level constant. */
+	const EFFORT_VALUES: Effort[] = ['default', 'low', 'medium', 'high', 'xhigh', 'max'];
 
 	let {
 		open = $bindable(false),
@@ -35,6 +42,12 @@
 	let model = $state('');
 	let apiKey = $state('');
 	let timeoutMs = $state(DEFAULT_TIMEOUT_MS);
+	// `claude-cli`-only fields. Schema defaults (see `Effort`'s doc comment
+	// in config.rs): `low` effort, persistence off -- exactly what the CLI
+	// adapter used to hardcode, so a new backend behaves the same as it did
+	// before these became configurable.
+	let effort = $state<Effort>('low');
+	let sessionPersistence = $state(false);
 	let revealed = $state(false);
 	let saving = $state(false);
 	/** Set from `configState.error` when `save()` (via `commit`) rejects this
@@ -57,6 +70,18 @@
 	 *  flag, the main lever for trading quality for speed (a small model like
 	 *  haiku answers faster). */
 	const usesKey = $derived(kind === 'openai-compatible' || kind === 'anthropic-api');
+	// `satisfies Record<Effort, string>` -- not just `Record<Effort, string>`
+	// -- so this stays a plain object literal (usable as `effortLabels[value]`
+	// below) while the compiler still rejects a future `Effort` variant left
+	// out of this list, the same guarantee `KIND_LABELS` gives `kind`.
+	const effortLabels = $derived({
+		default: i18n.t.backends.form.effortOptionDefault,
+		low: i18n.t.backends.form.effortOptionLow,
+		medium: i18n.t.backends.form.effortOptionMedium,
+		high: i18n.t.backends.form.effortOptionHigh,
+		xhigh: i18n.t.backends.form.effortOptionXhigh,
+		max: i18n.t.backends.form.effortOptionMax
+	} satisfies Record<Effort, string>);
 
 	let wasOpen = false;
 	// Seed the form whenever the dialog opens; when it closes -- Save,
@@ -74,6 +99,11 @@
 			model = backend?.model ?? '';
 			apiKey = backend?.apiKey ?? '';
 			timeoutMs = backend?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+			// `?? 'low'` / `?? false` covers both a brand-new backend and an
+			// older one saved before these fields existed -- same fallback
+			// the Rust side's `#[serde(default)]` applies on load.
+			effort = backend?.effort ?? 'low';
+			sessionPersistence = backend?.sessionPersistence ?? false;
 			revealed = false;
 			submitError = null;
 		} else if (wasOpen) {
@@ -85,6 +115,11 @@
 	function handleKindChange(value: string | undefined): void {
 		if (typeof value !== 'string') return;
 		kind = value as BackendKind;
+	}
+
+	function handleEffortChange(value: string | undefined): void {
+		if (typeof value !== 'string') return;
+		effort = value as Effort;
 	}
 
 	function handleTimeoutInput(e: Event & { currentTarget: HTMLInputElement }): void {
@@ -101,7 +136,13 @@
 			baseUrl: kind === 'openai-compatible' ? baseUrl.trim() || null : null,
 			model: model.trim() || null,
 			apiKey: usesKey ? apiKey.trim() || null : null,
-			timeoutMs
+			timeoutMs,
+			// Only `claude-cli` exposes these controls; every other kind
+			// always saves the schema default (`low`/`false`) rather than
+			// whatever `effort`/`sessionPersistence` happened to be left at
+			// from a previous claude-cli edit in this same dialog session.
+			effort: kind === 'claude-cli' ? effort : 'low',
+			sessionPersistence: kind === 'claude-cli' ? sessionPersistence : false
 		};
 		saving = true;
 		submitError = null;
@@ -186,6 +227,35 @@
 					<p class="text-xs text-muted-foreground">{i18n.t.backends.form.modelHintClaudeCli}</p>
 				{/if}
 			</div>
+
+			{#if kind === 'claude-cli'}
+				<div class="flex flex-col gap-1.5">
+					<Label for="backend-effort">{i18n.t.backends.form.effortLabel}</Label>
+					<Select.Root type="single" value={effort} onValueChange={handleEffortChange}>
+						<Select.Trigger id="backend-effort" class="w-full">
+							{effortLabels[effort]}
+						</Select.Trigger>
+						<Select.Content>
+							{#each EFFORT_VALUES as value (value)}
+								<Select.Item {value} label={effortLabels[value]} />
+							{/each}
+						</Select.Content>
+					</Select.Root>
+					<p class="text-xs text-muted-foreground">{i18n.t.backends.form.effortHint}</p>
+				</div>
+
+				<div class="flex items-center justify-between gap-3">
+					<div class="flex flex-col gap-0.5">
+						<Label for="backend-session-persistence"
+							>{i18n.t.backends.form.sessionPersistenceLabel}</Label
+						>
+						<p class="text-xs text-muted-foreground">
+							{i18n.t.backends.form.sessionPersistenceHint}
+						</p>
+					</div>
+					<Switch id="backend-session-persistence" bind:checked={sessionPersistence} />
+				</div>
+			{/if}
 
 			{#if usesKey}
 				<div class="flex flex-col gap-1.5">

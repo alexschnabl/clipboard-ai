@@ -126,7 +126,7 @@ mod tests {
 
     use super::*;
     use crate::backend::{BackendError, HttpClient};
-    use crate::config::{BackendConfig, KIND_ANTHROPIC};
+    use crate::config::{BackendConfig, Effort, KIND_ANTHROPIC};
 
     struct FakeHttp {
         response: serde_json::Value,
@@ -161,6 +161,8 @@ mod tests {
             model: None,
             api_key: Some("sk-test".into()),
             timeout_ms: 120_000,
+            effort: Effort::Low,
+            session_persistence: false,
         }
     }
 

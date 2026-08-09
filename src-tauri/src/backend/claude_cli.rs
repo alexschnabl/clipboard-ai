@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::backend::{Backend, BackendError};
-use crate::config::BackendConfig;
+use crate::config::{BackendConfig, Effort};
 
 pub trait CommandRunner: Send + Sync {
     fn run(
@@ -169,6 +169,8 @@ pub struct ClaudeCli {
     /// The main lever for trading quality against speed on this backend: a
     /// small model (e.g. `haiku`) answers noticeably faster than the default.
     model: Option<String>,
+    effort: Effort,
+    session_persistence: bool,
     timeout_ms: u64,
     runner: Arc<dyn CommandRunner>,
 }
@@ -180,9 +182,25 @@ impl ClaudeCli {
             // Blank-filtered like the HTTP adapters: a hand-edited empty
             // model must mean "the CLI's default", never `--model ""`.
             model: config.model.clone().filter(|m| !m.trim().is_empty()),
+            effort: config.effort,
+            session_persistence: config.session_persistence,
             timeout_ms: config.timeout_ms,
             runner,
         }
+    }
+}
+
+/// The literal value `claude -p --effort <value>` expects, or `None` for
+/// `Effort::Default` -- which means "pass no `--effort` flag at all, let the
+/// CLI decide" rather than any particular level.
+fn effort_flag_value(effort: Effort) -> Option<&'static str> {
+    match effort {
+        Effort::Default => None,
+        Effort::Low => Some("low"),
+        Effort::Medium => Some("medium"),
+        Effort::High => Some("high"),
+        Effort::Xhigh => Some("xhigh"),
+        Effort::Max => Some("max"),
     }
 }
 
@@ -196,17 +214,21 @@ impl Backend for ClaudeCli {
             "-p".to_string(),
             "--system-prompt".to_string(),
             system_prompt.to_string(),
-            // `--effort low`: this app runs short one-shot text transforms,
-            // not multi-step reasoning, so the lowest effort is both enough
-            // and faster on the model's side. `--no-session-persistence`:
-            // never write a session file for a fire-and-forget grammar fix
-            // -- it can't help (we never `--continue`), and it keeps the
-            // user's `claude` session history clean. Neither touches the
-            // dominant cost, which is the CLI's own process startup.
-            "--effort".to_string(),
-            "low".to_string(),
-            "--no-session-persistence".to_string(),
         ];
+        // Both configurable per-backend now (Backends settings, claude-cli
+        // kind only) rather than hardcoded. `low` effort and persistence off
+        // remain the schema defaults -- see `Effort`'s and
+        // `BackendConfig::session_persistence`'s doc comments in config.rs
+        // -- so a backend saved before this shipped keeps behaving exactly
+        // as it did when these were hardcoded. Neither flag touches the
+        // dominant cost, which is the CLI's own process startup.
+        if let Some(level) = effort_flag_value(self.effort) {
+            args.push("--effort".to_string());
+            args.push(level.to_string());
+        }
+        if !self.session_persistence {
+            args.push("--no-session-persistence".to_string());
+        }
         if let Some(model) = &self.model {
             args.push("--model".to_string());
             args.push(model.clone());
@@ -226,7 +248,7 @@ mod tests {
 
     use super::*;
     use crate::backend::BackendError;
-    use crate::config::{BackendConfig, KIND_CLAUDE_CLI};
+    use crate::config::{BackendConfig, Effort, KIND_CLAUDE_CLI};
 
     struct FakeRunner {
         result: Result<String, BackendError>,
@@ -265,6 +287,8 @@ mod tests {
             model: None,
             api_key: None,
             timeout_ms: 120_000,
+            effort: Effort::Low,
+            session_persistence: false,
         }
     }
 
@@ -317,6 +341,68 @@ mod tests {
         backend.transform("s", "t").unwrap();
         let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
         assert!(!args.contains(&"--model".to_string()), "a blank model must not send --model");
+    }
+
+    #[test]
+    fn effort_low_produces_the_effort_low_flag() {
+        let mut config = cfg();
+        config.effort = Effort::Low;
+        let runner = FakeRunner::ok("ok");
+        let backend = ClaudeCli::new(&config, runner.clone());
+        backend.transform("s", "t").unwrap();
+        let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
+        let idx = args.iter().position(|a| a == "--effort").expect("--effort must be present");
+        assert_eq!(args[idx + 1], "low");
+    }
+
+    // `Effort::Default` means "let the CLI decide" -- the one level that
+    // must produce no `--effort` flag at all, not `--effort default`.
+    #[test]
+    fn effort_default_produces_no_effort_flag() {
+        let mut config = cfg();
+        config.effort = Effort::Default;
+        let runner = FakeRunner::ok("ok");
+        let backend = ClaudeCli::new(&config, runner.clone());
+        backend.transform("s", "t").unwrap();
+        let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
+        assert!(!args.contains(&"--effort".to_string()), "Default must not send --effort");
+    }
+
+    #[test]
+    fn effort_max_produces_the_effort_max_flag() {
+        let mut config = cfg();
+        config.effort = Effort::Max;
+        let runner = FakeRunner::ok("ok");
+        let backend = ClaudeCli::new(&config, runner.clone());
+        backend.transform("s", "t").unwrap();
+        let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
+        let idx = args.iter().position(|a| a == "--effort").expect("--effort must be present");
+        assert_eq!(args[idx + 1], "max");
+    }
+
+    #[test]
+    fn session_persistence_false_produces_the_no_session_persistence_flag() {
+        let mut config = cfg();
+        config.session_persistence = false;
+        let runner = FakeRunner::ok("ok");
+        let backend = ClaudeCli::new(&config, runner.clone());
+        backend.transform("s", "t").unwrap();
+        let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
+        assert!(args.contains(&"--no-session-persistence".to_string()));
+    }
+
+    #[test]
+    fn session_persistence_true_produces_neither_session_flag() {
+        let mut config = cfg();
+        config.session_persistence = true;
+        let runner = FakeRunner::ok("ok");
+        let backend = ClaudeCli::new(&config, runner.clone());
+        backend.transform("s", "t").unwrap();
+        let (_p, args, _stdin, _t) = runner.seen.lock().unwrap().clone().unwrap();
+        assert!(
+            !args.contains(&"--no-session-persistence".to_string()),
+            "persistence on must not pass --no-session-persistence"
+        );
     }
 
     #[test]
