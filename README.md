@@ -6,24 +6,60 @@
 
 <p align="center">Highlight text anywhere in Windows, press a hotkey, and an AI rewrites it in place.</p>
 
-<!-- TODO(gif): the hero loop - select a sentence in Notepad, press the hotkey, tray pulses, corrected text lands. -->
+<p align="center">
+  <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" />
+  <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="Platform: Windows" />
+  <img src="https://img.shields.io/badge/built%20with-Tauri%20v2-24C8DB" alt="Built with Tauri v2" />
+</p>
 
-Clipboard AI sits in the tray. You set up **commands** - each is a hotkey, a prompt, and a
-backend - and pressing a command's hotkey over any selected text sends it to the AI and pastes
-the result back over your selection. That's the whole app. It ships with one command, "Fix
-grammar" on `Ctrl+Alt+J`.
+<!-- TODO(gif): the hero loop - select a sentence in Notepad, press Ctrl+Alt+J, the tray pulses, the corrected text lands in place. Commit it to assets/ (not docs/, which is gitignored) and point the img below at assets/demo.gif. -->
 
-Backends can be:
+<!--
+<p align="center">
+  <img src="assets/demo.gif" alt="Selecting text and pressing the hotkey to rewrite it in place" width="720" />
+</p>
+-->
 
-- **OpenAI-compatible** - any `/chat/completions` endpoint (a local Ollama or LM Studio, or OpenAI).
-- **Anthropic API** - the Messages API with your own key.
-- **Claude CLI** - your Claude subscription through the `claude` command. No API key.
+Clipboard AI sits in the tray. You set up **commands** - each one is a hotkey, a prompt, and a backend - and pressing a command's hotkey over any selected text sends that text to the AI and pastes the result back over your selection. That's the whole app. It ships with one command, "Fix grammar" on `Ctrl+Alt+J`.
+
+Nothing about the text ever leaves your machine except the request to the backend you chose. Point a command at a local model and it stays fully offline.
+
+## Contents
+
+- [Features](#features)
+- [Backends](#backends)
+- [Build](#build)
+- [Use it](#use-it)
+- [Configuration](#configuration)
+- [Safety and privacy](#safety-and-privacy)
+- [Languages](#languages)
+- [Develop](#develop)
+- [FAQ](#faq)
+- [License](#license)
+
+## Features
+
+- **Commands.** A command is a name, a hotkey, a prompt, and a backend. Add as many as you want. "Fix grammar" ships by default on `Ctrl+Alt+J`.
+- **Works in any app.** The hotkey acts on whatever text is selected in the focused window - editor, browser, chat box, anywhere.
+- **Three kinds of backend.** Local models, the Anthropic API, or your Claude subscription through the `claude` CLI with no API key. See [Backends](#backends).
+- **Live settings.** Add or edit a backend or command and it applies straight away. No restart.
+- **Run history.** The last 100 runs, input and output, so you can copy back a result you lost. Clear it any time.
+- **It refuses to paste a bad result.** If the target window changed or the answer came back malformed, the command aborts instead of overwriting your text with a guess. See [Safety and privacy](#safety-and-privacy).
+- **Five-language UI.** English, German, Spanish, French, Italian.
+
+## Backends
+
+A backend is where a command sends its text. You can mix them - one command on a local model, another on Claude.
+
+| Backend | What it is | API key |
+| --- | --- | --- |
+| **OpenAI-compatible** | Any `/chat/completions` endpoint. Point it at a local [Ollama](https://ollama.com/) or [LM Studio](https://lmstudio.ai/), or at OpenAI itself. | Local: no. OpenAI: yes. |
+| **Anthropic API** | The Anthropic Messages API. | Yes |
+| **Claude CLI** | Your Claude subscription through the [`claude`](https://docs.claude.com/en/docs/claude-code) command. Requires the CLI installed and signed in. | No |
 
 ## Build
 
-There's no packaged download yet, so build from source. You need [Node](https://nodejs.org/), a
-[Rust toolchain](https://rustup.rs/), and on Windows the MSVC build tools ("Desktop development
-with C++").
+There's no packaged download yet, so you build from source. You need [Node](https://nodejs.org/), a [Rust toolchain](https://rustup.rs/), and on Windows the MSVC build tools ("Desktop development with C++", from the Visual Studio Installer).
 
 ```sh
 npm install
@@ -32,22 +68,42 @@ npm run tauri build
 
 The installer ends up in `src-tauri/target/release/bundle/`.
 
+The build is **unsigned**, so Windows SmartScreen will warn you the first time you run the installer. That's expected for an unsigned app built from source. Click "More info" then "Run anyway" if you trust what you built.
+
 ## Use it
 
-First launch puts an icon in the tray - left-click it to open settings. Add a backend, add a
-command (a name, a hotkey, a prompt), and that's it. Edits apply straight away, no restart. While
-a command runs the tray icon pulses, and stops when the result lands.
+First launch puts an icon in the tray. Left-click it to open settings. Add a backend, add a command (a name, a hotkey, a prompt), and you're done. While a command runs the tray icon pulses, and stops when the result lands.
 
-<!-- TODO(screenshot): the settings window, Commands tab, with a couple of commands. -->
+The default flow:
 
-## Worth knowing
+1. Select some text in any app.
+2. Press `Ctrl+Alt+J`.
+3. The selection is replaced with the grammar-fixed version.
 
-- **A hotkey sometimes does nothing, on purpose.** If you switched windows, a modifier key was
-  still held, or the model's answer came back malformed, Clipboard AI aborts instead of pasting a
-  guess over your text. The History tab tells you why.
-- **Your keys and history are stored in plain text** under `%APPDATA%\com.clipboardai.app\`.
-  History keeps the last 100 runs - input and output - so you can copy back a result you lost;
-  clear it any time from the History tab. The log file never contains your text.
+<!-- TODO(screenshot): the settings window, Commands tab, with a couple of commands. Commit to assets/ and reference it here. -->
+
+## Configuration
+
+You set everything up in the settings window; you don't need to hand-edit anything. Two things to configure:
+
+- **Backends** - a type (OpenAI-compatible, Anthropic, or Claude CLI), plus the endpoint, model, and key that type needs.
+- **Commands** - a name, a global hotkey, a prompt, and which backend to use.
+
+Edits apply immediately. Config, keys, and history live under `%APPDATA%\com.clipboardai.app\` as a plain `config.json` (and a `history.json`), if you ever do want to look.
+
+## Safety and privacy
+
+Two things are worth understanding before you rely on this.
+
+**A hotkey sometimes does nothing, on purpose.** If you switched windows, a modifier key was still held, or the model's answer came back malformed, Clipboard AI aborts instead of pasting a guess over your text. This is deliberate - it would rather do nothing than clobber your selection with the wrong thing. When a command aborts, the History tab tells you why.
+
+**Your keys and history are stored in plain text** under `%APPDATA%\com.clipboardai.app\`. There's no encryption. Anyone with access to your user profile can read them. History keeps the last 100 runs - input and output - so you can copy back a result you lost; clear it any time from the History tab. The log file never contains your text.
+
+If you want everything to stay on your machine, use a local backend (Ollama or LM Studio). Then no text is sent anywhere.
+
+## Languages
+
+The UI ships in English, German, Spanish, French, and Italian. Translations live in `src/lib/i18n/`. If you want to add or fix a language, a PR is welcome.
 
 ## Develop
 
@@ -55,14 +111,25 @@ a command runs the tray icon pulses, and stops when the result lands.
 npm run tauri dev
 ```
 
-Tests: `cargo test` (from `src-tauri/`) and `npm run test`. The core loop - capture, send, paste,
-and the safety guards around it - lives in `src-tauri/src/cycle.rs`; the settings UI is SvelteKit
-under `src/`.
+Tests: `cargo test` (from `src-tauri/`) and `npm run test`. The core loop - capture, send, paste, and the safety guards around it - lives in `src-tauri/src/cycle.rs`; the settings UI is SvelteKit under `src/`.
 
-On Windows, `cargo` needs MSVC's `link.exe` on `PATH`. If a build can't find the linker, load
-`vcvars64.bat` from your Visual Studio install in the same shell first.
+On Windows, `cargo` needs MSVC's `link.exe` on `PATH`. If a build can't find the linker, load `vcvars64.bat` from your Visual Studio install in the same shell first.
 
-Windows only for now.
+Windows only for now. Contributions and issues welcome.
+
+## FAQ
+
+**Why does nothing happen when I press the hotkey?**
+Usually the safety guard kicked in - you switched windows, held a modifier too long, or the model returned something malformed. Check the History tab; it records the reason. Otherwise the hotkey might clash with another app's global shortcut, so try a different one in settings.
+
+**Why Windows only?**
+That's just where it's been built and tested. The stack (Tauri, Rust, Svelte) is cross-platform, but nothing else is done or verified yet.
+
+**Why are my API keys in plain text?**
+No secret storage is wired up yet. It's a known limitation - see [Safety and privacy](#safety-and-privacy). Use a local backend if you'd rather keep no keys at all.
+
+**How do I use my Claude subscription without an API key?**
+Install the `claude` CLI, sign in, then create a command with the Claude CLI backend. It calls the CLI on your behalf, so it uses your subscription instead of an API key.
 
 ## License
 
