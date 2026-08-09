@@ -76,7 +76,7 @@ use std::sync::{
 use std::time::Duration;
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize};
+use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, PhysicalSize};
 
 /// The label the statically-declared window in `tauri.conf.json` uses.
 /// Another agent's capability change (`capabilities/default.json`) already
@@ -136,14 +136,33 @@ const FOLLOW_POLL_MS: u64 = 33;
 /// moved. See `follow_cursor` for why this matters more than it looks.
 const FOLLOW_DEAD_ZONE_PX: f64 = 2.0;
 
-/// Placed this far below-right of the raw cursor point (in physical
-/// pixels) so the glyph doesn't render directly under the pointer
-/// hot-spot.
+/// Placed this far below-right of the raw cursor point, in *logical*
+/// pixels, so the glyph doesn't render directly under the pointer
+/// hot-spot -- converted to physical pixels via the target monitor's own
+/// scale factor (see `logical_to_physical`) rather than added straight to
+/// `cursor_position()`'s physical coordinates. `cursor_position()`,
+/// `set_position()` and `outer_size()` are all physical-pixel APIs
+/// (verified against the installed tauri 2.11.5 / tauri-runtime-wry 2.11.4
+/// sources), so a *physical*-pixel offset constant would put the glyph a
+/// shrinking visual distance from the cursor as scale increases -- 18
+/// physical px is a clear gap at 100% but a barely-there one at 200%,
+/// where everything else on screen (including the cursor glyph itself) is
+/// twice the size. Defining the offset in logical pixels and scaling it up
+/// keeps the visual gap the same size at every scale.
 const OFFSET_X: i32 = 18;
 const OFFSET_Y: i32 = 24;
 
 /// Fallback used only if `outer_size()` itself fails -- matches the
-/// `width`/`height` declared for the `overlay` window in `tauri.conf.json`.
+/// `width`/`height` declared for the `overlay` window in `tauri.conf.json`,
+/// which (per tauri-utils 2.8.3's `WindowConfig` doc comments: "The window
+/// width/height in logical pixels") are *logical* pixels, while
+/// `outer_size()` returns a `PhysicalSize`. Run through
+/// `logical_to_physical` the same as `OFFSET_X`/`OFFSET_Y` before use --
+/// left unconverted, this would under-report the window's real size on any
+/// monitor above 100% scale (28 physical px assumed vs. an actual 42 at
+/// 150%), which would let `position_near_cursor`'s clamp place up to that
+/// many pixels of the window past the edge of the work area it was meant
+/// to stay inside.
 const FALLBACK_SIZE: (u32, u32) = (28, 28);
 
 #[derive(Serialize, Clone)]
@@ -223,6 +242,19 @@ fn clamp_to_area(x: i32, y: i32, w: i32, h: i32, area: (i32, i32, i32, i32)) -> 
     (x.clamp(area_x, max_x), y.clamp(area_y, max_y))
 }
 
+/// Converts a *logical*-pixel quantity (a width, height, or offset) to
+/// *physical* pixels for `scale` -- the same ratio `Window::scale_factor()`/
+/// `Monitor::scale_factor()` document as "used to map logical pixels to
+/// physical pixels" (tauri 2.11.5's `webview_window.rs`). Pure and
+/// unit-tested for the same reason `clamp_to_area` is: this is the one
+/// piece of `position_near_cursor`'s DPI conversion that needs no live
+/// window or monitor to verify. Rounds rather than truncates so a scale
+/// factor that isn't a clean multiple (125%, 175%) doesn't systematically
+/// bias the result toward the cursor.
+fn logical_to_physical(value: i32, scale: f64) -> i32 {
+    (value as f64 * scale).round() as i32
+}
+
 /// Positions the (already-hidden or about-to-show) window at the current
 /// cursor, clamped to whichever monitor the cursor is actually on. Cursor
 /// coordinates are already a single virtual-desktop space on Windows -- no
@@ -231,12 +263,28 @@ fn clamp_to_area(x: i32, y: i32, w: i32, h: i32, area: (i32, i32, i32, i32)) -> 
 /// special-casing it.
 fn position_near_cursor(app: &AppHandle, window: &tauri::WebviewWindow) {
     let Ok(cursor) = app.cursor_position() else { return };
-    let size = window.outer_size().unwrap_or(PhysicalSize::new(FALLBACK_SIZE.0, FALLBACK_SIZE.1));
 
-    let mut x = cursor.x as i32 + OFFSET_X;
-    let mut y = cursor.y as i32 + OFFSET_Y;
+    // Looked up from the *cursor's* point, not the window's current
+    // position: the window may still be sitting wherever it was last
+    // shown -- a different, possibly differently-scaled monitor -- until
+    // `set_position` below moves it. That monitor's scale factor is what
+    // both the offset and the fallback size need to convert correctly for
+    // wherever the window is *about to* land; `window.scale_factor()`
+    // would still report the *old* monitor's scale at this point.
+    let monitor = app.monitor_from_point(cursor.x, cursor.y).ok().flatten();
+    let scale = monitor.as_ref().map(Monitor::scale_factor).unwrap_or(1.0);
 
-    if let Ok(Some(monitor)) = app.monitor_from_point(cursor.x, cursor.y) {
+    let size = window.outer_size().unwrap_or_else(|_| {
+        PhysicalSize::new(
+            logical_to_physical(FALLBACK_SIZE.0 as i32, scale) as u32,
+            logical_to_physical(FALLBACK_SIZE.1 as i32, scale) as u32,
+        )
+    });
+
+    let mut x = cursor.x as i32 + logical_to_physical(OFFSET_X, scale);
+    let mut y = cursor.y as i32 + logical_to_physical(OFFSET_Y, scale);
+
+    if let Some(monitor) = monitor {
         let area = monitor.work_area();
         let (cx, cy) = clamp_to_area(
             x,
@@ -523,6 +571,30 @@ mod tests {
     #[test]
     fn clamp_pulls_back_from_both_the_right_and_bottom_edges_at_once() {
         assert_eq!(clamp_to_area(1900, 1070, 56, 56, (0, 0, 1920, 1080)), (1864, 1024));
+    }
+
+    #[test]
+    fn logical_to_physical_is_unchanged_at_100_percent_scale() {
+        assert_eq!(logical_to_physical(18, 1.0), 18);
+        assert_eq!(logical_to_physical(28, 1.0), 28);
+    }
+
+    #[test]
+    fn logical_to_physical_scales_up_at_150_and_200_percent() {
+        // The concrete numbers this bug report turns on: a 28-logical-px
+        // window is 42 physical px at 150% and 56 at 200%, not 28.
+        assert_eq!(logical_to_physical(28, 1.5), 42);
+        assert_eq!(logical_to_physical(28, 2.0), 56);
+        assert_eq!(logical_to_physical(18, 1.5), 27);
+        assert_eq!(logical_to_physical(24, 1.5), 36);
+    }
+
+    #[test]
+    fn logical_to_physical_rounds_rather_than_truncates() {
+        // 125% is not a clean multiple of 18 (18 * 1.25 = 22.5) -- rounding
+        // rather than truncating keeps the conversion from systematically
+        // biasing the offset back toward the cursor at odd scale factors.
+        assert_eq!(logical_to_physical(18, 1.25), 23);
     }
 
     #[test]
