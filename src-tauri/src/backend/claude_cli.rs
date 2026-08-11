@@ -47,11 +47,19 @@ impl CommandRunner for ProcessRunner {
         stdin: &str,
         timeout_ms: u64,
     ) -> Result<String, BackendError> {
-        let mut child = Command::new(program)
+        let mut command = Command::new(program);
+        command
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            command.creation_flags(CREATE_NO_WINDOW);
+        }
+        let mut child = command
             .spawn()
             .map_err(|e| BackendError::Transport(format!("could not start {program}: {e}")))?;
 
