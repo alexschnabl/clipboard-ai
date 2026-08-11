@@ -132,6 +132,7 @@
 					bind:value={systemPrompt}
 					placeholder={i18n.t.commands.form.promptPlaceholder}
 					rows={4}
+					class="max-h-48 overflow-y-auto"
 				/>
 				<p class="text-xs text-muted-foreground">
 					{backendIsHttp
