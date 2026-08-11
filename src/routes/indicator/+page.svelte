@@ -5,10 +5,12 @@
 <style>
 	.stage {
 		display: flex;
-		align-items: center;
-		justify-content: center;
+		align-items: flex-end;
+		justify-content: flex-end;
 		width: 100vw;
 		height: 100vh;
+		padding: 0 6px 6px 0;
+		box-sizing: border-box;
 	}
 
 	.dot {
