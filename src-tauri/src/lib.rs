@@ -594,6 +594,14 @@ pub fn run() {
                 });
             }
 
+            if let Some(window) = app.get_webview_window(tray_anim::INDICATOR_WINDOW) {
+                if let Err(e) = window.set_ignore_cursor_events(true) {
+                    let line = format!("STARTUP indicator click-through failed: {e}");
+                    eprintln!("{line}");
+                    status::append_log(&config_dir, &line);
+                }
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

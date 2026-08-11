@@ -6,12 +6,85 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use tauri::image::Image;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 
 pub const CYCLE_STATE_EVENT: &str = "cycle://state";
 
 fn emit_running(app: &AppHandle, running: bool) {
     let _ = app.emit(CYCLE_STATE_EVENT, running);
+}
+
+pub const INDICATOR_WINDOW: &str = "indicator";
+
+const INDICATOR_MARGIN_LOGICAL: f64 = 16.0;
+
+fn foreground_monitor_bottom_right() -> Option<(i32, i32)> {
+    use windows::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONULL,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    let hwnd = unsafe { GetForegroundWindow() };
+    if hwnd.is_invalid() {
+        return None;
+    }
+    let monitor = unsafe { MonitorFromWindow(hwnd, MONITOR_DEFAULTTONULL) };
+    if monitor.is_invalid() {
+        return None;
+    }
+    let mut info = MONITORINFO {
+        cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+        ..Default::default()
+    };
+    if unsafe { GetMonitorInfoW(monitor, &mut info) }.as_bool() {
+        Some((info.rcWork.right, info.rcWork.bottom))
+    } else {
+        None
+    }
+}
+
+fn primary_work_area_bottom_right() -> Option<(i32, i32)> {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+    };
+    let mut rect = RECT::default();
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETWORKAREA,
+            0,
+            Some(&mut rect as *mut RECT as *mut core::ffi::c_void),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+    }
+    .ok()
+    .map(|_| (rect.right, rect.bottom))
+}
+
+fn show_indicator(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(INDICATOR_WINDOW) else { return };
+    let corner = foreground_monitor_bottom_right()
+        .or_else(primary_work_area_bottom_right)
+        .or_else(|| {
+            window.primary_monitor().ok().flatten().map(|m| {
+                let position = m.position();
+                let size = m.size();
+                (position.x + size.width as i32, position.y + size.height as i32)
+            })
+        });
+    if let (Some((right, bottom)), Ok(size)) = (corner, window.outer_size()) {
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let margin = (INDICATOR_MARGIN_LOGICAL * scale).round() as i32;
+        let x = right - size.width as i32 - margin;
+        let y = bottom - size.height as i32 - margin;
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+    let _ = window.show();
+}
+
+fn hide_indicator(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(INDICATOR_WINDOW) {
+        let _ = window.hide();
+    }
 }
 
 pub const TRAY_ID: &str = "clipboard-ai-tray";
@@ -92,6 +165,7 @@ fn run_animation(app: AppHandle, cancel: std::sync::Arc<AtomicBool>) {
     let Some(Some(frames)) = FRAMES.get() else { return };
 
     emit_running(&app, true);
+    show_indicator(&app);
 
     let mut i = 0;
     loop {
@@ -105,10 +179,12 @@ fn run_animation(app: AppHandle, cancel: std::sync::Arc<AtomicBool>) {
         }
     }
     set_tray_icon(&app, &frames.idle);
+    hide_indicator(&app);
     emit_running(&app, false);
 }
 
 pub struct TrayAnimation {
+    app: AppHandle,
     cancel: std::sync::Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
@@ -118,12 +194,13 @@ impl TrayAnimation {
         let has_frames = FRAMES.get_or_init(build_frames).is_some();
         let cancel = std::sync::Arc::new(AtomicBool::new(false));
         let handle = if has_frames {
+            let app = app.clone();
             let cancel = cancel.clone();
             Some(std::thread::spawn(move || run_animation(app, cancel)))
         } else {
             None
         };
-        Self { cancel, handle }
+        Self { app, cancel, handle }
     }
 
     pub fn finish(self) {}
@@ -133,7 +210,13 @@ impl Drop for TrayAnimation {
     fn drop(&mut self) {
         self.cancel.store(true, Ordering::SeqCst);
         if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+            if handle.join().is_err() {
+                if let Some(Some(frames)) = FRAMES.get() {
+                    set_tray_icon(&self.app, &frames.idle);
+                }
+                hide_indicator(&self.app);
+                emit_running(&self.app, false);
+            }
         }
     }
 }
