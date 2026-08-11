@@ -32,6 +32,9 @@
 		configState.config.backends.find((b) => b.id === backendId)?.name ??
 			i18n.t.commands.form.backendPlaceholder
 	);
+	const backendIsHttp = $derived(
+		configState.config.backends.find((b) => b.id === backendId)?.kind === 'http'
+	);
 
 	let wasOpen = false;
 	$effect(() => {
@@ -130,7 +133,11 @@
 					placeholder={i18n.t.commands.form.promptPlaceholder}
 					rows={4}
 				/>
-				<p class="text-xs text-muted-foreground">{i18n.t.commands.form.promptSentinelHint}</p>
+				<p class="text-xs text-muted-foreground">
+					{backendIsHttp
+						? i18n.t.commands.form.promptHttpHint
+						: i18n.t.commands.form.promptSentinelHint}
+				</p>
 			</div>
 		</div>
 

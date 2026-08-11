@@ -1,9 +1,10 @@
-export type BackendKind = 'openai-compatible' | 'anthropic-api' | 'claude-cli';
+export type BackendKind = 'openai-compatible' | 'anthropic-api' | 'claude-cli' | 'http';
 
 export const KIND_LABELS: Record<BackendKind, string> = {
 	'openai-compatible': 'OpenAI-compatible',
 	'anthropic-api': 'Anthropic API',
-	'claude-cli': 'Claude CLI'
+	'claude-cli': 'Claude CLI',
+	http: 'HTTP'
 };
 
 export type Effort = 'default' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
@@ -17,6 +18,7 @@ export interface BackendConfig {
 	apiKey: string | null;
 	timeoutMs: number;
 	effort: Effort;
+	expectsResponse: boolean;
 }
 
 export interface CommandConfig {

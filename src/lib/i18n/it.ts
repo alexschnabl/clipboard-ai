@@ -58,6 +58,8 @@ export const it: typeof en = {
 			hotkeyLabel: 'Hotkey',
 			promptLabel: 'Prompt di sistema',
 			promptPlaceholder: 'Correggi grammatica e ortografia. Mantieni il significato.',
+			promptHttpHint:
+				'Il backend selezionato è un semplice endpoint HTTP. Il prompt non viene inviato con la richiesta.',
 			promptSentinelHint:
 				'L’app chiede automaticamente al modello di restituire solo il testo trasformato e nient’altro, quindi non serve indicarlo nel prompt.',
 			saveError: 'Impossibile salvare il comando',
@@ -107,6 +109,11 @@ export const it: typeof en = {
 			effortOptionMax: 'Massimo',
 			effortHint:
 				'Un effort più basso risponde più rapidamente ed è sufficiente per testi brevi. Predefinito lascia decidere alla CLI.',
+			httpUrlHint:
+				'Il testo selezionato viene inviato a questo URL come corpo della richiesta POST. Il prompt del comando non viene inviato.',
+			expectResponseLabel: 'Attendi una risposta',
+			expectResponseHint:
+				'Attivo incolla il corpo della risposta sulla selezione. Disattivo si limita a inviare.',
 			apiKeyLabel: 'Chiave API',
 			apiKeyOptional: '(opzionale)',
 			showApiKey: 'Mostra chiave API',

@@ -10,7 +10,13 @@ use crate::cycle::CycleOutcome;
 const MAX_LOG_BYTES: u64 = 1_048_576;
 
 pub fn log_line(outcome: &CycleOutcome, prompt_name: &str, backend_name: &str) -> String {
-    let verdict = if outcome.pasted { "PASTED" } else { "ABORTED" };
+    let verdict = if !outcome.pasted {
+        "ABORTED"
+    } else if outcome.reason == "sent" {
+        "SENT"
+    } else {
+        "PASTED"
+    };
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -29,7 +35,8 @@ const SUMMARY_MAX_BYTES: usize = 60;
 
 pub fn summary(outcome: &CycleOutcome, prompt_name: &str) -> String {
     let text = if outcome.pasted {
-        format!("{prompt_name}: ok ({} ms)", outcome.backend_ms)
+        let word = if outcome.reason == "sent" { "sent" } else { "ok" };
+        format!("{prompt_name}: {word} ({} ms)", outcome.backend_ms)
     } else {
         format!("{prompt_name}: {}", outcome.reason)
     };
@@ -91,6 +98,19 @@ mod tests {
         let line = log_line(&outcome(false, "backend-error"), "Fix grammar", "Local Ollama");
         assert!(line.contains("backend-error"));
         assert!(line.contains("ABORTED"));
+    }
+
+    #[test]
+    fn a_send_only_success_is_logged_as_sent_not_pasted() {
+        let line = log_line(&outcome(true, "sent"), "Notify hook", "My webhook");
+        assert!(line.contains("SENT"), "a run that pasted nothing must not log PASTED: {line}");
+        assert!(!line.contains("PASTED"));
+    }
+
+    #[test]
+    fn a_send_only_success_summary_says_sent_not_ok() {
+        let text = summary(&outcome(true, "sent"), "Notify hook");
+        assert!(text.contains("sent"), "the tray summary must say sent, got: {text}");
     }
 
     #[test]

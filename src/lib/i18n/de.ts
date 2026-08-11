@@ -58,6 +58,8 @@ export const de: typeof en = {
 			hotkeyLabel: 'Hotkey',
 			promptLabel: 'Systemprompt',
 			promptPlaceholder: 'Grammatik und Rechtschreibung korrigieren. Bedeutung beibehalten.',
+			promptHttpHint:
+				'Das gewählte Backend ist ein einfacher HTTP-Endpunkt. Der Prompt wird nicht mitgesendet.',
 			promptSentinelHint:
 				'Die App weist das Modell automatisch an, nur den transformierten Text zurückzugeben und sonst nichts — das müssen Sie im Prompt nicht angeben.',
 			saveError: 'Befehl konnte nicht gespeichert werden',
@@ -108,6 +110,11 @@ export const de: typeof en = {
 			effortOptionMax: 'Maximal',
 			effortHint:
 				'Ein niedrigerer Effort antwortet schneller und reicht für kurze Texte aus. Standard überlässt die Wahl der CLI.',
+			httpUrlHint:
+				'Der markierte Text wird als POST-Body an diese URL gesendet. Der Prompt des Befehls wird nicht mitgesendet.',
+			expectResponseLabel: 'Antwort erwarten',
+			expectResponseHint:
+				'Aktiviert ersetzt die Auswahl durch den Antwort-Body. Deaktiviert wird nur gesendet.',
 			apiKeyLabel: 'API-Schlüssel',
 			apiKeyOptional: '(optional)',
 			showApiKey: 'API-Schlüssel anzeigen',

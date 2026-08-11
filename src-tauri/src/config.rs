@@ -10,6 +10,7 @@ use thiserror::Error;
 pub const KIND_OPENAI: &str = "openai-compatible";
 pub const KIND_ANTHROPIC: &str = "anthropic-api";
 pub const KIND_CLAUDE_CLI: &str = "claude-cli";
+pub const KIND_HTTP: &str = "http";
 
 pub const CURRENT_VERSION: u32 = 2;
 
@@ -55,6 +56,12 @@ pub struct BackendConfig {
     pub timeout_ms: u64,
     #[serde(default)]
     pub effort: Effort,
+    #[serde(default = "default_true")]
+    pub expects_response: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 pub const MIN_TIMEOUT_MS: u64 = 5_000;
@@ -175,7 +182,7 @@ fn validate(config: &Config) -> Result<(), ConfigError> {
             return Err(ConfigError::DuplicateId { id: backend.id.clone() });
         }
         match backend.kind.as_str() {
-            KIND_OPENAI | KIND_ANTHROPIC | KIND_CLAUDE_CLI => {}
+            KIND_OPENAI | KIND_ANTHROPIC | KIND_CLAUDE_CLI | KIND_HTTP => {}
             other => return Err(ConfigError::UnknownKind { kind: other.to_string() }),
         }
         if backend.timeout_ms < MIN_TIMEOUT_MS {
@@ -219,6 +226,7 @@ pub fn default_config() -> Config {
                 api_key: None,
                 timeout_ms: 120_000,
                 effort: Effort::Low,
+                expects_response: true,
             },
             BackendConfig {
                 id: "claude-sub".into(),
@@ -229,6 +237,7 @@ pub fn default_config() -> Config {
                 api_key: None,
                 timeout_ms: 120_000,
                 effort: Effort::Low,
+                expects_response: true,
             },
         ],
         commands: vec![CommandConfig {
@@ -408,6 +417,33 @@ mod tests {
     fn a_backend_with_no_effort_key_keeps_todays_behaviour() {
         let cfg = parse(valid_json()).expect("a backend missing this key should still parse");
         assert_eq!(cfg.backends[0].effort, Effort::Low);
+    }
+
+    #[test]
+    fn accepts_http_as_a_backend_kind() {
+        let mut value: serde_json::Value = serde_json::from_str(valid_json()).unwrap();
+        value["backends"][0]["kind"] = serde_json::json!("http");
+        let json = serde_json::to_string(&value).unwrap();
+        assert!(parse(&json).is_ok(), "http must be a legal backend kind");
+    }
+
+    #[test]
+    fn a_backend_with_no_expects_response_key_defaults_to_expecting_one() {
+        let cfg = parse(valid_json()).expect("a backend missing this key should still parse");
+        assert!(cfg.backends[0].expects_response);
+    }
+
+    #[test]
+    fn expects_response_false_round_trips() {
+        let mut value: serde_json::Value = serde_json::from_str(valid_json()).unwrap();
+        value["backends"][0]["kind"] = serde_json::json!("http");
+        value["backends"][0]["expectsResponse"] = serde_json::json!(false);
+        let json = serde_json::to_string(&value).unwrap();
+        let cfg = parse(&json).unwrap();
+        assert!(!cfg.backends[0].expects_response);
+        let rewritten = serde_json::to_string(&cfg).unwrap();
+        let reparsed = parse(&rewritten).unwrap();
+        assert!(!reparsed.backends[0].expects_response, "false must survive a save/load cycle");
     }
 
     #[test]

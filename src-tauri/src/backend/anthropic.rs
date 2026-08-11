@@ -124,6 +124,7 @@ mod tests {
             api_key: Some("sk-test".into()),
             timeout_ms: 120_000,
             effort: Effort::Low,
+            expects_response: true,
         }
     }
 

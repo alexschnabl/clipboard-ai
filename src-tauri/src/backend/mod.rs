@@ -1,5 +1,6 @@
 pub mod anthropic;
 pub mod claude_cli;
+pub mod http;
 pub mod openai;
 
 use std::{
@@ -31,11 +32,28 @@ pub trait HttpClient: Send + Sync {
         body: &Value,
         timeout_ms: u64,
     ) -> Result<Value, BackendError>;
+
+    fn post_text(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: &str,
+        timeout_ms: u64,
+    ) -> Result<String, BackendError> {
+        let _ = (url, headers, body, timeout_ms);
+        Err(BackendError::Transport("post_text is not supported by this transport".into()))
+    }
 }
 
 pub trait Backend: Send + Sync {
     fn name(&self) -> &str;
     fn transform(&self, system_prompt: &str, text: &str) -> Result<String, BackendError>;
+    fn uses_sentinel(&self) -> bool {
+        true
+    }
+    fn pastes_result(&self) -> bool {
+        true
+    }
 }
 
 pub struct ReqwestClient;
@@ -85,13 +103,69 @@ impl HttpClient for ReqwestClient {
         rx.recv_timeout(Duration::from_millis(timeout_ms))
             .unwrap_or(Err(BackendError::Timeout))
     }
+
+    fn post_text(
+        &self,
+        url: &str,
+        headers: &[(String, String)],
+        body: &str,
+        timeout_ms: u64,
+    ) -> Result<String, BackendError> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_millis(timeout_ms))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| BackendError::Transport(e.to_string()))?;
+
+        let mut request = client.post(url).body(body.to_string());
+        for (key, value) in headers {
+            request = request.header(key.as_str(), value.as_str());
+        }
+
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let result = (|| {
+                let response = request.send().map_err(|e| {
+                    if e.is_timeout() {
+                        BackendError::Timeout
+                    } else {
+                        BackendError::Transport(e.to_string())
+                    }
+                })?;
+
+                if response.status().is_redirection() {
+                    let status = response.status();
+                    let location = response
+                        .headers()
+                        .get(reqwest::header::LOCATION)
+                        .and_then(|v| v.to_str().ok())
+                        .unwrap_or("<missing>")
+                        .to_string();
+                    return Err(BackendError::BadResponse(format!(
+                        "HTTP {status} redirect to {location}; point the URL at the final endpoint"
+                    )));
+                }
+                if !response.status().is_success() {
+                    let status = response.status();
+                    let text = response.text().unwrap_or_default();
+                    return Err(BackendError::BadResponse(format!("HTTP {status}: {text}")));
+                }
+
+                response.text().map_err(|e| BackendError::BadResponse(e.to_string()))
+            })();
+            let _ = tx.send(result);
+        });
+
+        rx.recv_timeout(Duration::from_millis(timeout_ms))
+            .unwrap_or(Err(BackendError::Timeout))
+    }
 }
 
 pub fn shared_http() -> Arc<dyn HttpClient> {
     Arc::new(ReqwestClient)
 }
 
-use crate::config::{BackendConfig, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_OPENAI};
+use crate::config::{BackendConfig, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_HTTP, KIND_OPENAI};
 
 pub fn build(config: &BackendConfig) -> Result<Arc<dyn Backend>, BackendError> {
     match config.kind.as_str() {
@@ -101,6 +175,7 @@ pub fn build(config: &BackendConfig) -> Result<Arc<dyn Backend>, BackendError> {
             config,
             Arc::new(claude_cli::ProcessRunner),
         ))),
+        KIND_HTTP => Ok(Arc::new(http::HttpEndpoint::new(config, shared_http()))),
         other => Err(BackendError::Misconfigured(format!("unknown kind: {other}"))),
     }
 }
@@ -108,7 +183,7 @@ pub fn build(config: &BackendConfig) -> Result<Arc<dyn Backend>, BackendError> {
 #[cfg(test)]
 mod build_tests {
     use super::*;
-    use crate::config::{BackendConfig, Effort, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_OPENAI};
+    use crate::config::{BackendConfig, Effort, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_HTTP, KIND_OPENAI};
 
     fn cfg(kind: &str) -> BackendConfig {
         BackendConfig {
@@ -120,12 +195,13 @@ mod build_tests {
             api_key: None,
             timeout_ms: 120_000,
             effort: Effort::Low,
+            expects_response: true,
         }
     }
 
     #[test]
     fn builds_the_matching_backend_for_every_shipped_kind() {
-        for kind in [KIND_OPENAI, KIND_ANTHROPIC, KIND_CLAUDE_CLI] {
+        for kind in [KIND_OPENAI, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_HTTP] {
             let backend = build(&cfg(kind)).unwrap_or_else(|e| panic!("{kind}: {e}"));
             assert_eq!(backend.name(), "B", "kind: {kind}");
         }
@@ -179,5 +255,35 @@ mod reqwest_client_tests {
             elapsed < Duration::from_millis(1500),
             "a single {timeout_ms}ms deadline must bound headers+body together, not double it; took {elapsed:?}"
         );
+    }
+
+    #[test]
+    fn post_text_refuses_a_redirect_instead_of_following_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                let mut buf = [0u8; 4096];
+                let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(
+                    b"HTTP/1.1 301 Moved Permanently\r\nLocation: http://example.invalid/hook\r\nContent-Length: 0\r\n\r\n",
+                );
+                let _ = stream.flush();
+            }
+        });
+
+        let result = ReqwestClient.post_text(&format!("http://{addr}"), &[], "payload", 2_000);
+        match result {
+            Err(BackendError::BadResponse(msg)) => {
+                assert!(msg.contains("301"), "the status must be named, got: {msg}");
+                assert!(
+                    msg.contains("http://example.invalid/hook"),
+                    "the redirect target must be named so the user can fix the URL, got: {msg}"
+                );
+            }
+            other => panic!("a redirect must fail loudly, got {other:?}"),
+        }
     }
 }

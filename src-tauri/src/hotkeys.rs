@@ -87,6 +87,7 @@ mod build_command_map_tests {
             api_key: None,
             timeout_ms: 120_000,
             effort: Effort::Low,
+            expects_response: true,
         }
     }
 

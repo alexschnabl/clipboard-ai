@@ -55,6 +55,8 @@ export const en = {
 			hotkeyLabel: 'Hotkey',
 			promptLabel: 'System prompt',
 			promptPlaceholder: 'Fix grammar and spelling. Keep the meaning.',
+			promptHttpHint:
+				'The selected backend is a plain HTTP endpoint. The prompt is not sent with the request.',
 			promptSentinelHint:
 				'The app automatically tells the model to return only the transformed text and nothing else, so you don’t need to say that in your prompt.',
 			saveError: 'Couldn’t save command',
@@ -104,6 +106,10 @@ export const en = {
 			effortOptionMax: 'Maximum',
 			effortHint:
 				'Lower effort answers faster and is enough for short text. Default lets the CLI decide.',
+			httpUrlHint:
+				'The selected text is sent to this URL as the POST body. The command’s prompt is not sent.',
+			expectResponseLabel: 'Expect a response',
+			expectResponseHint: 'On pastes the response body over the selection. Off just sends.',
 			apiKeyLabel: 'API key',
 			apiKeyOptional: '(optional)',
 			showApiKey: 'Show API key',

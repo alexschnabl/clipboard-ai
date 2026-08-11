@@ -121,9 +121,13 @@ fn run_inner(
     let captured_ms = ops.now_ms().saturating_sub(capture_start);
     *captured_out = Some(captured.clone());
 
-    let wrapped = sentinel::wrap_system_prompt(system_prompt);
+    let prompt = if backend.uses_sentinel() {
+        sentinel::wrap_system_prompt(system_prompt)
+    } else {
+        system_prompt.to_string()
+    };
     let backend_start = ops.now_ms();
-    let raw = match backend.transform(&wrapped, &captured) {
+    let raw = match backend.transform(&prompt, &captured) {
         Ok(text) => text,
         Err(e) => {
             let backend_ms = ops.now_ms().saturating_sub(backend_start);
@@ -132,9 +136,25 @@ fn run_inner(
     };
     let backend_ms = ops.now_ms().saturating_sub(backend_start);
 
-    let extracted = match sentinel::extract(&raw) {
-        Some(text) => text,
-        None => return abort("no-sentinel", captured_ms, backend_ms),
+    if !backend.pastes_result() {
+        return CycleOutcome {
+            pasted: true,
+            reason: "sent",
+            detail: None,
+            captured_ms,
+            backend_ms,
+            captured_text: None,
+            result_text: None,
+        };
+    }
+
+    let extracted = if backend.uses_sentinel() {
+        match sentinel::extract(&raw) {
+            Some(text) => text,
+            None => return abort("no-sentinel", captured_ms, backend_ms),
+        }
+    } else {
+        raw.trim().to_string()
     };
     if extracted.trim().is_empty() {
         return abort("empty-result", captured_ms, backend_ms);
@@ -271,22 +291,36 @@ mod tests {
 
     struct StubBackend {
         result: Result<String, BackendError>,
+        uses_sentinel: bool,
+        pastes_result: bool,
     }
     impl StubBackend {
         fn ok(text: &str) -> Self {
-            Self { result: Ok(text.to_string()) }
+            Self { result: Ok(text.to_string()), uses_sentinel: true, pastes_result: true }
         }
         fn failing() -> Self {
-            Self { result: Err(BackendError::Timeout) }
+            Self { result: Err(BackendError::Timeout), uses_sentinel: true, pastes_result: true }
         }
         fn failing_with(err: BackendError) -> Self {
-            Self { result: Err(err) }
+            Self { result: Err(err), uses_sentinel: true, pastes_result: true }
+        }
+        fn raw(text: &str) -> Self {
+            Self { result: Ok(text.to_string()), uses_sentinel: false, pastes_result: true }
+        }
+        fn send_only(text: &str) -> Self {
+            Self { result: Ok(text.to_string()), uses_sentinel: false, pastes_result: false }
         }
     }
     impl Backend for StubBackend {
         fn name(&self) -> &str { "stub" }
         fn transform(&self, _s: &str, _t: &str) -> Result<String, BackendError> {
             self.result.clone()
+        }
+        fn uses_sentinel(&self) -> bool {
+            self.uses_sentinel
+        }
+        fn pastes_result(&self) -> bool {
+            self.pastes_result
         }
     }
 
@@ -564,6 +598,83 @@ mod tests {
         assert_eq!(outcome.reason, "modifiers-stuck");
         assert!(outcome.captured_text.is_none());
         assert!(outcome.result_text.is_none());
+    }
+
+    #[test]
+    fn a_raw_backend_pastes_the_trimmed_response_without_sentinel_extraction() {
+        let ops = FakeOps::new("ORIGINAL", Some("selected"));
+        let outcome = run(&StubBackend::raw("  transformed text \n"), "Fix.", &ops);
+        assert!(outcome.pasted);
+        assert_eq!(outcome.reason, "ok");
+        assert_eq!(ops.pasted_content.lock().unwrap().clone().unwrap(), "transformed text");
+        assert_eq!(*ops.clipboard.lock().unwrap(), "ORIGINAL");
+    }
+
+    #[test]
+    fn a_raw_backend_with_an_empty_response_aborts_instead_of_pasting_nothing() {
+        let ops = FakeOps::new("ORIGINAL", Some("selected"));
+        let outcome = run(&StubBackend::raw("   \n"), "Fix.", &ops);
+        assert!(!outcome.pasted);
+        assert_eq!(outcome.reason, "empty-result");
+        assert!(ops.pasted_content.lock().unwrap().is_none());
+        assert_eq!(*ops.clipboard.lock().unwrap(), "ORIGINAL");
+    }
+
+    #[test]
+    fn a_send_only_backend_succeeds_without_touching_paste_or_the_result_clipboard() {
+        let ops = FakeOps::new("ORIGINAL", Some("selected"));
+        let outcome = run(&StubBackend::send_only(""), "Fix.", &ops);
+        assert!(outcome.pasted, "a successful send-only cycle records as a success");
+        assert_eq!(outcome.reason, "sent");
+        assert!(outcome.result_text.is_none(), "there is no result to record");
+        assert_eq!(outcome.captured_text.as_deref(), Some("selected"));
+        assert!(ops.pasted_content.lock().unwrap().is_none(), "nothing must be pasted");
+        assert!(
+            !ops.calls().iter().any(|c| c == "paste"),
+            "send_paste must never run for a send-only backend"
+        );
+        assert_eq!(
+            *ops.clipboard.lock().unwrap(),
+            "ORIGINAL",
+            "the guard must still restore the original clipboard"
+        );
+    }
+
+    #[test]
+    fn a_send_only_backend_failure_still_reports_backend_error() {
+        struct FailingSendOnly;
+        impl Backend for FailingSendOnly {
+            fn name(&self) -> &str { "failing-send-only" }
+            fn transform(&self, _s: &str, _t: &str) -> Result<String, BackendError> {
+                Err(BackendError::BadResponse("HTTP 500".into()))
+            }
+            fn uses_sentinel(&self) -> bool { false }
+            fn pastes_result(&self) -> bool { false }
+        }
+        let ops = FakeOps::new("ORIGINAL", Some("selected"));
+        let outcome = run(&FailingSendOnly, "Fix.", &ops);
+        assert!(!outcome.pasted);
+        assert_eq!(outcome.reason, "backend-error");
+        assert_eq!(*ops.clipboard.lock().unwrap(), "ORIGINAL");
+    }
+
+    #[test]
+    fn a_raw_backend_receives_the_unwrapped_prompt() {
+        struct Capturing(Mutex<Option<String>>);
+        impl Backend for Capturing {
+            fn name(&self) -> &str { "capturing-raw" }
+            fn transform(&self, s: &str, _t: &str) -> Result<String, BackendError> {
+                *self.0.lock().unwrap() = Some(s.to_string());
+                Ok("result".into())
+            }
+            fn uses_sentinel(&self) -> bool { false }
+        }
+        let backend = Capturing(Mutex::new(None));
+        let ops = FakeOps::new("ORIGINAL", Some("selected"));
+        run(&backend, "Fix grammar.", &ops);
+        let seen = backend.0.lock().unwrap().clone().unwrap();
+        assert_eq!(seen, "Fix grammar.", "no sentinel instruction may be appended");
+        assert!(!seen.contains(crate::sentinel::SENTINEL_INSTRUCTION));
     }
 
     #[test]

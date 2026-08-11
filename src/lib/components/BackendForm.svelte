@@ -5,6 +5,7 @@
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import { Input } from '$lib/components/shadcn/input/index.js';
 	import { Label } from '$lib/components/shadcn/label/index.js';
+	import { Switch } from '$lib/components/shadcn/switch/index.js';
 	import RiEyeLine from 'remixicon-svelte/icons/eye-line';
 	import RiEyeOffLine from 'remixicon-svelte/icons/eye-off-line';
 	import { configState } from '$lib/state/config.svelte.js';
@@ -31,6 +32,7 @@
 	let apiKey = $state('');
 	let timeoutMs = $state(DEFAULT_TIMEOUT_MS);
 	let effort = $state<Effort>('low');
+	let expectsResponse = $state(true);
 	let revealed = $state(false);
 	let saving = $state(false);
 	let submitError = $state<string | null>(null);
@@ -38,7 +40,10 @@
 	const isEdit = $derived(backend !== null);
 	const timeoutTooLow = $derived(timeoutMs < MIN_TIMEOUT_MS);
 	const canSave = $derived(name.trim().length > 0 && !timeoutTooLow);
-	const usesKey = $derived(kind === 'openai-compatible' || kind === 'anthropic-api');
+	const usesKey = $derived(
+		kind === 'openai-compatible' || kind === 'anthropic-api' || kind === 'http'
+	);
+	const usesBaseUrl = $derived(kind === 'openai-compatible' || kind === 'http');
 	const effortLabels = $derived({
 		default: i18n.t.backends.form.effortOptionDefault,
 		low: i18n.t.backends.form.effortOptionLow,
@@ -59,6 +64,7 @@
 			apiKey = backend?.apiKey ?? '';
 			timeoutMs = backend?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 			effort = backend?.effort ?? 'low';
+			expectsResponse = backend?.expectsResponse ?? true;
 			revealed = false;
 			submitError = null;
 		} else if (wasOpen) {
@@ -88,11 +94,12 @@
 			id: backend?.id ?? crypto.randomUUID(),
 			name: name.trim(),
 			kind,
-			baseUrl: kind === 'openai-compatible' ? baseUrl.trim() || null : null,
-			model: model.trim() || null,
+			baseUrl: usesBaseUrl ? baseUrl.trim() || null : null,
+			model: kind === 'http' ? null : model.trim() || null,
 			apiKey: usesKey ? apiKey.trim() || null : null,
 			timeoutMs,
-			effort: kind === 'claude-cli' ? effort : 'low'
+			effort: kind === 'claude-cli' ? effort : 'low',
+			expectsResponse: kind === 'http' ? expectsResponse : true
 		};
 		saving = true;
 		submitError = null;
@@ -140,34 +147,41 @@
 				</Select.Root>
 			</div>
 
-			{#if kind === 'openai-compatible'}
+			{#if usesBaseUrl}
 				<div class="flex flex-col gap-1.5">
 					<Label for="backend-base-url">{i18n.t.backends.form.baseUrlLabel}</Label>
 					<Input
 						id="backend-base-url"
 						bind:value={baseUrl}
-						placeholder="http://localhost:11434/v1"
+						placeholder={kind === 'http'
+							? 'http://localhost:8080/transform'
+							: 'http://localhost:11434/v1'}
 						autocomplete="off"
 					/>
+					{#if kind === 'http'}
+						<p class="text-xs text-muted-foreground">{i18n.t.backends.form.httpUrlHint}</p>
+					{/if}
 				</div>
 			{/if}
 
-			<div class="flex flex-col gap-1.5">
-				<Label for="backend-model">{i18n.t.backends.form.modelLabel}</Label>
-				<Input
-					id="backend-model"
-					bind:value={model}
-					placeholder={kind === 'openai-compatible'
-						? i18n.t.backends.form.modelPlaceholderOpenAiCompatible
-						: kind === 'claude-cli'
-							? i18n.t.backends.form.modelPlaceholderClaudeCli
-							: i18n.t.backends.form.modelPlaceholderOther}
-					autocomplete="off"
-				/>
-				{#if kind === 'claude-cli'}
-					<p class="text-xs text-muted-foreground">{i18n.t.backends.form.modelHintClaudeCli}</p>
-				{/if}
-			</div>
+			{#if kind !== 'http'}
+				<div class="flex flex-col gap-1.5">
+					<Label for="backend-model">{i18n.t.backends.form.modelLabel}</Label>
+					<Input
+						id="backend-model"
+						bind:value={model}
+						placeholder={kind === 'openai-compatible'
+							? i18n.t.backends.form.modelPlaceholderOpenAiCompatible
+							: kind === 'claude-cli'
+								? i18n.t.backends.form.modelPlaceholderClaudeCli
+								: i18n.t.backends.form.modelPlaceholderOther}
+						autocomplete="off"
+					/>
+					{#if kind === 'claude-cli'}
+						<p class="text-xs text-muted-foreground">{i18n.t.backends.form.modelHintClaudeCli}</p>
+					{/if}
+				</div>
+			{/if}
 
 			{#if kind === 'claude-cli'}
 				<div class="flex flex-col gap-1.5">
@@ -186,11 +200,23 @@
 				</div>
 			{/if}
 
+			{#if kind === 'http'}
+				<div class="flex items-center justify-between gap-3">
+					<div class="flex flex-col gap-0.5">
+						<Label for="backend-expect-response">{i18n.t.backends.form.expectResponseLabel}</Label>
+						<p class="text-xs text-muted-foreground">
+							{i18n.t.backends.form.expectResponseHint}
+						</p>
+					</div>
+					<Switch id="backend-expect-response" bind:checked={expectsResponse} />
+				</div>
+			{/if}
+
 			{#if usesKey}
 				<div class="flex flex-col gap-1.5">
 					<Label for="backend-api-key">
 						{i18n.t.backends.form.apiKeyLabel}
-						{#if kind === 'openai-compatible'}
+						{#if kind === 'openai-compatible' || kind === 'http'}
 							<span class="font-normal text-muted-foreground"
 								>{i18n.t.backends.form.apiKeyOptional}</span
 							>

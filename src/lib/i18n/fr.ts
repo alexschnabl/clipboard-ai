@@ -58,6 +58,8 @@ export const fr: typeof en = {
 			hotkeyLabel: 'Raccourci',
 			promptLabel: 'Prompt système',
 			promptPlaceholder: 'Corriger la grammaire et l’orthographe. Conserver le sens.',
+			promptHttpHint:
+				'Le backend sélectionné est un simple point de terminaison HTTP. Le prompt n’est pas transmis avec la requête.',
 			promptSentinelHint:
 				'L’application demande automatiquement au modèle de ne renvoyer que le texte transformé, rien d’autre ; inutile de le préciser dans votre invite.',
 			saveError: 'Impossible d’enregistrer la commande',
@@ -107,6 +109,11 @@ export const fr: typeof en = {
 			effortOptionMax: 'Maximal',
 			effortHint:
 				'Un effort plus faible répond plus vite et suffit pour un texte court. Par défaut laisse la CLI décider.',
+			httpUrlHint:
+				'Le texte sélectionné est envoyé à cette URL comme corps de la requête POST. Le prompt de la commande n’est pas transmis.',
+			expectResponseLabel: 'Attendre une réponse',
+			expectResponseHint:
+				'Activé colle le corps de la réponse sur la sélection. Désactivé se contente d’envoyer.',
 			apiKeyLabel: 'Clé API',
 			apiKeyOptional: '(facultatif)',
 			showApiKey: 'Afficher la clé API',

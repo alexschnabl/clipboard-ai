@@ -22,6 +22,7 @@ function backend(overrides: Partial<BackendConfig> = {}): BackendConfig {
 		apiKey: null,
 		timeoutMs: 120_000,
 		effort: 'low',
+		expectsResponse: true,
 		...overrides
 	};
 }
