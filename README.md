@@ -41,7 +41,7 @@ Nothing about the text ever leaves your machine except the request to the backen
 
 - **Commands.** A command is a name, a hotkey, a prompt, and a backend. Add as many as you want. "Fix grammar" ships by default on `Ctrl+Alt+J`.
 - **Works in any app.** The hotkey acts on whatever text is selected in the focused window - editor, browser, chat box, anywhere.
-- **Three kinds of backend.** Local models, the Anthropic API, or your Claude subscription through the `claude` CLI with no API key. See [Backends](#backends).
+- **Four kinds of backend.** Local models, the Anthropic API, your Claude subscription through the `claude` CLI, or any HTTP endpoint you run. See [Backends](#backends).
 - **Live settings.** Add or edit a backend or command and it applies straight away. No restart.
 - **Run history.** The last 100 runs, input and output, so you can copy back a result you lost. Clear it any time.
 - **It refuses to paste a bad result.** If the target window changed or the answer came back malformed, the command aborts instead of overwriting your text with a guess. See [Safety and privacy](#safety-and-privacy).
@@ -56,6 +56,9 @@ A backend is where a command sends its text. You can mix them - one command on a
 | **OpenAI-compatible** | Any `/chat/completions` endpoint. Point it at a local [Ollama](https://ollama.com/) or [LM Studio](https://lmstudio.ai/), or at OpenAI itself. | Local: no. OpenAI: yes. |
 | **Anthropic API** | The Anthropic Messages API. | Yes |
 | **Claude CLI** | Your Claude subscription through the [`claude`](https://docs.claude.com/en/docs/claude-code) command. Requires the CLI installed and signed in. | No |
+| **HTTP** | POSTs the selected text to a URL you choose - an n8n webhook, a local script, anything - and pastes whatever comes back. | Optional |
+
+The HTTP backend sends the selected text as the raw request body (`text/plain`). If you set an API key it goes along as `Authorization: Bearer`. The response body is pasted back as-is - or turn off "Expect a response" and it just sends, pasting nothing. The command's prompt is not sent, so this one isn't an AI backend at all unless the endpoint you point it at is one.
 
 ## Build
 
@@ -72,7 +75,7 @@ The build is **unsigned**, so Windows SmartScreen will warn you the first time y
 
 ## Use it
 
-First launch puts an icon in the tray. Left-click it to open settings. Add a backend, add a command (a name, a hotkey, a prompt), and you're done. While a command runs the tray icon pulses, and stops when the result lands.
+First launch puts an icon in the tray. Left-click it to open settings. Add a backend, add a command (a name, a hotkey, a prompt), and you're done. While a command runs the tray icon pulses and a small dot glows in the bottom-right corner of the screen; both disappear when the result lands.
 
 The default flow:
 
