@@ -17,6 +17,10 @@ cmd /c '"D:\Applications\Work\Visual Studio\18\VC\Auxiliary\Build\vcvars64.bat" 
 Run this via the PowerShell tool, not the Bash/MSYS tool — MSYS re-quotes the path and
 silently mangles the space in "Visual Studio", causing the vcvars call to no-op.
 
+Keep any pipe *outside* the `cmd /c '...'` string (e.g. `| Select-Object -Last 60` after
+the closing quote). A `| tail` inside it makes cmd re-spawn the chain through a pipeline,
+which mangles the quoted path the same way ("vswhere.exe is not recognized").
+
 ## Do not run `npm run tauri dev` from an agent
 
 It launches a long-running GUI app (tray icon, hidden window) and hangs the calling
