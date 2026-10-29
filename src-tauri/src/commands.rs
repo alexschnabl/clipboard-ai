@@ -100,7 +100,7 @@ mod save_config_tests {
 
             let decision = decide_save(&bad, &path);
 
-            assert!(matches!(decision, Err(_)), "{description}");
+            assert!(decision.is_err(), "{description}");
             assert!(!path.exists(), "a rejected config must never be written to disk ({description})");
 
             let _ = fs::remove_dir_all(&dir);

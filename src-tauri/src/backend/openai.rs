@@ -116,7 +116,7 @@ mod tests {
                 Some((url.to_string(), headers.to_vec(), body.clone(), timeout_ms));
             self.response
                 .clone()
-                .map_err(|m| BackendError::Transport(m))
+                .map_err(BackendError::Transport)
         }
     }
 
