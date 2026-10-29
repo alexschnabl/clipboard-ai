@@ -1,3 +1,4 @@
+use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     OnceLock,
@@ -6,7 +7,9 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use tauri::image::Image;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
+use tauri::{AppHandle, Emitter};
+
+use crate::cursor::BusyCursor;
 
 pub const CYCLE_STATE_EVENT: &str = "cycle://state";
 
@@ -14,55 +17,11 @@ fn emit_running(app: &AppHandle, running: bool) {
     let _ = app.emit(CYCLE_STATE_EVENT, running);
 }
 
-pub const INDICATOR_WINDOW: &str = "indicator";
-
-fn primary_work_area_bottom_right() -> Option<(i32, i32)> {
-    use windows::Win32::Foundation::RECT;
-    use windows::Win32::UI::WindowsAndMessaging::{
-        SystemParametersInfoW, SPI_GETWORKAREA, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
-    };
-    let mut rect = RECT::default();
-    unsafe {
-        SystemParametersInfoW(
-            SPI_GETWORKAREA,
-            0,
-            Some(&mut rect as *mut RECT as *mut core::ffi::c_void),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        )
-    }
-    .ok()
-    .map(|_| (rect.right, rect.bottom))
-}
-
-fn show_indicator(app: &AppHandle) {
-    let Some(window) = app.get_webview_window(INDICATOR_WINDOW) else { return };
-    let corner = primary_work_area_bottom_right().or_else(|| {
-        window.primary_monitor().ok().flatten().map(|m| {
-            let position = m.position();
-            let size = m.size();
-            (position.x + size.width as i32, position.y + size.height as i32)
-        })
-    });
-    if let Some((right, bottom)) = corner {
-        for _ in 0..2 {
-            let Ok(size) = window.outer_size() else { break };
-            let x = right - size.width as i32;
-            let y = bottom - size.height as i32;
-            let _ = window.set_position(PhysicalPosition::new(x, y));
-        }
-    }
-    let _ = window.show();
-}
-
-fn hide_indicator(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(INDICATOR_WINDOW) {
-        let _ = window.hide();
-    }
-}
-
 pub const TRAY_ID: &str = "clipboard-ai-tray";
 
 const SHOW_DELAY_MS: u64 = 250;
+
+const CURSOR_DELAY_MS: u64 = 500;
 
 const FRAME_INTERVAL_MS: u64 = 90;
 
@@ -131,15 +90,22 @@ fn sleep_cancellable(cancel: &AtomicBool, total_ms: u64) -> bool {
     cancel.load(Ordering::SeqCst)
 }
 
-fn run_animation(app: AppHandle, cancel: std::sync::Arc<AtomicBool>) {
+fn log(config_dir: &Path, line: &str) {
+    eprintln!("{line}");
+    crate::status::append_log(config_dir, line);
+}
+
+fn run_animation(app: AppHandle, config_dir: PathBuf, cancel: std::sync::Arc<AtomicBool>) {
     if sleep_cancellable(&cancel, SHOW_DELAY_MS) {
         return;
     }
     let Some(Some(frames)) = FRAMES.get() else { return };
 
     emit_running(&app, true);
-    show_indicator(&app);
 
+    let mut busy_cursor: Option<BusyCursor> = None;
+    let mut cursor_attempted = false;
+    let mut elapsed_ms = SHOW_DELAY_MS;
     let mut i = 0;
     loop {
         if cancel.load(Ordering::SeqCst) {
@@ -147,33 +113,47 @@ fn run_animation(app: AppHandle, cancel: std::sync::Arc<AtomicBool>) {
         }
         set_tray_icon(&app, &frames.busy[i]);
         i = (i + 1) % frames.busy.len();
+        if !cursor_attempted && elapsed_ms >= CURSOR_DELAY_MS {
+            cursor_attempted = true;
+            match BusyCursor::show(&config_dir) {
+                Ok(shown) => busy_cursor = Some(shown),
+                Err(e) => log(&config_dir, &format!("INDICATOR busy cursor failed: {e}")),
+            }
+        }
         if sleep_cancellable(&cancel, FRAME_INTERVAL_MS) {
             break;
         }
+        elapsed_ms += FRAME_INTERVAL_MS;
     }
     set_tray_icon(&app, &frames.idle);
-    hide_indicator(&app);
+    if let Some(shown) = busy_cursor.take() {
+        if let Err(e) = shown.restore() {
+            log(&config_dir, &format!("INDICATOR cursor restore failed: {e}"));
+        }
+    }
     emit_running(&app, false);
 }
 
 pub struct TrayAnimation {
     app: AppHandle,
+    config_dir: PathBuf,
     cancel: std::sync::Arc<AtomicBool>,
     handle: Option<JoinHandle<()>>,
 }
 
 impl TrayAnimation {
-    pub fn begin(app: AppHandle) -> Self {
+    pub fn begin(app: AppHandle, config_dir: PathBuf) -> Self {
         let has_frames = FRAMES.get_or_init(build_frames).is_some();
         let cancel = std::sync::Arc::new(AtomicBool::new(false));
         let handle = if has_frames {
             let app = app.clone();
             let cancel = cancel.clone();
-            Some(std::thread::spawn(move || run_animation(app, cancel)))
+            let config_dir = config_dir.clone();
+            Some(std::thread::spawn(move || run_animation(app, config_dir, cancel)))
         } else {
             None
         };
-        Self { app, cancel, handle }
+        Self { app, config_dir, cancel, handle }
     }
 
     pub fn finish(self) {}
@@ -187,7 +167,7 @@ impl Drop for TrayAnimation {
                 if let Some(Some(frames)) = FRAMES.get() {
                     set_tray_icon(&self.app, &frames.idle);
                 }
-                hide_indicator(&self.app);
+                let _ = crate::cursor::restore_if_left_busy(&self.config_dir);
                 emit_running(&self.app, false);
             }
         }

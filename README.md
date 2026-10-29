@@ -89,7 +89,7 @@ The build is **unsigned**, so Windows SmartScreen will warn you the first time y
 
 ## Use it
 
-First launch puts an icon in the tray. Left-click it to open settings. Add a backend, add a command (a name, a hotkey, a prompt), and you're done. While a command runs the tray icon pulses and a small dot glows in the bottom-right corner of the screen; both disappear when the result lands.
+First launch puts an icon in the tray. Left-click it to open settings. Add a backend, add a command (a name, a hotkey, a prompt), and you're done. While a command runs the tray icon pulses and, after half a second, the mouse pointer turns into the Windows "working in background" arrow; both return to normal when the result lands.
 
 The default flow:
 
@@ -139,17 +139,20 @@ Windows only for now. Contributions and issues welcome.
 **Why does nothing happen when I press the hotkey?**
 Usually the safety guard kicked in - you switched windows, held a modifier too long, or the model returned something malformed. Check the History tab; it records the reason. Otherwise the hotkey might clash with another app's global shortcut, so try a different one in settings.
 
+**The mouse pointer is stuck on the busy arrow.**
+The pointer is swapped while a command runs and swapped back when it ends, even after an error. If the process was killed mid-run, start Clipboard AI again; it restores the pointer at launch. Or open Mouse Properties, Pointers tab, and click Apply.
+
 **Why Windows only?**
 That's just where it's been built and tested. The stack (Tauri, Rust, Svelte) is cross-platform, but nothing else is done or verified yet.
 
 **Why are my API keys in plain text?**
 No secret storage is wired up yet. It's a known limitation - see [Safety and privacy](#safety-and-privacy). Use a local backend if you'd rather keep no keys at all.
 
-**How do I use my Claude subscription without an API key?**
-Install the `claude` CLI, sign in, then create a command with the Claude CLI backend. It calls the CLI on your behalf, so it uses your subscription instead of an API key.
-
 **Why did my formatted text come back plain?**
 With the default formatting mode the app only goes rich when there is something to keep - bold, links, lists, images and so on. Plain paragraphs, code from an editor and Word's bulleted lists are handled as plain text on purpose. Set the command to "Always return formatted text" if you want HTML back regardless.
+
+**How do I use my Claude subscription without an API key?**
+Install the `claude` CLI, sign in, then create a command with the Claude CLI backend. It calls the CLI on your behalf, so it uses your subscription instead of an API key.
 
 ## License
 

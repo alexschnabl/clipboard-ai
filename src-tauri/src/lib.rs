@@ -2,12 +2,13 @@ mod backend;
 mod cfhtml;
 mod commands;
 mod config;
+mod cursor;
 mod cycle;
 mod hotkeys;
 mod history;
 mod osops;
-mod sentinel;
 mod richtext;
+mod sentinel;
 mod settings;
 mod status;
 mod tray_anim;
@@ -28,7 +29,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager,
 };
-use tauri_plugin_global_shortcut::{Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 use hotkeys::apply_config;
 
@@ -38,8 +39,8 @@ struct CommandEntry {
     name: String,
     hotkey: String,
     system_prompt: String,
-    backend: Arc<dyn backend::Backend>,
     formatting: config::Formatting,
+    backend: Arc<dyn backend::Backend>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -324,6 +325,21 @@ pub fn run() {
 
             let mut problems: Vec<Problem> = Vec::new();
 
+            match cursor::restore_if_left_busy(&config_dir) {
+                Some(Ok(())) => {
+                    let line = "STARTUP busy cursor left behind by a previous run; restored"
+                        .to_string();
+                    eprintln!("{line}");
+                    status::append_log(&config_dir, &line);
+                }
+                Some(Err(e)) => {
+                    let line = format!("STARTUP busy cursor left behind; restore failed: {e}");
+                    eprintln!("{line}");
+                    status::append_log(&config_dir, &line);
+                }
+                None => {}
+            }
+
             let ops: Arc<dyn osops::OsOps> = match osops::WindowsOps::new() {
                 Ok(ops) => Arc::new(ops),
                 Err(e) => {
@@ -398,7 +414,10 @@ pub fn run() {
                                     id, name, system_prompt, formatting, backend, ..
                                 }) = entry
                                 {
-                                    let indicator = tray_anim::TrayAnimation::begin(app.clone());
+                                    let indicator = tray_anim::TrayAnimation::begin(
+                                        app.clone(),
+                                        state.config_dir.clone(),
+                                    );
                                     let cycle_start = state.ops.now_ms();
                                     let outcome = cycle::run(
                                         backend.as_ref(),
@@ -561,6 +580,7 @@ pub fn run() {
                         set_status(&menu_state, line);
                     }
                     "quit" => {
+                        let _ = app.global_shortcut().unregister_all();
                         if menu_state.busy.load(Ordering::SeqCst) {
                             let start = Instant::now();
                             while menu_state.busy.load(Ordering::SeqCst)
@@ -576,6 +596,7 @@ pub fn run() {
                                 status::append_log(&menu_state.config_dir, &line);
                             }
                         }
+                        let _ = cursor::restore_if_left_busy(&menu_state.config_dir);
                         app.exit(0)
                     }
                     _ => {}
@@ -596,14 +617,6 @@ pub fn run() {
                         commands::handle_close_request(handle.clone(), state);
                     }
                 });
-            }
-
-            if let Some(window) = app.get_webview_window(tray_anim::INDICATOR_WINDOW) {
-                if let Err(e) = window.set_ignore_cursor_events(true) {
-                    let line = format!("STARTUP indicator click-through failed: {e}");
-                    eprintln!("{line}");
-                    status::append_log(&config_dir, &line);
-                }
             }
 
             Ok(())
