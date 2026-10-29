@@ -28,6 +28,7 @@ Nothing about the text ever leaves your machine except the request to the backen
 
 - [Features](#features)
 - [Backends](#backends)
+- [Formatting](#formatting)
 - [Build](#build)
 - [Use it](#use-it)
 - [Configuration](#configuration)
@@ -41,6 +42,7 @@ Nothing about the text ever leaves your machine except the request to the backen
 
 - **Commands.** A command is a name, a hotkey, a prompt, and a backend. Add as many as you want. "Fix grammar" ships by default on `Ctrl+Alt+J`.
 - **Works in any app.** The hotkey acts on whatever text is selected in the focused window - editor, browser, chat box, anywhere.
+- **Keeps formatting.** Bold, lists, links, tables and inline images in the selection survive the round trip. Per command you can also ask for formatted output, or stick to plain text. See [Formatting](#formatting).
 - **Four kinds of backend.** Local models, the Anthropic API, your Claude subscription through the `claude` CLI, or any HTTP endpoint you run. See [Backends](#backends).
 - **Live settings.** Add or edit a backend or command and it applies straight away. No restart.
 - **Run history.** The last 100 runs, input and output, so you can copy back a result you lost. Clear it any time.
@@ -59,6 +61,18 @@ A backend is where a command sends its text. You can mix them - one command on a
 | **HTTP** | POSTs the selected text to a URL you choose - an n8n webhook, a local script, anything - and pastes whatever comes back. | Optional |
 
 The HTTP backend sends the selected text as the raw request body (`text/plain`). If you set an API key it goes along as `Authorization: Bearer`. The response body is pasted back as-is - or turn off "Expect a response" and it just sends, pasting nothing. The command's prompt is not sent, so this one isn't an AI backend at all unless the endpoint you point it at is one.
+
+## Formatting
+
+When the selection carries formatting - it came from Outlook, Word, Gmail, Slack, a web page - the app sends the model a simplified HTML version of it, asks it to change only the words, and pastes the result back as rich text, with a plain-text copy for apps that only take text. Inline images never go to the model: they are swapped for short placeholders on the way out and put back in place on the way in.
+
+Each command has a Formatting setting:
+
+- **Keep the selection's formatting** (default). Rich text is used only when there is something worth keeping: bold, italics, underline, links, lists, tables, headings or images. A plain selection, code copied from an editor, and Word's bulleted lists go through as plain text, exactly as before.
+- **Always return formatted text.** The model is asked to answer in HTML even for a plain selection. Use it for prompts like "turn these notes into a tidy list". A Markdown answer is converted too.
+- **Plain text only.** Formatting and images are dropped; only the text is sent and pasted.
+
+The HTTP backend always sends and receives plain text. Fonts and colours are kept for Office sources and dropped for browser sources, where they are computed-style noise. The model can still drop an image or restructure a list if the prompt asks for it; Ctrl+Z in the target app brings the original back.
 
 ## Build
 
@@ -90,7 +104,7 @@ The default flow:
 You set everything up in the settings window; you don't need to hand-edit anything. Two things to configure:
 
 - **Backends** - a type (OpenAI-compatible, Anthropic, or Claude CLI), plus the endpoint, model, and key that type needs.
-- **Commands** - a name, a global hotkey, a prompt, and which backend to use.
+- **Commands** - a name, a global hotkey, a prompt, a formatting mode, and which backend to use.
 
 Edits apply immediately. Config, keys, and history live under `%APPDATA%\com.clipboardai.app\` as a plain `config.json` (and a `history.json`), if you ever do want to look.
 
@@ -133,6 +147,9 @@ No secret storage is wired up yet. It's a known limitation - see [Safety and pri
 
 **How do I use my Claude subscription without an API key?**
 Install the `claude` CLI, sign in, then create a command with the Claude CLI backend. It calls the CLI on your behalf, so it uses your subscription instead of an API key.
+
+**Why did my formatted text come back plain?**
+With the default formatting mode the app only goes rich when there is something to keep - bold, links, lists, images and so on. Plain paragraphs, code from an editor and Word's bulleted lists are handled as plain text on purpose. Set the command to "Always return formatted text" if you want HTML back regardless.
 
 ## License
 

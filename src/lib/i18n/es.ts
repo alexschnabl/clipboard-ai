@@ -61,6 +61,16 @@ export const es: typeof en = {
 				'El backend seleccionado es un punto de conexión HTTP simple. El prompt no se envía con la petición.',
 			promptSentinelHint:
 				'La aplicación pide automáticamente al modelo que devuelva solo el texto transformado y nada más, así que no hace falta indicarlo en el prompt.',
+			formattingLabel: 'Formato',
+			formattingOptionAuto: 'Conservar el formato de la selección',
+			formattingOptionRich: 'Devolver siempre texto con formato',
+			formattingOptionPlain: 'Solo texto sin formato',
+			formattingHintAuto:
+				'La negrita, las listas, los enlaces y las imágenes de la selección se conservan. Una selección de texto sin formato se mantiene sin formato.',
+			formattingHintRich:
+				'Se pide al modelo que responda con títulos, listas y énfasis aunque la selección sea texto sin formato. Para prompts que mejoran el formato.',
+			formattingHintPlain:
+				'Solo se envía y se pega el texto. El formato y las imágenes se pierden.',
 			saveError: 'No se pudo guardar el comando',
 			saveFailedFallback: 'No se pudo guardar.',
 			addSubmit: 'Añadir comando',

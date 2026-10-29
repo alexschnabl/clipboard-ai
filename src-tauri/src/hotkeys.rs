@@ -42,6 +42,7 @@ fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, 
                     name: command.name.clone(),
                     hotkey: command.hotkey.clone(),
                     system_prompt: command.system_prompt.clone(),
+                    formatting: command.formatting,
                     backend,
                 };
                 match map.entry(shortcut) {
@@ -98,6 +99,7 @@ mod build_command_map_tests {
             backend_id: "b".into(),
             hotkey: hotkey.into(),
             system_prompt: "x".into(),
+            formatting: config::Formatting::Auto,
         }
     }
 
@@ -148,6 +150,7 @@ mod build_command_map_tests {
                 backend_id: "does-not-exist".into(),
                 hotkey: "Ctrl+Alt+J".into(),
                 system_prompt: "x".into(),
+                formatting: config::Formatting::Auto,
             }],
             settings: config::Settings::default(),
         };

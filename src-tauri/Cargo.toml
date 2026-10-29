@@ -30,8 +30,11 @@ serde_json = "1"
 tauri-plugin-global-shortcut = "2.3.2"
 tauri-plugin-autostart = "2.5.1"
 arboard = "3.6.1"
+clipboard-win = "5.4.1"
 enigo = "0.6.1"
 reqwest = { version = "0.13.4", features = ["blocking", "json"] }
+ammonia = "4.2.4"
+pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 thiserror = "2.0.19"
 windows = { version = "0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Foundation"] }
 

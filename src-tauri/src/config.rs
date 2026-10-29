@@ -114,6 +114,15 @@ pub struct Settings {
     pub autostart: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Formatting {
+    #[default]
+    Auto,
+    Rich,
+    Plain,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandConfig {
@@ -122,6 +131,8 @@ pub struct CommandConfig {
     pub backend_id: String,
     pub hotkey: String,
     pub system_prompt: String,
+    #[serde(default)]
+    pub formatting: Formatting,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -246,6 +257,7 @@ pub fn default_config() -> Config {
             backend_id: "ollama-local".into(),
             hotkey: "Ctrl+Alt+J".into(),
             system_prompt: "Fix grammar and spelling.".into(),
+            formatting: Formatting::Auto,
         }],
         settings: Settings::default(),
     }
@@ -417,6 +429,43 @@ mod tests {
     fn a_backend_with_no_effort_key_keeps_todays_behaviour() {
         let cfg = parse(valid_json()).expect("a backend missing this key should still parse");
         assert_eq!(cfg.backends[0].effort, Effort::Low);
+    }
+
+    #[test]
+    fn a_command_with_no_formatting_key_defaults_to_auto() {
+        let cfg = parse(valid_json()).expect("a command missing this key should still parse");
+        assert_eq!(cfg.commands[0].formatting, Formatting::Auto);
+    }
+
+    #[test]
+    fn accepts_every_formatting_value_and_rejects_unknown_ones() {
+        for (value, expected) in [
+            ("auto", Formatting::Auto),
+            ("rich", Formatting::Rich),
+            ("plain", Formatting::Plain),
+        ] {
+            let json = valid_json().replace(
+                "\"systemPrompt\":\"Fix grammar.\"",
+                &format!("\"systemPrompt\":\"Fix grammar.\",\"formatting\":\"{value}\""),
+            );
+            let cfg = parse(&json).unwrap_or_else(|e| panic!("{value} must parse: {e}"));
+            assert_eq!(cfg.commands[0].formatting, expected);
+        }
+        let json = valid_json().replace(
+            "\"systemPrompt\":\"Fix grammar.\"",
+            "\"systemPrompt\":\"Fix grammar.\",\"formatting\":\"markdown\"",
+        );
+        assert!(matches!(parse(&json), Err(ConfigError::Parse(_))));
+    }
+
+    #[test]
+    fn formatting_round_trips_through_serialization() {
+        let mut cfg = default_config();
+        cfg.commands[0].formatting = Formatting::Rich;
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("\"formatting\":\"rich\""));
+        let back = parse(&json).unwrap();
+        assert_eq!(back.commands[0].formatting, Formatting::Rich);
     }
 
     #[test]

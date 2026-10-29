@@ -9,7 +9,7 @@
 	import HotkeyRecorder from './HotkeyRecorder.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
-	import type { CommandConfig } from '$lib/types';
+	import type { CommandConfig, Formatting } from '$lib/types';
 
 	let {
 		open = $bindable(false),
@@ -23,8 +23,26 @@
 	let backendId = $state('');
 	let hotkey = $state('');
 	let systemPrompt = $state('');
+	let formatting = $state<Formatting>('auto');
 	let saving = $state(false);
 	let submitError = $state<string | null>(null);
+
+	const FORMATTING_VALUES: readonly Formatting[] = ['auto', 'rich', 'plain'];
+	const formattingTexts = $derived<Record<Formatting, { label: string; hint: string }>>({
+		auto: {
+			label: i18n.t.commands.form.formattingOptionAuto,
+			hint: i18n.t.commands.form.formattingHintAuto
+		},
+		rich: {
+			label: i18n.t.commands.form.formattingOptionRich,
+			hint: i18n.t.commands.form.formattingHintRich
+		},
+		plain: {
+			label: i18n.t.commands.form.formattingOptionPlain,
+			hint: i18n.t.commands.form.formattingHintPlain
+		}
+	});
+	const formattingCurrent = $derived(formattingTexts[formatting]);
 
 	const isEdit = $derived(command !== null);
 	const canSave = $derived(name.trim().length > 0 && backendId.length > 0);
@@ -44,6 +62,7 @@
 			backendId = command?.backendId ?? configState.config.backends[0]?.id ?? '';
 			hotkey = command?.hotkey ?? '';
 			systemPrompt = command?.systemPrompt ?? '';
+			formatting = command?.formatting ?? 'auto';
 			submitError = null;
 		} else if (wasOpen) {
 			wasOpen = false;
@@ -60,6 +79,10 @@
 		hotkey = next;
 	}
 
+	function handleFormattingChange(value: string | undefined): void {
+		if (value === 'auto' || value === 'rich' || value === 'plain') formatting = value;
+	}
+
 	async function handleSave(): Promise<void> {
 		if (!canSave || saving) return;
 		const next: CommandConfig = {
@@ -67,7 +90,8 @@
 			name: name.trim(),
 			backendId,
 			hotkey,
-			systemPrompt: systemPrompt.trim()
+			systemPrompt: systemPrompt.trim(),
+			formatting: backendIsHttp ? 'plain' : formatting
 		};
 		saving = true;
 		submitError = null;
@@ -140,6 +164,23 @@
 						: i18n.t.commands.form.promptSentinelHint}
 				</p>
 			</div>
+
+			{#if !backendIsHttp}
+				<div class="flex flex-col gap-1.5">
+					<Label for="command-formatting">{i18n.t.commands.form.formattingLabel}</Label>
+					<Select.Root type="single" value={formatting} onValueChange={handleFormattingChange}>
+						<Select.Trigger id="command-formatting" class="w-full">
+							{formattingCurrent.label}
+						</Select.Trigger>
+						<Select.Content>
+							{#each FORMATTING_VALUES as value (value)}
+								<Select.Item {value} label={formattingTexts[value].label} />
+							{/each}
+						</Select.Content>
+					</Select.Root>
+					<p class="text-xs text-muted-foreground">{formattingCurrent.hint}</p>
+				</div>
+			{/if}
 		</div>
 
 		{#if submitError}

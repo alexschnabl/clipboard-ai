@@ -38,6 +38,10 @@ impl Backend for HttpEndpoint {
         self.expects_response
     }
 
+    fn supports_rich_text(&self) -> bool {
+        false
+    }
+
     fn transform(&self, _system_prompt: &str, text: &str) -> Result<String, BackendError> {
         let url = self
             .url

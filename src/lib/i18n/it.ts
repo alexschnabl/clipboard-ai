@@ -62,6 +62,16 @@ export const it: typeof en = {
 				'Il backend selezionato è un semplice endpoint HTTP. Il prompt non viene inviato con la richiesta.',
 			promptSentinelHint:
 				'L’app chiede automaticamente al modello di restituire solo il testo trasformato e nient’altro, quindi non serve indicarlo nel prompt.',
+			formattingLabel: 'Formattazione',
+			formattingOptionAuto: 'Mantieni la formattazione della selezione',
+			formattingOptionRich: 'Restituisci sempre testo formattato',
+			formattingOptionPlain: 'Solo testo semplice',
+			formattingHintAuto:
+				'Grassetto, elenchi, link e immagini nella selezione vengono conservati. Una selezione di testo semplice resta semplice.',
+			formattingHintRich:
+				'Al modello viene chiesto di rispondere con titoli, elenchi ed enfasi anche se la selezione è testo semplice. Per prompt che migliorano la formattazione.',
+			formattingHintPlain:
+				'Viene inviato e incollato solo il testo. Formattazione e immagini vengono perse.',
 			saveError: 'Impossibile salvare il comando',
 			saveFailedFallback: 'Salvataggio non riuscito.',
 			addSubmit: 'Aggiungi comando',

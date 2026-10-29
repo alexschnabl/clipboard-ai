@@ -62,6 +62,16 @@ export const fr: typeof en = {
 				'Le backend sélectionné est un simple point de terminaison HTTP. Le prompt n’est pas transmis avec la requête.',
 			promptSentinelHint:
 				'L’application demande automatiquement au modèle de ne renvoyer que le texte transformé, rien d’autre ; inutile de le préciser dans votre invite.',
+			formattingLabel: 'Mise en forme',
+			formattingOptionAuto: 'Conserver la mise en forme de la sélection',
+			formattingOptionRich: 'Toujours renvoyer du texte mis en forme',
+			formattingOptionPlain: 'Texte brut uniquement',
+			formattingHintAuto:
+				'Le gras, les listes, les liens et les images de la sélection sont conservés. Une sélection en texte brut reste en texte brut.',
+			formattingHintRich:
+				'Le modèle est invité à répondre avec des titres, des listes et des mises en évidence, même si la sélection est en texte brut. Pour les invites qui améliorent la mise en forme.',
+			formattingHintPlain:
+				'Seul le texte est envoyé et collé. La mise en forme et les images sont perdues.',
 			saveError: 'Impossible d’enregistrer la commande',
 			saveFailedFallback: 'Échec de l’enregistrement.',
 			addSubmit: 'Ajouter la commande',

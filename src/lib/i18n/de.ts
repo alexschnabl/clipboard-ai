@@ -62,6 +62,16 @@ export const de: typeof en = {
 				'Das gewählte Backend ist ein einfacher HTTP-Endpunkt. Der Prompt wird nicht mitgesendet.',
 			promptSentinelHint:
 				'Die App weist das Modell automatisch an, nur den transformierten Text zurückzugeben und sonst nichts — das müssen Sie im Prompt nicht angeben.',
+			formattingLabel: 'Formatierung',
+			formattingOptionAuto: 'Formatierung der Auswahl beibehalten',
+			formattingOptionRich: 'Immer formatierten Text zurückgeben',
+			formattingOptionPlain: 'Nur reiner Text',
+			formattingHintAuto:
+				'Fett, Listen, Links und Bilder in der Auswahl bleiben erhalten. Eine reine Textauswahl bleibt reiner Text.',
+			formattingHintRich:
+				'Das Modell wird gebeten, auch bei reinem Text mit Überschriften, Listen und Hervorhebungen zu antworten. Für Prompts, die die Formatierung verbessern.',
+			formattingHintPlain:
+				'Nur der Text wird gesendet und eingefügt. Formatierung und Bilder gehen verloren.',
 			saveError: 'Befehl konnte nicht gespeichert werden',
 			saveFailedFallback: 'Speichern fehlgeschlagen.',
 			addSubmit: 'Befehl hinzufügen',

@@ -34,6 +34,7 @@ function command(overrides: Partial<CommandConfig> = {}): CommandConfig {
 		backendId: 'b1',
 		hotkey: 'Ctrl+Alt+J',
 		systemPrompt: 'Do a thing.',
+		formatting: 'auto',
 		...overrides
 	};
 }

@@ -59,6 +59,15 @@ export const en = {
 				'The selected backend is a plain HTTP endpoint. The prompt is not sent with the request.',
 			promptSentinelHint:
 				'The app automatically tells the model to return only the transformed text and nothing else, so you don’t need to say that in your prompt.',
+			formattingLabel: 'Formatting',
+			formattingOptionAuto: 'Keep the selection’s formatting',
+			formattingOptionRich: 'Always return formatted text',
+			formattingOptionPlain: 'Plain text only',
+			formattingHintAuto:
+				'Bold, lists, links and images in the selection survive the round trip. A plain-text selection stays plain.',
+			formattingHintRich:
+				'The model is asked to answer with headings, lists and emphasis even when the selection is plain. Use this for prompts that improve formatting.',
+			formattingHintPlain: 'Only the text is sent and pasted. Formatting and images are dropped.',
 			saveError: 'Couldn’t save command',
 			saveFailedFallback: 'Save failed.',
 			addSubmit: 'Add command',

@@ -54,6 +54,9 @@ pub trait Backend: Send + Sync {
     fn pastes_result(&self) -> bool {
         true
     }
+    fn supports_rich_text(&self) -> bool {
+        true
+    }
 }
 
 pub struct ReqwestClient;

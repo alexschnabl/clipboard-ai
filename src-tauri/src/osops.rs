@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use arboard::Clipboard;
+use clipboard_win::{raw, Clipboard as WinClipboard};
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use thiserror::Error;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
@@ -19,11 +19,23 @@ pub enum OsError {
     Input(String),
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Clip {
+    pub text: String,
+    pub html: Option<String>,
+}
+
 const CONTROL_RELEASE_RETRIES: u32 = 3;
 
+const HTML_FORMAT_NAME: &str = "HTML Format";
+
+const CLIPBOARD_OPEN_ATTEMPTS: usize = 10;
+
+const CLIPBOARD_OPEN_RETRY_MS: u64 = 5;
+
 pub trait OsOps: Send + Sync {
-    fn read_clipboard(&self) -> Result<String, OsError>;
-    fn write_clipboard(&self, text: &str) -> Result<(), OsError>;
+    fn read_clipboard(&self) -> Result<Clip, OsError>;
+    fn write_clipboard(&self, clip: &Clip) -> Result<(), OsError>;
     fn clear_clipboard(&self) -> Result<(), OsError>;
     fn modifiers_down(&self) -> bool;
     fn foreground_window(&self) -> isize;
@@ -33,8 +45,39 @@ pub trait OsOps: Send + Sync {
     fn now_ms(&self) -> u64;
 }
 
+fn html_format() -> Option<u32> {
+    raw::register_format(HTML_FORMAT_NAME).map(|n| n.get())
+}
+
+fn open_clipboard() -> Result<WinClipboard, OsError> {
+    let mut last_error = None;
+    for attempt in 0..CLIPBOARD_OPEN_ATTEMPTS {
+        match WinClipboard::new() {
+            Ok(open) => return Ok(open),
+            Err(e) => last_error = Some(e),
+        }
+        if attempt + 1 < CLIPBOARD_OPEN_ATTEMPTS {
+            std::thread::sleep(Duration::from_millis(CLIPBOARD_OPEN_RETRY_MS));
+        }
+    }
+    Err(OsError::Clipboard(format!(
+        "could not open the clipboard after {CLIPBOARD_OPEN_ATTEMPTS} attempts: {}",
+        last_error.map(|e| e.to_string()).unwrap_or_default()
+    )))
+}
+
+fn read_html_while_open() -> Option<String> {
+    let format = html_format()?;
+    if !raw::is_format_avail(format) {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    raw::get_vec(format, &mut bytes).ok()?;
+    crate::cfhtml::fragment(&bytes)
+}
+
 pub struct WindowsOps {
-    clipboard: Mutex<Clipboard>,
+    clipboard: Mutex<()>,
     enigo: Mutex<Enigo>,
     start: Instant,
 }
@@ -42,9 +85,7 @@ pub struct WindowsOps {
 impl WindowsOps {
     pub fn new() -> Result<Self, OsError> {
         Ok(Self {
-            clipboard: Mutex::new(
-                Clipboard::new().map_err(|e| OsError::Clipboard(e.to_string()))?,
-            ),
+            clipboard: Mutex::new(()),
             enigo: Mutex::new(
                 Enigo::new(&Settings::default()).map_err(|e| OsError::Input(e.to_string()))?,
             ),
@@ -78,27 +119,43 @@ impl WindowsOps {
         click.map_err(|e| OsError::Input(e.to_string()))?;
         Ok(())
     }
+
+    fn lock_clipboard(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.clipboard.lock().unwrap_or_else(|e| {
+            eprintln!("clipboard mutex was poisoned by an earlier panic; recovering");
+            e.into_inner()
+        })
+    }
 }
 
 impl OsOps for WindowsOps {
-    fn read_clipboard(&self) -> Result<String, OsError> {
-        let mut cb = self.clipboard.lock().unwrap_or_else(|e| {
-            eprintln!("clipboard mutex was poisoned by an earlier panic; recovering");
-            e.into_inner()
-        });
-        cb.get_text().map_err(|e| OsError::Clipboard(e.to_string()))
+    fn read_clipboard(&self) -> Result<Clip, OsError> {
+        let _serial = self.lock_clipboard();
+        let _open = open_clipboard()?;
+        let mut bytes = Vec::new();
+        raw::get_string(&mut bytes)
+            .map_err(|e| OsError::Clipboard(format!("no text on the clipboard: {e}")))?;
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        let html = read_html_while_open();
+        Ok(Clip { text, html })
     }
 
-    fn write_clipboard(&self, text: &str) -> Result<(), OsError> {
-        let mut cb = self.clipboard.lock().unwrap_or_else(|e| {
-            eprintln!("clipboard mutex was poisoned by an earlier panic; recovering");
-            e.into_inner()
-        });
-        cb.set_text(text.to_string()).map_err(|e| OsError::Clipboard(e.to_string()))
+    fn write_clipboard(&self, clip: &Clip) -> Result<(), OsError> {
+        let _serial = self.lock_clipboard();
+        let _open = open_clipboard()?;
+        raw::set_string(&clip.text).map_err(|e| OsError::Clipboard(e.to_string()))?;
+        if let Some(html) = &clip.html {
+            let format = html_format().ok_or_else(|| {
+                OsError::Clipboard("could not register the HTML clipboard format".into())
+            })?;
+            raw::set_without_clear(format, &crate::cfhtml::build(html))
+                .map_err(|e| OsError::Clipboard(e.to_string()))?;
+        }
+        Ok(())
     }
 
     fn clear_clipboard(&self) -> Result<(), OsError> {
-        self.write_clipboard("")
+        self.write_clipboard(&Clip::default())
     }
 
     fn modifiers_down(&self) -> bool {
@@ -141,10 +198,10 @@ impl NullOps {
 }
 
 impl OsOps for NullOps {
-    fn read_clipboard(&self) -> Result<String, OsError> {
+    fn read_clipboard(&self) -> Result<Clip, OsError> {
         Err(OsError::Clipboard("unavailable: OS layer failed to initialize at startup".into()))
     }
-    fn write_clipboard(&self, _text: &str) -> Result<(), OsError> {
+    fn write_clipboard(&self, _clip: &Clip) -> Result<(), OsError> {
         Err(OsError::Clipboard("unavailable: OS layer failed to initialize at startup".into()))
     }
     fn clear_clipboard(&self) -> Result<(), OsError> {
@@ -176,8 +233,11 @@ mod tests {
 
     use super::*;
 
+    static REAL_CLIPBOARD: Mutex<()> = Mutex::new(());
+
     #[test]
     fn a_poisoned_clipboard_mutex_recovers_instead_of_disabling_every_future_call() {
+        let _serial = REAL_CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner());
         let ops = match WindowsOps::new() {
             Ok(ops) => ops,
             Err(e) => {
@@ -185,7 +245,7 @@ mod tests {
                 return;
             }
         };
-        let original = ops.read_clipboard().unwrap_or_default();
+        let original = ops.read_clipboard().ok();
 
         let ops = Arc::new(ops);
         let poisoner = ops.clone();
@@ -197,11 +257,45 @@ mod tests {
         assert!(panicked.is_err(), "the spawned thread should have panicked");
         assert!(ops.clipboard.is_poisoned(), "the mutex should now be poisoned");
 
-        ops.write_clipboard("poison-recovery-probe")
+        let probe = Clip { text: "poison-recovery-probe".into(), html: None };
+        ops.write_clipboard(&probe)
             .expect("write should recover from a poisoned lock, not fail forever");
-        assert_eq!(ops.read_clipboard().unwrap(), "poison-recovery-probe");
+        assert_eq!(ops.read_clipboard().unwrap().text, "poison-recovery-probe");
 
-        let _ = ops.write_clipboard(&original);
+        if let Some(original) = original {
+            let _ = ops.write_clipboard(&original);
+        }
+    }
+
+    #[test]
+    fn html_written_with_a_text_fallback_reads_back_as_both_formats() {
+        let _serial = REAL_CLIPBOARD.lock().unwrap_or_else(|e| e.into_inner());
+        let ops = match WindowsOps::new() {
+            Ok(ops) => ops,
+            Err(e) => {
+                eprintln!("skipping: WindowsOps::new() failed here: {e}");
+                return;
+            }
+        };
+        let original = ops.read_clipboard().ok();
+
+        let rich = Clip {
+            text: "fallback text äöü".into(),
+            html: Some("<p>fallback <b>text</b> äöü</p>".into()),
+        };
+        ops.write_clipboard(&rich).expect("rich write");
+        let back = ops.read_clipboard().expect("read back");
+        assert_eq!(back.text, "fallback text äöü");
+        assert_eq!(back.html.as_deref(), Some("<p>fallback <b>text</b> äöü</p>"));
+
+        ops.write_clipboard(&Clip { text: "plain only".into(), html: None }).expect("plain write");
+        let back = ops.read_clipboard().expect("read back");
+        assert_eq!(back.text, "plain only");
+        assert!(back.html.is_none(), "a plain write must replace the HTML format too");
+
+        if let Some(original) = original {
+            let _ = ops.write_clipboard(&original);
+        }
     }
 
     struct PanicIfCalledBackend;
@@ -221,7 +315,12 @@ mod tests {
     #[test]
     fn a_cycle_run_against_null_ops_aborts_immediately_without_touching_anything() {
         let ops = NullOps::new();
-        let outcome = crate::cycle::run(&PanicIfCalledBackend, "Fix.", &ops);
+        let outcome = crate::cycle::run(
+            &PanicIfCalledBackend,
+            "Fix.",
+            crate::config::Formatting::Auto,
+            &ops,
+        );
         assert!(!outcome.pasted);
         assert_eq!(outcome.reason, "focus-changed");
     }

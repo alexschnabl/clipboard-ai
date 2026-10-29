@@ -21,12 +21,15 @@ export interface BackendConfig {
 	expectsResponse: boolean;
 }
 
+export type Formatting = 'auto' | 'rich' | 'plain';
+
 export interface CommandConfig {
 	id: string;
 	name: string;
 	backendId: string;
 	hotkey: string;
 	systemPrompt: string;
+	formatting: Formatting;
 }
 
 export type Theme = 'system' | 'light' | 'dark';

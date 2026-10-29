@@ -1,4 +1,5 @@
 mod backend;
+mod cfhtml;
 mod commands;
 mod config;
 mod cycle;
@@ -6,6 +7,7 @@ mod hotkeys;
 mod history;
 mod osops;
 mod sentinel;
+mod richtext;
 mod settings;
 mod status;
 mod tray_anim;
@@ -37,6 +39,7 @@ struct CommandEntry {
     hotkey: String,
     system_prompt: String,
     backend: Arc<dyn backend::Backend>,
+    formatting: config::Formatting,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -392,7 +395,7 @@ pub fn run() {
                                 .get(&key)
                                 .cloned();
                                 if let Some(CommandEntry {
-                                    id, name, system_prompt, backend, ..
+                                    id, name, system_prompt, formatting, backend, ..
                                 }) = entry
                                 {
                                     let indicator = tray_anim::TrayAnimation::begin(app.clone());
@@ -400,6 +403,7 @@ pub fn run() {
                                     let outcome = cycle::run(
                                         backend.as_ref(),
                                         &system_prompt,
+                                        formatting,
                                         state.ops.as_ref(),
                                     );
                                     let total_cycle_ms =
