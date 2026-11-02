@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Use GitHub's private reporting: [Report a vulnerability](https://github.com/alexschnabl/clipboard-ai/security/advisories/new). Do not open a public issue for it. You should hear back within a week.
+Use GitHub's private reporting: [Report a vulnerability](https://github.com/alexschnabl/clipboard-ai/security/advisories/new). Do not open a public issue for it.
 
 ## What the app does with your data
 
