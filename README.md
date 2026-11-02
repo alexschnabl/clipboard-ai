@@ -68,7 +68,7 @@ When the selection carries formatting - it came from Outlook, Word, Gmail, Slack
 
 Each command has a Formatting setting:
 
-- **Keep the selection's formatting** (default). Rich text is used only when there is something worth keeping: bold, italics, underline, links, lists, tables, headings or images. A plain selection, code copied from an editor, and Word's bulleted lists go through as plain text, exactly as before.
+- **Keep the selection's formatting** (default). Rich text is used only when there is something worth keeping: bold, italics, underline, links, lists, tables, headings or images. A plain selection and code copied from an editor go through as plain text, exactly as before.
 - **Always return formatted text.** The model is asked to answer in HTML even for a plain selection. Use it for prompts like "turn these notes into a tidy list". A Markdown answer is converted too.
 - **Plain text only.** Formatting and images are dropped; only the text is sent and pasted.
 
@@ -149,7 +149,7 @@ That's just where it's been built and tested. The stack (Tauri, Rust, Svelte) is
 No secret storage is wired up yet. It's a known limitation - see [Safety and privacy](#safety-and-privacy). Use a local backend if you'd rather keep no keys at all.
 
 **Why did my formatted text come back plain?**
-With the default formatting mode the app only goes rich when there is something to keep - bold, links, lists, images and so on. Plain paragraphs, code from an editor and Word's bulleted lists are handled as plain text on purpose. Set the command to "Always return formatted text" if you want HTML back regardless.
+With the default formatting mode the app only goes rich when there is something to keep - bold, links, lists, images and so on. Plain paragraphs and code from an editor are handled as plain text on purpose. Set the command to "Always return formatted text" if you want HTML back regardless.
 
 **How do I use my Claude subscription without an API key?**
 Install the `claude` CLI, sign in, then create a command with the Claude CLI backend. It calls the CLI on your behalf, so it uses your subscription instead of an API key.

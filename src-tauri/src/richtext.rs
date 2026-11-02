@@ -315,7 +315,7 @@ pub fn worth_keeping(raw: &str, sanitized: &str) -> bool {
     if has_tag(&lowered, "pre") || has_style_value(&lowered, "white-space", "pre") {
         return false;
     }
-    if raw.contains("mso-list") {
+    if raw.contains("mso-list") && !has_tag(&lowered, "li") {
         return false;
     }
     if SEMANTIC_TAGS.iter().any(|t| has_semantic_tag(&lowered, t)) {
@@ -627,6 +627,15 @@ mod tests {
 
     fn clip(text: &str, html: Option<&str>) -> Clip {
         Clip { text: text.to_string(), html: html.map(|h| h.to_string()) }
+    }
+
+    fn live_input() -> String {
+        let raw = std::fs::read(std::env::var("CAI_LIVE_INPUT_HTML").unwrap()).unwrap();
+        if raw.starts_with(b"Version:") {
+            crate::cfhtml::fragment(&raw).expect("a CF_HTML payload must carry a fragment")
+        } else {
+            String::from_utf8_lossy(&raw).into_owned()
+        }
     }
 
     #[test]
@@ -941,7 +950,7 @@ mod tests {
     #[test]
     #[ignore]
     fn live_model_step_one_writes_the_prompt_and_text_to_send() {
-        let input = std::fs::read_to_string(std::env::var("CAI_LIVE_INPUT_HTML").unwrap()).unwrap();
+        let input = live_input();
         let base_prompt = std::fs::read_to_string(std::env::var("CAI_LIVE_BASE_PROMPT").unwrap()).unwrap();
         let out_dir = std::path::PathBuf::from(std::env::var("CAI_LIVE_DIR").unwrap());
         let p = prepare(&clip("", Some(&input)), Formatting::Auto, true);
@@ -958,7 +967,7 @@ mod tests {
     #[test]
     #[ignore]
     fn live_model_step_two_runs_the_answer_through_finish() {
-        let input = std::fs::read_to_string(std::env::var("CAI_LIVE_INPUT_HTML").unwrap()).unwrap();
+        let input = live_input();
         let dir = std::path::PathBuf::from(std::env::var("CAI_LIVE_DIR").unwrap());
         let answer = std::fs::read_to_string(dir.join("live-model-answer.txt")).unwrap();
         let p = prepare(&clip("", Some(&input)), Formatting::Auto, true);
@@ -982,7 +991,7 @@ PASTED TEXT:
     #[ignore]
     fn live_model_openai_compatible_backend_round_trip() {
         use crate::backend::Backend;
-        let input = std::fs::read_to_string(std::env::var("CAI_LIVE_INPUT_HTML").unwrap()).unwrap();
+        let input = live_input();
         let base_prompt = std::fs::read_to_string(std::env::var("CAI_LIVE_BASE_PROMPT").unwrap()).unwrap();
         let dir = std::path::PathBuf::from(std::env::var("CAI_LIVE_DIR").unwrap());
         let config = crate::config::BackendConfig {
@@ -1021,5 +1030,42 @@ PASTED TEXT:
             assert!(html.contains(img.as_str()), "image must be back in place: {img}");
         }
         std::fs::write(dir.join("live-local-pasted.html"), &html).unwrap();
+    }
+
+    #[test]
+    fn outlook_lists_with_real_li_tags_go_rich_despite_mso_list_styles() {
+        let outlook = r#"<ul type=disc><li class=MsoNormal style='color:#222222;mso-list:l0 level1 lfo1;tab-stops:list 36.0pt'><span lang=DE style='font-size:11.5pt;font-family:"Calibri",sans-serif'>gilt der <b>rabatt</b><o:p></o:p></span></li></ul>"#;
+        let p = prepare(&clip("gilt der rabatt", Some(outlook)), Formatting::Auto, true);
+        assert_eq!(p.instruction, Some(KEEP_INSTRUCTION), "got: {}", p.text);
+        assert!(p.text.starts_with("<ul>"), "got: {}", p.text);
+        assert!(p.text.contains("<li class=\"MsoNormal\""), "got: {}", p.text);
+        assert!(!p.text.contains("mso-list"), "got: {}", p.text);
+    }
+
+    #[test]
+    #[ignore]
+    fn live_clipboard_write_pasted_result() {
+        let dir = std::path::PathBuf::from(std::env::var("CAI_LIVE_DIR").unwrap());
+        let html = std::fs::read_to_string(dir.join("live-pasted.html")).unwrap();
+        let text = std::fs::read_to_string(dir.join("live-pasted.txt")).unwrap();
+        let ops = crate::osops::WindowsOps::new().expect("os layer");
+        crate::osops::OsOps::write_clipboard(&ops, &Clip { text, html: Some(html) }).expect("write");
+        println!("the clipboard now holds the pasted result as text plus CF_HTML");
+    }
+
+    #[test]
+    #[ignore]
+    fn live_clipboard_read_to_files() {
+        let dir = std::path::PathBuf::from(std::env::var("CAI_LIVE_DIR").unwrap());
+        let ops = crate::osops::WindowsOps::new().expect("os layer");
+        let captured = crate::osops::OsOps::read_clipboard(&ops).expect("clipboard text");
+        std::fs::write(dir.join("live-captured.txt"), &captured.text).unwrap();
+        match &captured.html {
+            Some(html) => {
+                std::fs::write(dir.join("live-captured.html"), html).unwrap();
+                println!("captured {} chars of text and {} chars of HTML", captured.text.chars().count(), html.chars().count());
+            }
+            None => println!("captured {} chars of text and no HTML", captured.text.chars().count()),
+        }
     }
 }
