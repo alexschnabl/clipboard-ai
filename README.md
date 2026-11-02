@@ -7,12 +7,13 @@
 <p align="center">Highlight text anywhere in Windows, press a hotkey, and an AI rewrites it in place.</p>
 
 <p align="center">
+  <a href="https://github.com/alexschnabl/clipboard-ai/releases/latest"><img src="https://img.shields.io/github/v/release/alexschnabl/clipboard-ai" alt="Latest release" /></a>
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT license" />
   <img src="https://img.shields.io/badge/platform-Windows-lightgrey" alt="Platform: Windows" />
   <img src="https://img.shields.io/badge/built%20with-Tauri%20v2-24C8DB" alt="Built with Tauri v2" />
 </p>
 
-<!-- TODO(gif): the hero loop - select a sentence in Notepad, press Ctrl+Alt+J, the tray pulses, the corrected text lands in place. Commit it to assets/ (not docs/, which is gitignored) and point the img below at assets/demo.gif. -->
+<!-- TODO(gif): the hero loop - select a sentence in Notepad, press Ctrl+Alt+J, the pointer turns into the busy arrow, the corrected text lands in place. Commit it to assets/ (not docs/, which is gitignored) and point the img below at assets/demo.gif. -->
 
 <!--
 <p align="center">
@@ -22,21 +23,39 @@
 
 Clipboard AI sits in the tray. You set up **commands** - each one is a hotkey, a prompt, and a backend - and pressing a command's hotkey over any selected text sends that text to the AI and pastes the result back over your selection. That's the whole app. It ships with one command, "Fix grammar" on `Ctrl+Alt+J`.
 
+What sets it apart from the other hotkey rewriters: it can run on the Claude subscription you already pay for (through the `claude` CLI, no API key), on any HTTP endpoint you own, or fully offline on a local model; it keeps bold, lists, tables, links and inline images through the rewrite; it refuses to paste when the result looks wrong; and it is a 15 MB Rust exe with a 4 MB installer.
+
 Nothing about the text ever leaves your machine except the request to the backend you chose. Point a command at a local model and it stays fully offline.
 
 ## Contents
 
+- [Install](#install)
 - [Features](#features)
 - [Backends](#backends)
 - [Formatting](#formatting)
-- [Build](#build)
+- [Why not X](#why-not-x)
 - [Use it](#use-it)
 - [Configuration](#configuration)
 - [Safety and privacy](#safety-and-privacy)
 - [Languages](#languages)
+- [Build from source](#build-from-source)
 - [Develop](#develop)
 - [FAQ](#faq)
 - [License](#license)
+
+## Install
+
+Download the `-setup.exe` from the [latest release](https://github.com/alexschnabl/clipboard-ai/releases/latest) and run it. There is also an `.msi` if you prefer that, and a `SHA256SUMS.txt` to check either download against:
+
+```powershell
+Get-FileHash .\clipboard-ai-app_0.1.0_x64-setup.exe -Algorithm SHA256
+```
+
+The build is **unsigned**. Windows SmartScreen will warn you the first time you run the installer: click "More info", then "Run anyway". If you would rather not run an unsigned download, [build from source](#build-from-source) instead; it takes a few minutes and produces the same installer.
+
+Built and tested on Windows 11, x64. Windows 10 should work but has not been tried. There is no auto-update yet, so a new version means a new download from the releases page.
+
+Footprint, measured on the release build: the installer is 4 MB and the exe 15 MB. Idle, the app itself holds about 8 MB of private memory; the WebView2 processes that render the settings window add roughly 160 MB on top while the app runs.
 
 ## Features
 
@@ -74,18 +93,28 @@ Each command has a Formatting setting:
 
 The HTTP backend always sends and receives plain text. Fonts and colours are kept for Office sources and dropped for browser sources, where they are computed-style noise. The model can still drop an image or restructure a list if the prompt asks for it; Ctrl+Z in the target app brings the original back.
 
-## Build
+## Why not X
 
-There's no packaged download yet, so you build from source. You need [Node](https://nodejs.org/), a [Rust toolchain](https://rustup.rs/), and on Windows the MSVC build tools ("Desktop development with C++", from the Visual Studio Installer).
+The "select text, press a hotkey, an AI rewrites it" loop exists in other tools, and Windows itself ships a version of it in PowerToys. This is how Clipboard AI compares with the three you are most likely to weigh it against. The cells were checked on 2026-10-29 against each project's README, releases and documentation; the ones marked with an asterisk could not be verified.
 
-```sh
-npm install
-npm run tauri build
-```
+| | Clipboard AI | Writing Tools | PowerToys Advanced Paste | CapyBro |
+| --- | --- | --- | --- | --- |
+| Stack | Rust, Tauri 2, Svelte | Python, PySide6, PyInstaller; a separate Swift app on macOS | Part of the PowerToys suite | C#, .NET 8, WPF |
+| Platforms | Windows | Windows, Linux, macOS | Windows | Windows 10 1809 and later |
+| Download | 4 MB installer, 15 MB exe | GitHub releases; exe size is the most-reacted issue on its tracker | The whole PowerToys suite, via winget or the Store | 48 MB installer |
+| Local models | Ollama, LM Studio, any OpenAI-compatible server | Ollama, llama.cpp, LM Studio, vLLM, KoboldCPP | Ollama, Foundry Local, Phi Silica | Ollama |
+| Anthropic API | Yes | macOS version only | No | No |
+| Claude subscription without an API key | Yes, through the `claude` CLI | No | No | No |
+| Any HTTP endpoint | Yes: POST the selection, paste the response | No | No | No |
+| Acts on | The selection, replaced in place | The selection, through a popup with buttons and a free-text instruction | The clipboard (Win+Shift+V) through a paste window; "use selected text" exists but is off by default | The selection, replaced in place |
+| Keeps rich text | Bold, lists, tables, links, inline images | No, plain text on Windows | Not checked* | No, plain text |
+| Pick an action on the fly | No, each command is a fixed prompt on its own hotkey | Popup with buttons and a free-text instruction | Saved custom actions with their own shortcuts | Prompt menu on a hotkey |
+| Before it changes your text | Aborts instead of pasting when the window changed, a modifier is stuck or the answer is malformed; the reason is in History | Nothing advertised | Preview and cancel | Diff preview, cancel, undo hotkey |
+| API keys | Plain text in `config.json` | Encrypted since v8 | Not checked* | Windows Credential Manager |
+| Signed | No | No, on its roadmap | Yes, by Microsoft | Store version yes, direct download no |
+| License | MIT | GPL-3.0 | MIT | MIT core, paid Pro |
 
-The installer ends up in `src-tauri/target/release/bundle/`.
-
-The build is **unsigned**, so Windows SmartScreen will warn you the first time you run the installer. That's expected for an unsigned app built from source. Click "More info" then "Run anyway" if you trust what you built.
+Where the others are ahead: all three have a popup or menu to pick an action instead of one hotkey per prompt, PowerToys and CapyBro show a preview before pasting, CapyBro has an undo hotkey and keeps keys in Credential Manager, and PowerToys is signed by Microsoft. Those are the open items here.
 
 ## Use it
 
@@ -103,7 +132,7 @@ The default flow:
 
 You set everything up in the settings window; you don't need to hand-edit anything. Two things to configure:
 
-- **Backends** - a type (OpenAI-compatible, Anthropic, or Claude CLI), plus the endpoint, model, and key that type needs.
+- **Backends** - a type (OpenAI-compatible, Anthropic, Claude CLI, or HTTP), plus the endpoint, model, and key that type needs.
 - **Commands** - a name, a global hotkey, a prompt, a formatting mode, and which backend to use.
 
 Edits apply immediately. Config, keys, and history live under `%APPDATA%\com.clipboardai.app\` as a plain `config.json` (and a `history.json`), if you ever do want to look.
@@ -121,6 +150,17 @@ If you want everything to stay on your machine, use a local backend (Ollama or L
 ## Languages
 
 The UI ships in English, German, Spanish, French, and Italian. Translations live in `src/lib/i18n/`. If you want to add or fix a language, a PR is welcome.
+
+## Build from source
+
+You need [Node](https://nodejs.org/), a [Rust toolchain](https://rustup.rs/), and on Windows the MSVC build tools ("Desktop development with C++", from the Visual Studio Installer).
+
+```sh
+npm install
+npm run tauri build
+```
+
+The installers end up in `src-tauri/target/release/bundle/`: an NSIS `-setup.exe` under `nsis/` and an `.msi` under `msi/`. They are unsigned like the released ones, so SmartScreen warns here as well. Click "More info" then "Run anyway" if you trust what you built.
 
 ## Develop
 
@@ -141,6 +181,12 @@ Usually the safety guard kicked in - you switched windows, held a modifier too l
 
 **The mouse pointer is stuck on the busy arrow.**
 The pointer is swapped while a command runs and swapped back when it ends, even after an error. If the process was killed mid-run, start Clipboard AI again; it restores the pointer at launch. Or open Mouse Properties, Pointers tab, and click Apply.
+
+**Why not just use PowerToys Advanced Paste?**
+If OpenAI, Azure, Mistral, Google or Ollama is what you want and you don't mind working from the clipboard through a paste window, it is a fine choice, and it is signed by Microsoft. Clipboard AI is for what it doesn't cover: the Anthropic API, your Claude subscription, an HTTP endpoint of your own, and acting on the selection directly, with no window in between.
+
+**What about Click to Do or Grammarly?**
+Click to Do needs a Copilot+ PC, works on an OCR'd screenshot rather than your live selection, and you still paste the result by hand. Grammarly is cloud only, closed, and a subscription past its free tier. Both are fine if that is what you have; this is for people who want to pick their own model and keep the text where it is.
 
 **Why Windows only?**
 That's just where it's been built and tested. The stack (Tauri, Rust, Svelte) is cross-platform, but nothing else is done or verified yet.
