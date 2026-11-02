@@ -1,0 +1,56 @@
+name: Bug report
+description: Something does not work the way the README says it should
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: App you were working in
+      placeholder: Outlook classic, Word, Chrome on Gmail, VS Code, Notepad ...
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend type
+      options:
+        - OpenAI-compatible (Ollama, LM Studio, OpenAI)
+        - Anthropic API
+        - Claude subscription (claude CLI)
+        - HTTP endpoint
+        - Not sure
+    validations:
+      required: true
+  - type: dropdown
+    id: formatting
+    attributes:
+      label: Formatting setting of the command
+      options:
+        - Keep the selection's formatting (default)
+        - Always return formatted text
+        - Plain text only
+        - Not sure
+  - type: input
+    id: version
+    attributes:
+      label: Clipboard AI version and Windows version
+      placeholder: 0.1.0 on Windows 11 24H2
+    validations:
+      required: true
+  - type: textarea
+    id: history
+    attributes:
+      label: History tab entry
+      description: Open the settings window, History tab, and copy the outcome and reason of the failed run. Leave out any text you do not want public.
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, the hotkey you used, whether a modifier key was still held, whether the window changed while it ran.

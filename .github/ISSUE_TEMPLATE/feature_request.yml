@@ -1,0 +1,22 @@
+name: Feature request
+description: Something the app should do, or do differently
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The situation, not the solution. Which app, which kind of text, which backend.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like the app to do
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do today instead
+      description: A workaround, another tool, or nothing.
