@@ -81,6 +81,10 @@ The HTTP backend sends the selected text as the raw request body (`text/plain`).
 
 When the selection carries formatting - it came from Outlook, Word, Gmail, Slack, a web page - the app sends the model a simplified HTML version of it, asks it to change only the words, and pastes the result back as rich text, with a plain-text copy for apps that only take text. Inline images never go to the model: they are swapped for short placeholders on the way out and put back in place on the way in.
 
+<p align="center">
+  <img src="assets/demo-outlook.gif" alt="A formatted mail in Outlook with bold words, a bullet list, a link and an inline logo is selected, Ctrl+Alt+J is pressed, and the corrected mail comes back with all of its formatting" width="720" />
+</p>
+
 Each command has a Formatting setting:
 
 - **Keep the selection's formatting** (default). Rich text is used only when there is something worth keeping: bold, italics, underline, links, lists, tables, headings or images. A plain selection and code copied from an editor go through as plain text, exactly as before.
