@@ -13,13 +13,9 @@
   <img src="https://img.shields.io/badge/built%20with-Tauri%20v2-24C8DB" alt="Built with Tauri v2" />
 </p>
 
-<!-- TODO(gif): the hero loop - select a sentence in Notepad, press Ctrl+Alt+J, the pointer turns into the busy arrow, the corrected text lands in place. Commit it to assets/ (not docs/, which is gitignored) and point the img below at assets/demo.gif. -->
-
-<!--
 <p align="center">
-  <img src="assets/demo.gif" alt="Selecting text and pressing the hotkey to rewrite it in place" width="720" />
+  <img src="assets/demo.gif" alt="Selecting a sentence with typos in Notepad, pressing Ctrl+Alt+J, the pointer shows the busy ring, the corrected sentence replaces the selection" width="720" />
 </p>
--->
 
 Clipboard AI sits in the tray. You set up **commands** - each one is a hotkey, a prompt, and a backend - and pressing a command's hotkey over any selected text sends that text to the AI and pastes the result back over your selection. That's the whole app. It ships with one command, "Fix grammar" on `Ctrl+Alt+J`.
 
@@ -126,7 +122,9 @@ The default flow:
 2. Press `Ctrl+Alt+J`.
 3. The selection is replaced with the grammar-fixed version.
 
-<!-- TODO(screenshot): the settings window, Commands tab, with a couple of commands. Commit to assets/ and reference it here. -->
+<p align="center">
+  <img src="assets/settings.png" alt="The settings window on the Commands tab with four commands, each with its hotkey and backend" width="720" />
+</p>
 
 ## Configuration
 
