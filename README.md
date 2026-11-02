@@ -29,7 +29,6 @@ Nothing about the text ever leaves your machine except the request to the backen
 - [Features](#features)
 - [Backends](#backends)
 - [Formatting](#formatting)
-- [Why not X](#why-not-x)
 - [Use it](#use-it)
 - [Configuration](#configuration)
 - [Safety and privacy](#safety-and-privacy)
@@ -92,29 +91,6 @@ Each command has a Formatting setting:
 - **Plain text only.** Formatting and images are dropped; only the text is sent and pasted.
 
 The HTTP backend always sends and receives plain text. Fonts and colours are kept for Office sources and dropped for browser sources, where they are computed-style noise. The model can still drop an image or restructure a list if the prompt asks for it; Ctrl+Z in the target app brings the original back.
-
-## Why not X
-
-The "select text, press a hotkey, an AI rewrites it" loop exists in other tools, and Windows itself ships a version of it in PowerToys. This is how Clipboard AI compares with the three you are most likely to weigh it against. The cells were checked on 2026-10-29 against each project's README, releases and documentation; the ones marked with an asterisk could not be verified.
-
-| | Clipboard AI | Writing Tools | PowerToys Advanced Paste | CapyBro |
-| --- | --- | --- | --- | --- |
-| Stack | Rust, Tauri 2, Svelte | Python, PySide6, PyInstaller; a separate Swift app on macOS | Part of the PowerToys suite | C#, .NET 8, WPF |
-| Platforms | Windows | Windows, Linux, macOS | Windows | Windows 10 1809 and later |
-| Download | 4 MB installer, 15 MB exe | GitHub releases; exe size is the most-reacted issue on its tracker | The whole PowerToys suite, via winget or the Store | 48 MB installer |
-| Local models | Ollama, LM Studio, any OpenAI-compatible server | Ollama, llama.cpp, LM Studio, vLLM, KoboldCPP | Ollama, Foundry Local, Phi Silica | Ollama |
-| Anthropic API | Yes | macOS version only | No | No |
-| Claude subscription without an API key | Yes, through the `claude` CLI | No | No | No |
-| Any HTTP endpoint | Yes: POST the selection, paste the response | No | No | No |
-| Acts on | The selection, replaced in place | The selection, through a popup with buttons and a free-text instruction | The clipboard (Win+Shift+V) through a paste window; "use selected text" exists but is off by default | The selection, replaced in place |
-| Keeps rich text | Bold, lists, tables, links, inline images | No, plain text on Windows | Not checked* | No, plain text |
-| Pick an action on the fly | No, each command is a fixed prompt on its own hotkey | Popup with buttons and a free-text instruction | Saved custom actions with their own shortcuts | Prompt menu on a hotkey |
-| Before it changes your text | Aborts instead of pasting when the window changed, a modifier is stuck or the answer is malformed; the reason is in History | Nothing advertised | Preview and cancel | Diff preview, cancel, undo hotkey |
-| API keys | Plain text in `config.json` | Encrypted since v8 | Not checked* | Windows Credential Manager |
-| Signed | No | No, on its roadmap | Yes, by Microsoft | Store version yes, direct download no |
-| License | MIT | GPL-3.0 | MIT | MIT core, paid Pro |
-
-Where the others are ahead: all three have a popup or menu to pick an action instead of one hotkey per prompt, PowerToys and CapyBro show a preview before pasting, CapyBro has an undo hotkey and keeps keys in Credential Manager, and PowerToys is signed by Microsoft. Those are the open items here.
 
 ## Use it
 
