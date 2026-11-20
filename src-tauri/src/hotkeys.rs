@@ -1,8 +1,9 @@
 use std::collections::{hash_map::Entry, HashMap};
+use std::sync::Arc;
 
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
-use crate::{backend, config, recover_lock, AppState, CommandEntry, Problem};
+use crate::{backend, config, plan, recover_lock, AppState, CommandEntry, Problem};
 
 struct Registration {
     shortcut: Shortcut,
@@ -14,14 +15,15 @@ struct Registration {
 fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, Vec<Problem>) {
     let mut map: HashMap<Shortcut, CommandEntry> = HashMap::new();
     let mut problems = Vec::new();
+    let vocabulary = Arc::new(cfg.vocabulary.clone());
     for command in &cfg.commands {
-        let Some(backend_cfg) = cfg.backend(&command.backend_id) else {
+        if cfg.backend(&command.backend_id).is_none() {
             problems.push(Problem {
                 command_id: Some(command.id.clone()),
                 message: format!("{}: unknown backend", command.name),
             });
             continue;
-        };
+        }
         let shortcut = match command.hotkey.parse::<Shortcut>() {
             Ok(s) => s,
             Err(e) => {
@@ -35,23 +37,26 @@ fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, 
                 continue;
             }
         };
-        match backend::build(backend_cfg) {
-            Ok(backend) => {
+        match plan::build(command, cfg, vocabulary.clone(), &backend::build) {
+            Ok((plan, rule_problems)) => {
+                for message in rule_problems {
+                    problems.push(Problem {
+                        command_id: Some(command.id.clone()),
+                        message: format!("{}: {message}", command.name),
+                    });
+                }
                 let entry = CommandEntry {
                     id: command.id.clone(),
                     name: command.name.clone(),
                     hotkey: command.hotkey.clone(),
-                    system_prompt: command.system_prompt.clone(),
-                    formatting: command.formatting,
-                    backend,
+                    plan: Arc::new(plan),
                 };
                 match map.entry(shortcut) {
                     Entry::Occupied(existing) => {
                         problems.push(Problem {
                             command_id: Some(command.id.clone()),
                             message: format!(
-                                "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing \
-                                 ({shortcut}); only \"{}\" is registered",
+                                "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing                                  ({shortcut}); only \"{}\" is registered",
                                 command.name,
                                 command.hotkey,
                                 existing.get().name,
@@ -100,6 +105,7 @@ mod build_command_map_tests {
             hotkey: hotkey.into(),
             system_prompt: "x".into(),
             formatting: config::Formatting::Auto,
+            app_rules: Vec::new(),
         }
     }
 
@@ -113,6 +119,7 @@ mod build_command_map_tests {
                 command("two", "Second", "Control+Alt+J"),
             ],
             settings: config::Settings::default(),
+            vocabulary: config::Vocabulary::default(),
         };
         let (map, problems) = build_command_map(&cfg);
         assert_eq!(
@@ -151,8 +158,10 @@ mod build_command_map_tests {
                 hotkey: "Ctrl+Alt+J".into(),
                 system_prompt: "x".into(),
                 formatting: config::Formatting::Auto,
+                app_rules: Vec::new(),
             }],
             settings: config::Settings::default(),
+            vocabulary: config::Vocabulary::default(),
         };
         let (map, problems) = build_command_map(&cfg);
         assert!(map.is_empty(), "a command with no valid backend must not reach the map");
@@ -168,6 +177,7 @@ mod build_command_map_tests {
             backends: vec![backend_cfg()],
             commands: vec![command("bad-hotkey", "Bad Hotkey", "")],
             settings: config::Settings::default(),
+            vocabulary: config::Vocabulary::default(),
         };
         let (map, problems) = build_command_map(&cfg);
         assert!(map.is_empty());
@@ -186,6 +196,7 @@ mod build_command_map_tests {
                 command("good", "Good", "Ctrl+Alt+K"),
             ],
             settings: config::Settings::default(),
+            vocabulary: config::Vocabulary::default(),
         };
         let (map, problems) = build_command_map(&cfg);
         assert_eq!(map.len(), 1, "the good entry after the bad one must still register");
@@ -200,6 +211,7 @@ mod build_command_map_tests {
             backends: vec![backend_cfg()],
             commands: vec![command("one", "First", "Ctrl+Alt+J"), command("two", "Second", "Ctrl+Alt+K")],
             settings: config::Settings::default(),
+            vocabulary: config::Vocabulary::default(),
         };
         let (map, problems) = build_command_map(&cfg);
         assert_eq!(map.len(), 2);

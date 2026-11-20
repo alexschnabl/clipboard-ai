@@ -1,17 +1,21 @@
+mod apps;
 mod backend;
 mod cfhtml;
 mod commands;
 mod config;
 mod cursor;
 mod cycle;
+mod editor;
 mod hotkeys;
 mod history;
 mod osops;
+mod plan;
 mod richtext;
 mod sentinel;
 mod settings;
 mod status;
 mod tray_anim;
+mod vocabulary;
 
 use std::{
     collections::HashMap,
@@ -38,9 +42,7 @@ struct CommandEntry {
     id: String,
     name: String,
     hotkey: String,
-    system_prompt: String,
-    formatting: config::Formatting,
-    backend: Arc<dyn backend::Backend>,
+    plan: Arc<plan::CommandPlan>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -191,6 +193,7 @@ fn handle_config_load_failure(
             backends: Vec::new(),
             commands: Vec::new(),
             settings: config::Settings::default(),
+            vocabulary: config::Vocabulary::default(),
         },
         commands::ConfigLoadError { reason: e.to_string(), preserved_path },
     )
@@ -366,6 +369,7 @@ pub fn run() {
                     backends: Vec::new(),
                     commands: Vec::new(),
                     settings: config::Settings::default(),
+                    vocabulary: config::Vocabulary::default(),
                 })),
                 commands: Arc::new(Mutex::new(HashMap::new())),
                 ops,
@@ -410,25 +414,24 @@ pub fn run() {
                                 )
                                 .get(&key)
                                 .cloned();
-                                if let Some(CommandEntry {
-                                    id, name, system_prompt, formatting, backend, ..
-                                }) = entry
-                                {
+                                if let Some(CommandEntry { id, name, plan, .. }) = entry {
                                     let indicator = tray_anim::TrayAnimation::begin(
                                         app.clone(),
                                         state.config_dir.clone(),
                                     );
                                     let cycle_start = state.ops.now_ms();
                                     let outcome = cycle::run(
-                                        backend.as_ref(),
-                                        &system_prompt,
-                                        formatting,
+                                        &|exe| plan.job_for(exe),
                                         state.ops.as_ref(),
                                     );
                                     let total_cycle_ms =
                                         state.ops.now_ms().saturating_sub(cycle_start);
                                     indicator.finish();
-                                    let line = status::log_line(&outcome, &name, backend.name());
+                                    let backend_name = outcome
+                                        .backend_name
+                                        .clone()
+                                        .unwrap_or_else(|| plan.backend.name().to_string());
+                                    let line = status::log_line(&outcome, &name, &backend_name);
                                     println!("{line}");
                                     status::append_log(&state.config_dir, &line);
 
@@ -438,7 +441,7 @@ pub fn run() {
                                         &state,
                                         &id,
                                         &name,
-                                        backend.name(),
+                                        &backend_name,
                                         &outcome,
                                         total_cycle_ms,
                                     );
@@ -610,6 +613,9 @@ pub fn run() {
             commands::get_history,
             commands::clear_history,
             commands::quit_app,
+            editor::try_command,
+            editor::write_prompt,
+            editor::list_running_apps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,7 +1,7 @@
-use crate::backend::Backend;
-use crate::config::Formatting;
+use crate::backend::{Backend, BackendError};
+use crate::config::{Formatting, Vocabulary};
 use crate::osops::{Clip, OsOps};
-use crate::{richtext, sentinel};
+use crate::{richtext, sentinel, vocabulary};
 
 const CAPTURE_TIMEOUT_MS: u64 = 1000;
 const CAPTURE_POLL_MS: u64 = 20;
@@ -27,6 +27,105 @@ pub struct CycleOutcome {
     pub backend_ms: u64,
     pub captured_text: Option<String>,
     pub result_text: Option<String>,
+    pub backend_name: Option<String>,
+    pub app: Option<String>,
+    pub rule: Option<String>,
+}
+
+pub struct Job<'a> {
+    pub backend: &'a dyn Backend,
+    pub system_prompt: &'a str,
+    pub prompt_addition: Option<&'a str>,
+    pub formatting: Formatting,
+    pub vocabulary: &'a Vocabulary,
+    pub rule_name: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Transformed {
+    Sent,
+    Result(Clip),
+}
+
+#[derive(Debug, Clone)]
+pub struct Failure {
+    pub reason: &'static str,
+    pub detail: Option<String>,
+    pub backend_error: Option<BackendError>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Transform {
+    pub result: Result<Transformed, Failure>,
+    pub backend_ms: u64,
+}
+
+pub fn assemble_system_prompt(job: &Job, instruction: Option<&str>) -> String {
+    let keep = vocabulary::keep_instruction(job.vocabulary);
+    let parts = [
+        Some(job.system_prompt.trim()),
+        job.prompt_addition.map(str::trim),
+        keep.as_deref(),
+        instruction,
+    ];
+    let prompt = parts
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if job.backend.uses_sentinel() {
+        sentinel::wrap_system_prompt(&prompt)
+    } else {
+        prompt
+    }
+}
+
+pub fn transform(job: &Job, input: &Clip, clock: &dyn Fn() -> u64) -> Transform {
+    let backend = job.backend;
+    let prepared = richtext::prepare(input, job.formatting, backend.supports_rich_text());
+    let text = vocabulary::apply_replacements(
+        &prepared.text,
+        &job.vocabulary.replacements,
+        prepared.text_is_html,
+    );
+    let prompt = assemble_system_prompt(job, prepared.instruction);
+
+    let start = clock();
+    let raw = backend.transform(&prompt, &text);
+    let backend_ms = clock().saturating_sub(start);
+    let fail = |reason: &'static str, backend_error: Option<BackendError>| Transform {
+        result: Err(Failure {
+            reason,
+            detail: backend_error.as_ref().map(|e| e.to_string()),
+            backend_error,
+        }),
+        backend_ms,
+    };
+
+    let raw = match raw {
+        Ok(text) => text,
+        Err(e) => return fail("backend-error", Some(e)),
+    };
+    if !backend.pastes_result() {
+        return Transform { result: Ok(Transformed::Sent), backend_ms };
+    }
+    let extracted = if backend.uses_sentinel() {
+        match sentinel::extract(&raw) {
+            Some(text) => text,
+            None => return fail("no-sentinel", None),
+        }
+    } else {
+        raw.trim().to_string()
+    };
+    if extracted.trim().is_empty() {
+        return fail("empty-result", None);
+    }
+    let result = richtext::finish(&extracted, &prepared);
+    if result.text.trim().is_empty() {
+        return fail("empty-result", None);
+    }
+    Transform { result: Ok(Transformed::Result(result)), backend_ms }
 }
 
 fn wait_for_modifier_release(ops: &dyn OsOps) -> bool {
@@ -73,47 +172,52 @@ impl Drop for ClipboardGuard<'_> {
     }
 }
 
-pub fn run(
-    backend: &dyn Backend,
-    system_prompt: &str,
-    formatting: Formatting,
-    ops: &dyn OsOps,
-) -> CycleOutcome {
-    let mut captured_text = None;
-    let mut outcome = run_inner(backend, system_prompt, formatting, ops, &mut captured_text);
-    outcome.captured_text = captured_text;
+#[derive(Default)]
+struct RunInfo {
+    captured_text: Option<String>,
+    backend_name: Option<String>,
+    app: Option<String>,
+    rule: Option<String>,
+}
+
+pub fn run<'a>(choose: &dyn Fn(Option<&str>) -> Job<'a>, ops: &dyn OsOps) -> CycleOutcome {
+    let mut info = RunInfo::default();
+    let mut outcome = run_inner(choose, ops, &mut info);
+    outcome.captured_text = info.captured_text;
+    outcome.backend_name = info.backend_name;
+    outcome.app = info.app;
+    outcome.rule = info.rule;
     outcome
 }
 
-fn run_inner(
-    backend: &dyn Backend,
-    system_prompt: &str,
-    formatting: Formatting,
+fn run_inner<'a>(
+    choose: &dyn Fn(Option<&str>) -> Job<'a>,
     ops: &dyn OsOps,
-    captured_out: &mut Option<String>,
+    info: &mut RunInfo,
 ) -> CycleOutcome {
     let original = ops.read_clipboard().ok();
     let _guard = ClipboardGuard { ops, original };
 
-    let abort = |reason: &'static str, captured_ms: u64, backend_ms: u64| CycleOutcome {
-        pasted: false,
+    let finished = |pasted: bool,
+                    reason: &'static str,
+                    detail: Option<String>,
+                    captured_ms: u64,
+                    backend_ms: u64,
+                    result_text: Option<String>| CycleOutcome {
+        pasted,
         reason,
-        detail: None,
+        detail,
         captured_ms,
         backend_ms,
         captured_text: None,
-        result_text: None,
+        result_text,
+        backend_name: None,
+        app: None,
+        rule: None,
     };
-    let abort_detail =
-        |reason: &'static str, detail: String, captured_ms: u64, backend_ms: u64| CycleOutcome {
-            pasted: false,
-            reason,
-            detail: Some(detail),
-            captured_ms,
-            backend_ms,
-            captured_text: None,
-            result_text: None,
-        };
+    let abort = |reason: &'static str, captured_ms: u64, backend_ms: u64| {
+        finished(false, reason, None, captured_ms, backend_ms, None)
+    };
 
     if !wait_for_modifier_release(ops) {
         return abort("modifiers-stuck", 0, 0);
@@ -124,6 +228,11 @@ fn run_inner(
     if focus_at_capture == 0 {
         return abort("focus-changed", 0, 0);
     }
+
+    info.app = ops.process_name(focus_at_capture);
+    let job = choose(info.app.as_deref());
+    info.backend_name = Some(job.backend.name().to_string());
+    info.rule = job.rule_name.map(str::to_string);
 
     if ops.clear_clipboard().is_err() {
         return abort("capture-timeout", 0, 0);
@@ -138,56 +247,18 @@ fn run_inner(
         None => return abort("capture-timeout", 0, 0),
     };
     let captured_ms = ops.now_ms().saturating_sub(capture_start);
-    *captured_out = Some(captured.text.clone());
+    info.captured_text = Some(captured.text.clone());
 
-    let prepared = richtext::prepare(&captured, formatting, backend.supports_rich_text());
-    let mut prompt = system_prompt.to_string();
-    if let Some(instruction) = prepared.instruction {
-        prompt.push_str("\n\n");
-        prompt.push_str(instruction);
-    }
-    let prompt = if backend.uses_sentinel() {
-        sentinel::wrap_system_prompt(&prompt)
-    } else {
-        prompt
-    };
-    let backend_start = ops.now_ms();
-    let raw = match backend.transform(&prompt, &prepared.text) {
-        Ok(text) => text,
-        Err(e) => {
-            let backend_ms = ops.now_ms().saturating_sub(backend_start);
-            return abort_detail("backend-error", e.to_string(), captured_ms, backend_ms);
+    let Transform { result, backend_ms } = transform(&job, &captured, &|| ops.now_ms());
+    let result = match result {
+        Ok(Transformed::Sent) => {
+            return finished(true, "sent", None, captured_ms, backend_ms, None);
+        }
+        Ok(Transformed::Result(clip)) => clip,
+        Err(Failure { reason, detail, .. }) => {
+            return finished(false, reason, detail, captured_ms, backend_ms, None);
         }
     };
-    let backend_ms = ops.now_ms().saturating_sub(backend_start);
-
-    if !backend.pastes_result() {
-        return CycleOutcome {
-            pasted: true,
-            reason: "sent",
-            detail: None,
-            captured_ms,
-            backend_ms,
-            captured_text: None,
-            result_text: None,
-        };
-    }
-
-    let extracted = if backend.uses_sentinel() {
-        match sentinel::extract(&raw) {
-            Some(text) => text,
-            None => return abort("no-sentinel", captured_ms, backend_ms),
-        }
-    } else {
-        raw.trim().to_string()
-    };
-    if extracted.trim().is_empty() {
-        return abort("empty-result", captured_ms, backend_ms);
-    }
-    let result = richtext::finish(&extracted, &prepared);
-    if result.text.trim().is_empty() {
-        return abort("empty-result", captured_ms, backend_ms);
-    }
 
     if !wait_for_modifier_release(ops) {
         return abort("modifiers-stuck-before-paste", captured_ms, backend_ms);
@@ -206,15 +277,7 @@ fn run_inner(
 
     ops.sleep_ms(restore_delay_ms(&result));
 
-    CycleOutcome {
-        pasted: true,
-        reason: "ok",
-        detail: None,
-        captured_ms,
-        backend_ms,
-        captured_text: None,
-        result_text: Some(result.text),
-    }
+    finished(true, "ok", None, captured_ms, backend_ms, Some(result.text))
 }
 
 #[cfg(test)]
@@ -224,6 +287,21 @@ mod tests {
     use super::*;
     use crate::backend::{Backend, BackendError};
     use crate::osops::{OsError, OsOps};
+
+    fn run(backend: &dyn Backend, prompt: &str, formatting: Formatting, ops: &dyn OsOps) -> CycleOutcome {
+        let vocabulary = Vocabulary::default();
+        super::run(
+            &|_| Job {
+                backend,
+                system_prompt: prompt,
+                prompt_addition: None,
+                formatting,
+                vocabulary: &vocabulary,
+                rule_name: None,
+            },
+            ops,
+        )
+    }
 
     #[derive(Default)]
     struct FakeOps {
@@ -242,6 +320,7 @@ mod tests {
         paste_should_fail: Mutex<bool>,
         write_should_fail_once: Mutex<bool>,
         rich_write_should_fail: Mutex<bool>,
+        exe: Mutex<Option<String>>,
     }
 
     impl FakeOps {
@@ -294,6 +373,9 @@ mod tests {
         }
         fn foreground_window(&self) -> isize {
             *self.focus.lock().unwrap()
+        }
+        fn process_name(&self, _window: isize) -> Option<String> {
+            self.exe.lock().unwrap().clone()
         }
         fn send_copy(&self) -> Result<(), OsError> {
             self.log("copy");
@@ -853,5 +935,112 @@ mod tests {
         let restored = ops.clipboard.lock().unwrap().clone();
         assert_eq!(restored.text, "ORIGINAL", "the text must come back even when the rich write fails");
         assert!(restored.html.is_none());
+    }
+
+    struct Seeing {
+        seen: Mutex<Vec<(String, String)>>,
+        answer: String,
+    }
+    impl Backend for Seeing {
+        fn name(&self) -> &str {
+            "seeing"
+        }
+        fn transform(&self, system: &str, text: &str) -> Result<String, BackendError> {
+            self.seen.lock().unwrap().push((system.to_string(), text.to_string()));
+            Ok(self.answer.clone())
+        }
+    }
+
+    #[test]
+    fn the_app_at_capture_time_picks_the_job_and_is_reported() {
+        let ops = FakeOps::new("ORIGINAL", Some("hi"));
+        *ops.exe.lock().unwrap() = Some("OUTLOOK.EXE".into());
+        let rule_backend = StubBackend::ok("<output>Dear Sarah</output>");
+        let default_backend = StubBackend::failing();
+        let vocabulary = Vocabulary::default();
+        let asked = Mutex::new(Vec::new());
+        let outcome = super::run(
+            &|exe| {
+                asked.lock().unwrap().push(exe.map(str::to_string));
+                let in_outlook = exe == Some("OUTLOOK.EXE");
+                Job {
+                    backend: if in_outlook { &rule_backend } else { &default_backend },
+                    system_prompt: "Fix.",
+                    prompt_addition: in_outlook.then_some("Formal."),
+                    formatting: Formatting::Auto,
+                    vocabulary: &vocabulary,
+                    rule_name: in_outlook.then_some("Outlook"),
+                }
+            },
+            &ops,
+        );
+        assert!(outcome.pasted, "{outcome:?}");
+        assert_eq!(ops.pasted_content.lock().unwrap().as_deref(), Some("Dear Sarah"));
+        assert_eq!(asked.lock().unwrap().clone(), vec![Some("OUTLOOK.EXE".to_string())]);
+        assert_eq!(outcome.app.as_deref(), Some("OUTLOOK.EXE"));
+        assert_eq!(outcome.rule.as_deref(), Some("Outlook"));
+        assert_eq!(outcome.backend_name.as_deref(), Some("stub"));
+    }
+
+    #[test]
+    fn replacements_reach_the_backend_and_keep_words_reach_the_prompt() {
+        let ops = FakeOps::new("ORIGINAL", Some("teh report"));
+        let backend = Seeing { seen: Mutex::new(Vec::new()), answer: "<output>The report.</output>".into() };
+        let vocabulary = Vocabulary {
+            keep: vec!["Sus-Tech".into()],
+            replacements: vec![crate::config::Replacement { from: "teh".into(), to: "the".into() }],
+        };
+        let outcome = super::run(
+            &|_| Job {
+                backend: &backend,
+                system_prompt: "Fix.",
+                prompt_addition: Some("Formal."),
+                formatting: Formatting::Auto,
+                vocabulary: &vocabulary,
+                rule_name: None,
+            },
+            &ops,
+        );
+        assert!(outcome.pasted);
+        assert_eq!(outcome.captured_text.as_deref(), Some("teh report"), "history keeps the real selection");
+        let (system, text) = backend.seen.lock().unwrap()[0].clone();
+        assert_eq!(text, "the report");
+        assert!(system.starts_with("Fix.
+
+Formal.
+
+Write these words"), "{system}");
+        assert!(system.contains("
+- Sus-Tech
+"), "{system}");
+    }
+
+    #[test]
+    fn replacements_in_rich_text_change_words_but_never_the_markup() {
+        let ops = FakeOps::new("ORIGINAL", Some("teh plan"));
+        *ops.capture_html.lock().unwrap() = Some("<p><b>teh</b> plan</p>".into());
+        let backend = Seeing { seen: Mutex::new(Vec::new()), answer: "<output><p><b>the</b> plan</p></output>".into() };
+        let vocabulary = Vocabulary {
+            keep: vec![],
+            replacements: vec![
+                crate::config::Replacement { from: "teh".into(), to: "the".into() },
+                crate::config::Replacement { from: "b".into(), to: "strong".into() },
+            ],
+        };
+        let outcome = super::run(
+            &|_| Job {
+                backend: &backend,
+                system_prompt: "Fix.",
+                prompt_addition: None,
+                formatting: Formatting::Auto,
+                vocabulary: &vocabulary,
+                rule_name: None,
+            },
+            &ops,
+        );
+        assert!(outcome.pasted);
+        let (_, text) = backend.seen.lock().unwrap()[0].clone();
+        assert_eq!(text, "<p><b>the</b> plan</p>");
+        assert_eq!(ops.pasted_html.lock().unwrap().as_deref(), Some("<p><b>the</b> plan</p>"));
     }
 }

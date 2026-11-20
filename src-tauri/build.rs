@@ -8,6 +8,9 @@ fn main() {
             "get_history",
             "clear_history",
             "quit_app",
+            "try_command",
+            "write_prompt",
+            "list_running_apps",
         ])),
     )
     .expect("failed to run tauri-build");
