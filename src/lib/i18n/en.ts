@@ -210,5 +210,34 @@ export const en = {
 		autostartDevNoteAfter: ') build instead.',
 		saveErrorTitle: 'Couldn’t save that change',
 		saveFailedFallback: 'Could not save the change.'
+	},
+
+	developers: {
+		group: 'Developers',
+		apiLabel: 'Local API',
+		apiDescription: 'Lets scripts and tools on this computer run your commands over HTTP.',
+		addressLabel: 'Address',
+		addressDescription: 'Reachable only from this computer. Requests from web pages are refused.',
+		statusRunning: 'Running',
+		statusStopped: 'Not running',
+		copyAddress: 'Copy address',
+		portLabel: 'Port',
+		portDescription: 'Leave empty to use a free port, chosen each time the app starts.',
+		portPlaceholder: 'Automatic',
+		portInvalid: (min: number, max: number) => `Use a port from ${min} to ${max}.`,
+		tokenLabel: 'Token',
+		tokenDescriptionBefore: 'Send it with every request as ',
+		tokenDescriptionAfter: '.',
+		showToken: 'Show token',
+		hideToken: 'Hide token',
+		copyToken: 'Copy token',
+		regenerate: 'Regenerate',
+		regenerateTitle: 'Regenerate the token?',
+		regenerateDescription: 'Scripts that use the current token stop working until you give them the new one.',
+		regenerateConfirm: 'Regenerate token',
+		regenerateFailed: 'Couldn’t regenerate the token',
+		cliLabel: 'Command line',
+		cliDescription: 'Run your commands from a terminal or a script, with or without the app running.',
+		copyCommand: 'Copy command'
 	}
 };

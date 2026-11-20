@@ -5,7 +5,7 @@ description = "System-wide AI text assistant: select text anywhere, press a hotk
 authors = ["Alexander Schnabl <alexander.schnabl@sus-tech.at>"]
 license = "MIT"
 edition = "2021"
-# `smoke` is a second binary (the input-stack diagnostic), so a bare `cargo run`
+# `smoke` (the input-stack diagnostic) and `clipboard-ai` (the CLI) are extra binaries, so a bare `cargo run`
 # -- which is what `tauri dev` issues -- cannot pick one. Name the app explicitly.
 default-run = "clipboard-ai-app"
 
@@ -36,5 +36,6 @@ reqwest = { version = "0.13.4", features = ["blocking", "json"] }
 ammonia = "4.2.4"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 thiserror = "2.0.19"
-windows = { version = "0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Registry", "Win32_UI_HiDpi"] }
+getrandom = "0.3.4"
+windows = { version = "0.62.2", features = ["Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Registry", "Win32_UI_HiDpi", "Win32_System_Time"] }
 

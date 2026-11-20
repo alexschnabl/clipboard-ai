@@ -112,6 +112,17 @@ pub struct Settings {
     pub language: Language,
     #[serde(default)]
     pub autostart: bool,
+    #[serde(default)]
+    pub local_api: LocalApiSettings,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalApiSettings {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub port: Option<u16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -517,6 +528,35 @@ mod tests {
         assert_eq!(parsed.settings.theme, Theme::Dark);
         assert_eq!(parsed.settings.language, Language::De);
         assert!(parsed.settings.autostart);
+    }
+
+    #[test]
+    fn a_config_without_local_api_settings_loads_with_the_api_off() {
+        let cfg = parse(valid_json()).expect("an older config must still parse");
+        assert_eq!(cfg.settings.local_api, LocalApiSettings { enabled: false, port: None });
+        let cfg = parse(&json_with_settings(serde_json::json!({"theme": "dark"}))).unwrap();
+        assert!(!cfg.settings.local_api.enabled);
+        assert_eq!(cfg.settings.local_api.port, None);
+    }
+
+    #[test]
+    fn local_api_settings_round_trip_and_tolerate_partial_objects() {
+        let mut cfg = default_config();
+        cfg.settings.local_api = LocalApiSettings { enabled: true, port: Some(48123) };
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("\"localApi\":{\"enabled\":true,\"port\":48123}"), "{json}");
+        assert_eq!(parse(&json).unwrap().settings.local_api, cfg.settings.local_api);
+
+        let partial = json_with_settings(serde_json::json!({"localApi": {"enabled": true}}));
+        let parsed = parse(&partial).unwrap();
+        assert!(parsed.settings.local_api.enabled);
+        assert_eq!(parsed.settings.local_api.port, None);
+    }
+
+    #[test]
+    fn a_local_api_port_outside_the_u16_range_is_rejected() {
+        let json = json_with_settings(serde_json::json!({"localApi": {"enabled": true, "port": 70000}}));
+        assert!(matches!(parse(&json), Err(ConfigError::Parse(_))));
     }
 
     #[test]

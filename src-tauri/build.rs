@@ -8,6 +8,8 @@ fn main() {
             "get_history",
             "clear_history",
             "quit_app",
+            "local_api_status",
+            "local_api_regenerate_token",
         ])),
     )
     .expect("failed to run tauri-build");

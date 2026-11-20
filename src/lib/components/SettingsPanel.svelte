@@ -3,6 +3,7 @@
 	import * as Alert from '$lib/components/shadcn/alert/index.js';
 	import { Switch } from '$lib/components/shadcn/switch/index.js';
 	import PageHeader from './PageHeader.svelte';
+	import DeveloperSettings from './DeveloperSettings.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { registry, type LanguageChoice } from '$lib/i18n/registry';
@@ -144,5 +145,7 @@
 				</div>
 			</div>
 		</section>
+
+		<DeveloperSettings />
 	</div>
 </div>

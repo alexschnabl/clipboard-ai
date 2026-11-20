@@ -214,5 +214,34 @@ export const es: typeof en = {
 		autostartDevNoteAfter: ').',
 		saveErrorTitle: 'No se pudo guardar ese cambio',
 		saveFailedFallback: 'No se pudo guardar el cambio.'
+	},
+
+	developers: {
+		group: 'Desarrolladores',
+		apiLabel: 'API local',
+		apiDescription: 'Permite que scripts y herramientas de este equipo ejecuten tus comandos por HTTP.',
+		addressLabel: 'Dirección',
+		addressDescription: 'Solo accesible desde este equipo. Las peticiones de páginas web se rechazan.',
+		statusRunning: 'En marcha',
+		statusStopped: 'Detenida',
+		copyAddress: 'Copiar dirección',
+		portLabel: 'Puerto',
+		portDescription: 'Déjalo vacío para usar un puerto libre, elegido cada vez que se inicia la app.',
+		portPlaceholder: 'Automático',
+		portInvalid: (min: number, max: number) => `Usa un puerto de ${min} a ${max}.`,
+		tokenLabel: 'Token',
+		tokenDescriptionBefore: 'Envíalo con cada petición como ',
+		tokenDescriptionAfter: '.',
+		showToken: 'Mostrar token',
+		hideToken: 'Ocultar token',
+		copyToken: 'Copiar token',
+		regenerate: 'Regenerar',
+		regenerateTitle: '¿Regenerar el token?',
+		regenerateDescription: 'Los scripts que usan el token actual dejan de funcionar hasta que les des el nuevo.',
+		regenerateConfirm: 'Regenerar token',
+		regenerateFailed: 'No se pudo regenerar el token',
+		cliLabel: 'Línea de comandos',
+		cliDescription: 'Ejecuta tus comandos desde una terminal o un script, con la app abierta o cerrada.',
+		copyCommand: 'Copiar comando'
 	}
 };

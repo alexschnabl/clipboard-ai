@@ -1,16 +1,19 @@
 mod backend;
 mod cfhtml;
+pub mod cli;
 mod commands;
 mod config;
 mod cursor;
 mod cycle;
 mod hotkeys;
 mod history;
+mod localapi;
 mod osops;
 mod richtext;
 mod sentinel;
 mod settings;
 mod status;
+mod textrun;
 mod tray_anim;
 
 use std::{
@@ -378,6 +381,7 @@ pub fn run() {
             });
 
             app.manage((*state).clone());
+            app.manage(localapi::LocalApi::new(config_dir.clone()));
 
             app.handle().plugin(tauri_plugin_autostart::Builder::new().build())?;
 
@@ -610,6 +614,8 @@ pub fn run() {
             commands::get_history,
             commands::clear_history,
             commands::quit_app,
+            localapi::local_api_status,
+            localapi::local_api_regenerate_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -628,6 +634,7 @@ pub(crate) fn quit_app(app: &tauri::AppHandle, state: &AppState) {
             status::append_log(&state.config_dir, &line);
         }
     }
+    localapi::shutdown_for_app(app);
     let _ = cursor::restore_if_left_busy(&state.config_dir);
     app.exit(0)
 }

@@ -340,6 +340,7 @@ pub(crate) fn apply_config(
 
     let (map, build_problems) = build_command_map(&config);
     problems.extend(build_problems);
+    problems.extend(crate::localapi::apply_for_app(app, config.settings.local_api));
     let registrations: Vec<Registration> = map
         .iter()
         .map(|(s, e)| Registration {

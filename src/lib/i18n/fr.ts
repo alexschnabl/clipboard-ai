@@ -217,5 +217,34 @@ export const fr: typeof en = {
 		autostartDevNoteAfter: ').',
 		saveErrorTitle: 'Impossible d’enregistrer cette modification',
 		saveFailedFallback: 'Impossible d’enregistrer la modification.'
+	},
+
+	developers: {
+		group: 'Développeurs',
+		apiLabel: 'API locale',
+		apiDescription: 'Permet aux scripts et outils de cet ordinateur d’exécuter vos commandes via HTTP.',
+		addressLabel: 'Adresse',
+		addressDescription: 'Accessible uniquement depuis cet ordinateur. Les requêtes des pages web sont refusées.',
+		statusRunning: 'En marche',
+		statusStopped: 'Arrêtée',
+		copyAddress: 'Copier l’adresse',
+		portLabel: 'Port',
+		portDescription: 'Laissez vide pour utiliser un port libre, choisi à chaque démarrage de l’app.',
+		portPlaceholder: 'Automatique',
+		portInvalid: (min: number, max: number) => `Utilisez un port de ${min} à ${max}.`,
+		tokenLabel: 'Jeton',
+		tokenDescriptionBefore: 'Envoyez-le avec chaque requête sous la forme ',
+		tokenDescriptionAfter: '.',
+		showToken: 'Afficher le jeton',
+		hideToken: 'Masquer le jeton',
+		copyToken: 'Copier le jeton',
+		regenerate: 'Régénérer',
+		regenerateTitle: 'Régénérer le jeton ?',
+		regenerateDescription: 'Les scripts qui utilisent le jeton actuel cessent de fonctionner jusqu’à ce que vous leur donniez le nouveau.',
+		regenerateConfirm: 'Régénérer le jeton',
+		regenerateFailed: 'Impossible de régénérer le jeton',
+		cliLabel: 'Ligne de commande',
+		cliDescription: 'Exécutez vos commandes depuis un terminal ou un script, que l’app soit lancée ou non.',
+		copyCommand: 'Copier la commande'
 	}
 };

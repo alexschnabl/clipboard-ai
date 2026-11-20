@@ -217,5 +217,34 @@ export const de: typeof en = {
 		autostartDevNoteAfter: ') Build.',
 		saveErrorTitle: 'Änderung konnte nicht gespeichert werden',
 		saveFailedFallback: 'Die Änderung konnte nicht gespeichert werden.'
+	},
+
+	developers: {
+		group: 'Entwickler',
+		apiLabel: 'Lokale API',
+		apiDescription: 'Erlaubt Skripten und Tools auf diesem Computer, Ihre Befehle über HTTP auszuführen.',
+		addressLabel: 'Adresse',
+		addressDescription: 'Nur von diesem Computer aus erreichbar. Anfragen von Webseiten werden abgelehnt.',
+		statusRunning: 'Läuft',
+		statusStopped: 'Läuft nicht',
+		copyAddress: 'Adresse kopieren',
+		portLabel: 'Port',
+		portDescription: 'Leer lassen, um einen freien Port zu nutzen, der bei jedem Start der App gewählt wird.',
+		portPlaceholder: 'Automatisch',
+		portInvalid: (min: number, max: number) => `Verwenden Sie einen Port von ${min} bis ${max}.`,
+		tokenLabel: 'Token',
+		tokenDescriptionBefore: 'Senden Sie es mit jeder Anfrage als ',
+		tokenDescriptionAfter: '.',
+		showToken: 'Token anzeigen',
+		hideToken: 'Token ausblenden',
+		copyToken: 'Token kopieren',
+		regenerate: 'Neu erzeugen',
+		regenerateTitle: 'Token neu erzeugen?',
+		regenerateDescription: 'Skripte mit dem bisherigen Token funktionieren erst wieder, wenn Sie ihnen das neue geben.',
+		regenerateConfirm: 'Token neu erzeugen',
+		regenerateFailed: 'Das Token konnte nicht neu erzeugt werden',
+		cliLabel: 'Befehlszeile',
+		cliDescription: 'Führen Sie Ihre Befehle im Terminal oder in Skripten aus, ob die App läuft oder nicht.',
+		copyCommand: 'Befehl kopieren'
 	}
 };
