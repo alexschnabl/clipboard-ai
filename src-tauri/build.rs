@@ -8,6 +8,11 @@ fn main() {
             "get_history",
             "clear_history",
             "quit_app",
+            "get_api_key",
+            "check_backend",
+            "check_for_update",
+            "get_available_update",
+            "install_update",
         ])),
     )
     .expect("failed to run tauri-build");

@@ -40,6 +40,7 @@ export interface Settings {
 	theme: Theme;
 	language: Language;
 	autostart: boolean;
+	onboardingDismissed?: boolean;
 }
 
 export interface Config {
@@ -58,7 +59,12 @@ export interface SaveResult {
 	ok: boolean;
 	error: string | null;
 	problems: Problem[];
+	storedKeys?: string[];
+	inlineKeys?: string[];
+	isDefaultSetup?: boolean;
 }
+
+export type KeyChanges = Record<string, string | null>;
 
 export interface ConfigLoadError {
 	reason: string;
@@ -69,6 +75,37 @@ export interface GetConfigResult {
 	config: Config;
 	loadError: ConfigLoadError | null;
 	startupProblems: Problem[];
+	storedKeys?: string[];
+	inlineKeys?: string[];
+	isDefaultSetup?: boolean;
+}
+
+export type Health =
+	| { status: 'ok'; ms: number }
+	| { status: 'cold'; firstMs: number; warmMs: number }
+	| { status: 'slow'; ms: number }
+	| { status: 'reachable'; ms: number }
+	| { status: 'cliReady'; version: string }
+	| { status: 'cliSignedOut'; version: string }
+	| { status: 'cliUnknownAuth'; version: string }
+	| { status: 'cliMissing' }
+	| { status: 'keyMissing' }
+	| { status: 'keyRejected' }
+	| { status: 'modelNotFound' }
+	| { status: 'notReachable'; detail: string }
+	| { status: 'timeout'; secs: number }
+	| { status: 'misconfigured'; detail: string }
+	| { status: 'badResponse'; detail: string };
+
+export interface UpdateInfo {
+	version: string;
+	currentVersion: string;
+	notes: string | null;
+}
+
+export interface UpdateProgress {
+	downloaded: number;
+	total: number | null;
 }
 
 export type HistoryOutcome =

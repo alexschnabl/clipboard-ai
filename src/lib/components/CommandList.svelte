@@ -5,11 +5,32 @@
 	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
 	import { fade } from 'svelte/transition';
 	import CommandForm from './CommandForm.svelte';
+	import GettingStarted from './GettingStarted.svelte';
 	import Keycaps from './Keycaps.svelte';
 	import PageHeader from './PageHeader.svelte';
+	import StatusLine from './StatusLine.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { healthState } from '$lib/state/health.svelte.js';
+	import { onboarding } from '$lib/state/onboarding.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { classifyCommandProblem, commandProblemSentence } from '$lib/problem-format';
 	import type { CommandConfig, Problem } from '$lib/types';
+
+	let { onOpenBackends = () => {} }: { onOpenBackends?: () => void } = $props();
+
+	const showGettingStarted = $derived(
+		onboarding.shouldShow({
+			dismissed: configState.config.settings.onboardingDismissed === true,
+			isDefaultSetup: configState.isDefaultSetup,
+			allBackendsFailing: healthState.allCheckedAndFailing(
+				configState.config.backends.map((b) => b.id)
+			)
+		})
+	);
+
+	$effect(() => {
+		if (showGettingStarted) onboarding.sticky = true;
+	});
 
 	let formOpen = $state(false);
 	let editingCommand = $state<CommandConfig | null>(null);
@@ -55,6 +76,17 @@
 	function problemsFor(command: CommandConfig): Problem[] {
 		return configState.problems.filter((p) => p.commandId === command.id);
 	}
+
+	function problemText(command: CommandConfig, problems: Problem[]): string {
+		return problems
+			.map((p) =>
+				commandProblemSentence(
+					classifyCommandProblem(p.message, command.name),
+					i18n.t.commands.problems
+				)
+			)
+			.join(' ');
+	}
 </script>
 
 {#if !formOpen}
@@ -72,6 +104,10 @@
 		</PageHeader>
 
 		<div class="page-body">
+			{#if showGettingStarted}
+				<GettingStarted {onOpenBackends} />
+			{/if}
+
 			<section>
 				<div class="group-title">
 					<span>{i18n.t.commands.groupTitle}</span>
@@ -89,9 +125,12 @@
 							<div class="min-w-0 flex-1">
 								<div class="truncate" title={command.name}>{command.name}</div>
 								{#if problems.length > 0}
-									<div class="mt-1 text-[13px] text-destructive">
-										{problems.map((p) => p.message).join(' ')}
-									</div>
+									<StatusLine
+										tone="error"
+										text={problemText(command, problems)}
+										title={problems.map((p) => p.message).join('\n')}
+										class="mt-1 text-[13px] text-destructive"
+									/>
 								{:else if command.systemPrompt}
 									<div class="mt-1 truncate text-[13px] text-muted-foreground">
 										{command.systemPrompt}

@@ -41,5 +41,16 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYxOTY3ODhCMDM4RjBFQTQKUldTa0RvOERpM2lXOFgydnY2VGxXNFV1MnBNMVlMRmJlMHBTaGxZSTFMUEh6MDB6OE13TWdCb2gK",
+      "endpoints": [
+        "https://github.com/alexschnabl/clipboard-ai/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
   }
 }

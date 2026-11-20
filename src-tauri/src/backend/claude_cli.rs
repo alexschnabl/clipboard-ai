@@ -126,10 +126,17 @@ impl CommandRunner for ProcessRunner {
             })?;
 
         if !status.success() {
+            let stderr = String::from_utf8_lossy(&stderr_bytes);
+            let detail = if stderr.trim().is_empty() {
+                let stdout = String::from_utf8_lossy(&stdout_bytes);
+                let first = stdout.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+                first.chars().take(200).collect::<String>().into()
+            } else {
+                stderr
+            };
             return Err(BackendError::BadResponse(format!(
                 "{program} exited with {}: {}",
-                status,
-                String::from_utf8_lossy(&stderr_bytes)
+                status, detail
             )));
         }
         Ok(String::from_utf8_lossy(&stdout_bytes).to_string())

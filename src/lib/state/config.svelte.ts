@@ -7,6 +7,7 @@ import type {
 	ConfigLoadError,
 	GetConfigResult,
 	HistoryEntry,
+	KeyChanges,
 	Problem,
 	SaveResult,
 	Settings
@@ -33,6 +34,9 @@ export class ConfigState {
 	problems = $state<Problem[]>([]);
 	loadError = $state<ConfigLoadError | null>(null);
 	revision = $state(0);
+	storedKeys = $state<string[]>([]);
+	inlineKeys = $state<string[]>([]);
+	isDefaultSetup = $state(false);
 
 	async load(): Promise<void> {
 		this.loading = true;
@@ -41,6 +45,9 @@ export class ConfigState {
 			this.config = result.config;
 			this.loadError = result.loadError;
 			this.problems = result.startupProblems ?? [];
+			this.storedKeys = result.storedKeys ?? [];
+			this.inlineKeys = result.inlineKeys ?? [];
+			this.isDefaultSetup = result.isDefaultSetup ?? false;
 			this.error = null;
 			this.revision++;
 		} catch (e) {
@@ -50,11 +57,18 @@ export class ConfigState {
 		}
 	}
 
-	private async save(): Promise<boolean> {
+	private async save(keyChanges?: KeyChanges, removedBackends?: string[]): Promise<boolean> {
 		try {
-			const result = await invoke<SaveResult>('save_config', { config: this.config });
+			const result = await invoke<SaveResult>('save_config', {
+				config: this.config,
+				...(keyChanges ? { keyChanges } : {}),
+				...(removedBackends ? { removedBackends } : {})
+			});
 			this.error = result.error ? { message: result.error, source: 'save' } : null;
 			this.problems = result.problems;
+			if (result.storedKeys) this.storedKeys = result.storedKeys;
+			if (result.inlineKeys) this.inlineKeys = result.inlineKeys;
+			if (result.isDefaultSetup !== undefined) this.isDefaultSetup = result.isDefaultSetup;
 			return result.ok;
 		} catch (e) {
 			this.error = { message: String(e), source: 'save' };
@@ -65,11 +79,15 @@ export class ConfigState {
 
 	private commitChain: Promise<boolean> | null = null;
 
-	private commit(mutate: (config: Config) => void): Promise<boolean> {
+	private commit(
+		mutate: (config: Config) => void,
+		keyChanges?: KeyChanges,
+		removedBackends?: string[]
+	): Promise<boolean> {
 		const run = async (): Promise<boolean> => {
 			const snapshot = $state.snapshot(this.config) as Config;
 			mutate(this.config);
-			const ok = await this.save();
+			const ok = await this.save(keyChanges, removedBackends);
 			if (!ok) this.config = snapshot;
 			return ok;
 		};
@@ -89,24 +107,51 @@ export class ConfigState {
 		return this.config.commands.filter((c) => c.backendId === id);
 	}
 
-	addBackend(backend: BackendConfig): Promise<boolean> {
-		return this.commit((config) => config.backends.push(backend));
+	hasStoredKey(id: string): boolean {
+		return this.storedKeys.includes(id);
 	}
 
-	updateBackend(backend: BackendConfig): Promise<boolean> {
+	hasInlineKey(id: string): boolean {
+		return this.inlineKeys.includes(id);
+	}
+
+	private keyChangesFor(id: string, key: string | null | undefined): KeyChanges | undefined {
+		return key === undefined ? undefined : { [id]: key };
+	}
+
+	addBackend(backend: BackendConfig, apiKey?: string | null): Promise<boolean> {
+		return this.commit(
+			(config) => config.backends.push({ ...backend, apiKey: null }),
+			this.keyChangesFor(backend.id, apiKey)
+		);
+	}
+
+	updateBackend(backend: BackendConfig, apiKey?: string | null): Promise<boolean> {
 		if (!this.config.backends.some((b) => b.id === backend.id)) return Promise.resolve(false);
 		return this.commit((config) => {
 			const i = config.backends.findIndex((b) => b.id === backend.id);
-			if (i >= 0) config.backends[i] = backend;
-		});
+			if (i >= 0) config.backends[i] = { ...backend, apiKey: null };
+		}, this.keyChangesFor(backend.id, apiKey));
+	}
+
+	async revealApiKey(id: string): Promise<string | null> {
+		return invoke<string | null>('get_api_key', { backendId: id });
+	}
+
+	dismissOnboarding(): Promise<boolean> {
+		return this.updateSettings({ ...this.config.settings, onboardingDismissed: true });
 	}
 
 	async deleteBackend(id: string): Promise<{ ok: boolean; usedBy: string[] }> {
 		const usedBy = this.commandsUsingBackend(id).map((c) => c.name);
 		if (usedBy.length > 0) return { ok: false, usedBy };
-		const ok = await this.commit((config) => {
-			config.backends = config.backends.filter((b) => b.id !== id);
-		});
+		const ok = await this.commit(
+			(config) => {
+				config.backends = config.backends.filter((b) => b.id !== id);
+			},
+			undefined,
+			[id]
+		);
 		return { ok, usedBy: [] };
 	}
 

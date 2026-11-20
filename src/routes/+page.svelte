@@ -6,7 +6,10 @@
 	import CommandList from '$lib/components/CommandList.svelte';
 	import HistoryPanel from '$lib/components/HistoryPanel.svelte';
 	import SettingsPanel from '$lib/components/SettingsPanel.svelte';
+	import UpdatePrompt from '$lib/components/UpdatePrompt.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { onboarding } from '$lib/state/onboarding.svelte.js';
+	import { updateState } from '$lib/state/updates.svelte.js';
 	import { activity } from '$lib/state/activity.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { onMount } from 'svelte';
@@ -15,8 +18,16 @@
 
 	let activeSection = $state<SectionId>('commands');
 
+	const globalProblems = $derived(configState.problems.filter((p) => !p.commandId));
+
 	onMount(() => {
 		void configState.load();
+		void onboarding.refreshHistory();
+		const stopUpdates = updateState.init();
+
+		const unlistenReloaded = listen('config://reloaded', () => {
+			void configState.load();
+		});
 
 		const unlistenHidden = listen('settings://window-hidden', () => {
 			configState.revision++;
@@ -24,6 +35,7 @@
 
 		const unlistenCycle = listen<boolean>('cycle://state', (event) => {
 			activity.running = event.payload;
+			if (!event.payload) void onboarding.refreshHistory();
 		});
 		const unlistenHiddenReset = listen('settings://window-hidden', () => {
 			activity.running = false;
@@ -31,8 +43,10 @@
 
 		return () => {
 			void unlistenHidden.then((f) => f());
+			void unlistenReloaded.then((f) => f());
 			void unlistenCycle.then((f) => f());
 			void unlistenHiddenReset.then((f) => f());
+			void stopUpdates.then((f) => f());
 		};
 	});
 </script>
@@ -43,9 +57,9 @@
 		<SettingsSidebar active={activeSection} onNavigate={(id) => (activeSection = id)} />
 
 		<div
-			class="mr-2.5 mb-2.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border bg-card text-card-foreground"
+			class="relative mr-2.5 mb-2.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border bg-card text-card-foreground"
 		>
-			{#if configState.loadError || configState.error || configState.problems.length > 0}
+			{#if configState.loadError || configState.error || globalProblems.length > 0}
 				<div class="flex max-h-48 shrink-0 flex-col gap-2 overflow-y-auto border-b px-7 py-3">
 					{#if configState.loadError}
 						<Alert.Root variant="destructive">
@@ -77,12 +91,12 @@
 						</Alert.Root>
 					{/if}
 
-					{#if configState.problems.length > 0}
+					{#if globalProblems.length > 0}
 						<Alert.Root>
 							<Alert.Title>{i18n.t.app.problemsTitle}</Alert.Title>
 							<Alert.Description>
 								<ul class="list-disc pl-4">
-									{#each configState.problems as problem, i (i)}
+									{#each globalProblems as problem, i (i)}
 										<li>{problem.message}</li>
 									{/each}
 								</ul>
@@ -99,7 +113,7 @@
 					{#key `${configState.revision}-${activeSection}`}
 						<div class="flex min-h-0 flex-1 flex-col" in:fade={{ duration: 140 }}>
 							{#if activeSection === 'commands'}
-								<CommandList />
+								<CommandList onOpenBackends={() => (activeSection = 'backends')} />
 							{:else if activeSection === 'backends'}
 								<BackendList />
 							{:else if activeSection === 'history'}
@@ -111,6 +125,7 @@
 					{/key}
 				</div>
 			{/if}
+			<UpdatePrompt />
 		</div>
 	</div>
 </div>
