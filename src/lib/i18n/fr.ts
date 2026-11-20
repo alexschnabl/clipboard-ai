@@ -5,6 +5,7 @@ export const fr: typeof en = {
 		commands: 'Commandes',
 		backends: 'Backends',
 		history: 'Historique',
+		vocabulary: 'Vocabulaire',
 		settings: 'Paramètres',
 		working: 'En cours…',
 		version: (v: string) => `Version ${v}`,
@@ -109,6 +110,99 @@ export const fr: typeof en = {
 			addSubmit: 'Ajouter la commande',
 			saveSubmit: 'Enregistrer les modifications',
 			deleteSubmit: 'Supprimer la commande'
+		},
+		tryIt: {
+			title: 'Essayer',
+			hint: 'Rien n’est collé',
+			inputLabel: 'Votre texte',
+			inputPlaceholder: 'Tapez ou collez un exemple, comme le texte que vous sélectionneriez.',
+			outputLabel: 'Ce qui serait collé',
+			run: 'Lancer',
+			shortcutOr: 'ou',
+			stop: 'Arrêter',
+			asking: (backend: string) => `${backend} répond…`,
+			idle: 'Lancez un exemple pour voir le résultat ici. L’exemple est envoyé en texte brut.',
+			stale: 'Modifié depuis cet essai',
+			noChanges: 'Aucun changement. Une vraie exécution recollerait le même texte.',
+			appLabel: 'Comme dans',
+			appAnywhere: 'toute autre app',
+			defaultModel: 'modèle par défaut',
+			ruleApplied: (app: string) => `règle pour ${app}`,
+			sendOnly:
+				'Ce backend envoie seulement le texte et ne colle rien en retour, il n’y a donc rien à prévisualiser. L’onglet Historique montre chaque exécution.',
+			httpNote: 'Lancer envoie l’exemple au point de terminaison, comme une vraie exécution.',
+			errors: {
+				timeout:
+					'Le backend n’a pas répondu dans son délai. Un modèle lent ou à froid peut demander un délai plus long.',
+				unreachable:
+					'Impossible de joindre le backend. Vérifiez qu’il fonctionne et que son adresse est correcte.',
+				misconfigured: 'Le backend n’est pas entièrement configuré.',
+				badResponse: 'Le backend a répondu par une erreur.',
+				noSentinel:
+					'Le modèle a répondu, mais pas sous la forme attendue. Réessayez ou simplifiez le prompt.',
+				emptyResult: 'Le modèle n’a rien renvoyé.',
+				nothingToPreview: 'Ce backend ne colle rien en retour, il n’y a donc rien à prévisualiser.',
+				unknownBackend: 'Choisissez d’abord un backend.',
+				emptyInput: 'Tapez d’abord un exemple.',
+				notAnAiBackend: 'Ce backend ne peut pas écrire de prompts. Choisissez un backend d’IA.',
+				internal: 'Un problème est survenu dans l’app.'
+			}
+		},
+		writer: {
+			openClaude: 'Écrire avec Claude',
+			openOther: 'Écrire avec l’IA',
+			title: 'Écrire le prompt pour moi',
+			description:
+				'Dites simplement ce que la commande doit faire. Le résultat remplace le prompt, et vous pouvez le modifier ou l’annuler.',
+			label: 'Que doit faire la commande ?',
+			placeholder: 'Rendre mes e-mails plus chaleureux, mais les garder courts.',
+			reviseHint:
+				'Votre prompt actuel est envoyé aussi, vous pouvez donc demander une modification, comme « rends-le plus court ».',
+			backendLabel: 'Écrit par',
+			submit: 'Écrire le prompt',
+			working: 'Écriture…',
+			done: (backend: string) => `Écrit par ${backend}.`,
+			undo: 'Annuler',
+			errorTitle: 'Impossible d’écrire le prompt'
+		},
+		rules: {
+			title: 'Dans certaines apps',
+			hint: 'Utilisé à la place là-bas',
+			add: 'Ajouter une règle pour une app',
+			adds: (text: string) => `Ajoute : ${text}`,
+			uses: (backend: string) => `Utilise ${backend}`,
+			nothing: 'Ne change encore rien',
+			savedWithCommand: 'Les règles sont enregistrées avec la commande.',
+			addTitle: 'Ajouter une règle pour une app',
+			editTitle: (app: string) => `Règle pour ${app}`,
+			description: 'Quand vous lancez cette commande dans cette app, ces réglages sont utilisés à la place.',
+			appLabel: 'App',
+			search: 'Rechercher dans les apps ouvertes',
+			loading: 'Recherche des apps ouvertes…',
+			none: 'Aucune app ouverte trouvée. Saisissez plutôt le nom du programme.',
+			noMatch: 'Aucune app ouverte ne correspond.',
+			manual: 'Saisir le nom du programme',
+			pickFromList: 'Choisir parmi les apps ouvertes',
+			refresh: 'Actualiser',
+			change: 'Changer',
+			exeLabel: 'Fichier du programme',
+			exePlaceholder: 'OUTLOOK.EXE',
+			exeHint: 'Le nom du .exe, tel que le Gestionnaire des tâches l’affiche sous Détails.',
+			nameLabel: 'Affiché comme',
+			namePlaceholder: 'Outlook',
+			promptLabel: 'Ajouter au prompt',
+			promptPlaceholder: 'Reste formel et vouvoie le lecteur.',
+			promptHint: 'Ajouté après le prompt de la commande, dans cette app uniquement.',
+			backendLabel: 'Backend',
+			formattingLabel: 'Mise en forme',
+			same: 'Comme la commande',
+			duplicate: 'Cette commande a déjà une règle pour cette app.',
+			empty: 'Changez au moins une chose pour cette app.',
+			pickApp: 'Choisissez d’abord une app.',
+			submitAdd: 'Ajouter la règle',
+			submitSave: 'Enregistrer la règle',
+			delete: 'Supprimer la règle',
+			editAria: (app: string) => `Modifier la règle pour ${app}`
 		}
 	},
 
@@ -129,7 +223,7 @@ export const fr: typeof en = {
 		deleteDescription: 'Cette action supprime définitivement le backend. Elle est irréversible.',
 		blockedDeleteTitle: (name: string) => `Impossible de supprimer « ${name} »`,
 		blockedDeleteDescription: (usedBy: string) =>
-			`Encore utilisé par : ${usedBy}. Faites d’abord pointer ces commandes vers un autre backend, puis supprimez-le.`,
+			`Encore utilisé par : ${usedBy}. Faites d’abord pointer ces commandes et leurs règles par app vers un autre backend, puis supprimez-le.`,
 		usedBy: (names: string) => `Utilisé par ${names}`,
 		unused: 'Utilisé par aucune commande',
 		check: 'Vérifier',
@@ -268,6 +362,30 @@ export const fr: typeof en = {
 		clearTitle: 'Effacer l’historique ?',
 		clearDescription: (count: number) =>
 			`Supprime définitivement les ${count} exécutions enregistrées, y compris tout texte d’entrée et de résultat encore conservé ici pour récupération. Cette action est irréversible.`
+	},
+
+	vocabulary: {
+		title: 'Vocabulaire',
+		keepTitle: 'Mots que chaque commande garde tels quels',
+		keepHint: 'Noms, produits, lieux',
+		keepPlaceholder: 'Ajouter un mot ou un nom',
+		keepAdd: 'Ajouter',
+		keepRemove: (word: string) => `Retirer ${word}`,
+		keepEmpty: 'Aucun mot pour l’instant. Ajoutez les noms que le modèle a tendance à « corriger ».',
+		replaceTitle: 'Toujours remplacer',
+		replaceHint: 'Avant que le texte n’atteigne le modèle',
+		replaceFrom: 'Remplacer',
+		replaceTo: 'Par',
+		replaceFromPlaceholder: 'sus tech',
+		replaceToPlaceholder: 'Sus-Tech',
+		replaceAdd: 'Ajouter un remplacement',
+		replaceSave: 'Enregistrer',
+		replaceDeleted: 'supprimé',
+		replaceEditAria: (from: string) => `Modifier le remplacement de ${from}`,
+		replaceRemove: (from: string) => `Retirer le remplacement de ${from}`,
+		note: 'La liste de mots est ajoutée aux instructions de chaque commande, car un modèle qui « corrige » un nom qu’il ne connaît pas est le mauvais résultat le plus courant. Les remplacements portent sur des mots entiers, quelle que soit la casse, et modifient le texte sélectionné avant qu’un backend ne le voie.',
+		saveErrorTitle: 'Impossible d’enregistrer cette modification',
+		saveFailedFallback: 'Impossible d’enregistrer la modification.'
 	},
 
 	settings: {

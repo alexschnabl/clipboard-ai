@@ -129,7 +129,7 @@ pub fn sanitize(html: &str, keep_typography: bool) -> String {
     build_sanitizer(keep_typography).clean(html).to_string()
 }
 
-fn tag_end(s: &str, open: usize) -> Option<usize> {
+pub(crate) fn tag_end(s: &str, open: usize) -> Option<usize> {
     let bytes = s.as_bytes();
     let mut quote: Option<u8> = None;
     let mut i = open + 1;
@@ -570,6 +570,7 @@ pub fn html_to_text(html: &str) -> String {
 pub struct Prepared {
     pub text: String,
     pub instruction: Option<&'static str>,
+    pub text_is_html: bool,
     images: Vec<String>,
     rich_output: bool,
     inline_input: bool,
@@ -579,6 +580,7 @@ fn plain(text: &str, instruction: Option<&'static str>, rich_output: bool) -> Pr
     Prepared {
         text: text.to_string(),
         instruction,
+        text_is_html: false,
         images: Vec::new(),
         rich_output,
         inline_input: false,
@@ -600,7 +602,14 @@ pub fn prepare(clip: &Clip, formatting: Formatting, backend_supports_rich: bool)
             let (text, images) = detach_images(&sanitized);
             let instruction =
                 if mode == Formatting::Rich { RICH_INSTRUCTION } else { KEEP_INSTRUCTION };
-            Prepared { text, instruction: Some(instruction), images, rich_output: true, inline_input }
+            Prepared {
+                text,
+                instruction: Some(instruction),
+                text_is_html: true,
+                images,
+                rich_output: true,
+                inline_input,
+            }
         }
     }
 }

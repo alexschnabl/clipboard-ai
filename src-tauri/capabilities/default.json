@@ -22,6 +22,9 @@
     "allow-check-backend",
     "allow-check-for-update",
     "allow-get-available-update",
-    "allow-install-update"
+    "allow-install-update",
+    "allow-try-command",
+    "allow-write-prompt",
+    "allow-list-running-apps"
   ]
 }

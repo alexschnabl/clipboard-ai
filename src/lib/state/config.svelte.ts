@@ -10,7 +10,8 @@ import type {
 	KeyChanges,
 	Problem,
 	SaveResult,
-	Settings
+	Settings,
+	Vocabulary
 } from '$lib/types';
 
 function emptyConfig(): Config {
@@ -104,7 +105,9 @@ export class ConfigState {
 	}
 
 	commandsUsingBackend(id: string): CommandConfig[] {
-		return this.config.commands.filter((c) => c.backendId === id);
+		return this.config.commands.filter(
+			(c) => c.backendId === id || (c.appRules ?? []).some((r) => r.backendId === id)
+		);
 	}
 
 	hasStoredKey(id: string): boolean {
@@ -176,6 +179,16 @@ export class ConfigState {
 	updateSettings(settings: Settings): Promise<boolean> {
 		return this.commit((config) => {
 			config.settings = settings;
+		});
+	}
+
+	get vocabulary(): Vocabulary {
+		return this.config.vocabulary ?? { keep: [], replacements: [] };
+	}
+
+	updateVocabulary(vocabulary: Vocabulary): Promise<boolean> {
+		return this.commit((config) => {
+			config.vocabulary = vocabulary;
 		});
 	}
 

@@ -5,6 +5,7 @@
 	import BackendList from '$lib/components/BackendList.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
 	import HistoryPanel from '$lib/components/HistoryPanel.svelte';
+	import VocabularyPanel from '$lib/components/VocabularyPanel.svelte';
 	import SettingsPanel from '$lib/components/SettingsPanel.svelte';
 	import UpdatePrompt from '$lib/components/UpdatePrompt.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
@@ -118,6 +119,8 @@
 								<BackendList />
 							{:else if activeSection === 'history'}
 								<HistoryPanel />
+							{:else if activeSection === 'vocabulary'}
+								<VocabularyPanel />
 							{:else}
 								<SettingsPanel />
 							{/if}

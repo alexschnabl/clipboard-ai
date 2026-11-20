@@ -13,6 +13,9 @@ fn main() {
             "check_for_update",
             "get_available_update",
             "install_update",
+            "try_command",
+            "write_prompt",
+            "list_running_apps",
         ])),
     )
     .expect("failed to run tauri-build");

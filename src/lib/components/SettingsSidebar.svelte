@@ -1,5 +1,5 @@
 <script module lang="ts">
-	export type SectionId = 'commands' | 'backends' | 'history' | 'settings';
+	export type SectionId = 'commands' | 'backends' | 'history' | 'vocabulary' | 'settings';
 </script>
 
 <script lang="ts">
@@ -12,6 +12,7 @@
 	import CommandIcon from '@lucide/svelte/icons/command';
 	import ServerIcon from '@lucide/svelte/icons/server';
 	import HistoryIcon from '@lucide/svelte/icons/rotate-ccw-clock';
+	import VocabularyIcon from '@lucide/svelte/icons/book-a';
 	import SettingsIcon from '@lucide/svelte/icons/settings';
 
 	let {
@@ -37,6 +38,7 @@
 		{ id: 'commands' as const, label: i18n.t.nav.commands, icon: CommandIcon },
 		{ id: 'backends' as const, label: i18n.t.nav.backends, icon: ServerIcon },
 		{ id: 'history' as const, label: i18n.t.nav.history, icon: HistoryIcon },
+		{ id: 'vocabulary' as const, label: i18n.t.nav.vocabulary, icon: VocabularyIcon },
 		{ id: 'settings' as const, label: i18n.t.nav.settings, icon: SettingsIcon }
 	]);
 </script>

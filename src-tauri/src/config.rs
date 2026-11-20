@@ -135,6 +135,44 @@ pub struct CommandConfig {
     pub system_prompt: String,
     #[serde(default)]
     pub formatting: Formatting,
+    #[serde(default)]
+    pub app_rules: Vec<AppRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppRule {
+    pub exe: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub prompt_addition: String,
+    #[serde(default)]
+    pub backend_id: Option<String>,
+    #[serde(default)]
+    pub formatting: Option<Formatting>,
+}
+
+pub fn normalize_exe(exe: &str) -> String {
+    let trimmed = exe.trim().trim_matches('"');
+    let file = trimmed.rsplit(['\\', '/']).next().unwrap_or(trimmed);
+    file.trim().to_lowercase()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Replacement {
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Vocabulary {
+    #[serde(default)]
+    pub keep: Vec<String>,
+    #[serde(default)]
+    pub replacements: Vec<Replacement>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,6 +183,8 @@ pub struct Config {
     pub commands: Vec<CommandConfig>,
     #[serde(default)]
     pub settings: Settings,
+    #[serde(default)]
+    pub vocabulary: Vocabulary,
 }
 
 impl Config {
@@ -183,7 +223,12 @@ pub fn parse(json: &str) -> Result<Config, ConfigError> {
         other => return Err(ConfigError::UnsupportedVersion { version: other }),
     }
 
-    let config: Config = serde_json::from_value(value)?;
+    let mut config: Config = serde_json::from_value(value)?;
+    for rule in config.commands.iter_mut().flat_map(|c| c.app_rules.iter_mut()) {
+        if rule.backend_id.as_deref().is_some_and(|id| id.trim().is_empty()) {
+            rule.backend_id = None;
+        }
+    }
     validate(&config)?;
     Ok(config)
 }
@@ -260,8 +305,10 @@ pub fn default_config() -> Config {
             hotkey: "Ctrl+Alt+J".into(),
             system_prompt: "Fix grammar and spelling.".into(),
             formatting: Formatting::Auto,
+            app_rules: Vec::new(),
         }],
         settings: Settings::default(),
+        vocabulary: Vocabulary::default(),
     }
 }
 
@@ -943,4 +990,93 @@ mod tests {
         assert_eq!(cfg.commands[0].id, "fix");
     }
 
+    fn with(mutate: impl FnOnce(&mut serde_json::Value)) -> String {
+        let mut value: serde_json::Value = serde_json::from_str(valid_json()).unwrap();
+        mutate(&mut value);
+        serde_json::to_string(&value).unwrap()
+    }
+
+    #[test]
+    fn a_config_from_before_vocabulary_and_app_rules_loads_unchanged() {
+        let cfg = parse(valid_json()).expect("an older config must still load");
+        assert_eq!(cfg.vocabulary, Vocabulary::default());
+        assert!(cfg.commands[0].app_rules.is_empty());
+        assert_eq!(cfg.commands[0].system_prompt, "Fix grammar.");
+        let v1 = parse(v1_json()).expect("a v1 config must still migrate");
+        assert_eq!(v1.vocabulary, Vocabulary::default());
+        assert!(v1.commands[0].app_rules.is_empty());
+    }
+
+    #[test]
+    fn vocabulary_and_app_rules_survive_a_save_and_load_round_trip() {
+        let mut cfg = parse(valid_json()).unwrap();
+        cfg.vocabulary = Vocabulary {
+            keep: vec!["Clipboard AI".into(), "Villach".into()],
+            replacements: vec![Replacement { from: "sus tech".into(), to: "Sus-Tech".into() }],
+        };
+        cfg.commands[0].app_rules = vec![
+            AppRule {
+                exe: "OUTLOOK.EXE".into(),
+                name: "Outlook".into(),
+                prompt_addition: "Keep it formal.".into(),
+                backend_id: Some("ollama".into()),
+                formatting: Some(Formatting::Rich),
+            },
+            AppRule {
+                exe: "Code.exe".into(),
+                name: "Visual Studio Code".into(),
+                prompt_addition: String::new(),
+                backend_id: None,
+                formatting: Some(Formatting::Plain),
+            },
+        ];
+        let json = serde_json::to_string_pretty(&cfg).unwrap();
+        assert!(json.contains("\"appRules\""));
+        assert!(json.contains("\"promptAddition\""));
+        assert!(json.contains("\"replacements\""));
+        let back = parse(&json).expect("a saved config must load again");
+        assert_eq!(back.vocabulary, cfg.vocabulary);
+        assert_eq!(back.commands[0].app_rules, cfg.commands[0].app_rules);
+    }
+
+    #[test]
+    fn a_partial_app_rule_and_vocabulary_fill_in_defaults() {
+        let json = with(|v| {
+            v["commands"][0]["appRules"] = serde_json::json!([{"exe": "notepad.exe"}]);
+            v["vocabulary"] = serde_json::json!({"keep": ["Tauri"]});
+        });
+        let cfg = parse(&json).expect("partial entries should load");
+        let rule = &cfg.commands[0].app_rules[0];
+        assert_eq!(rule.exe, "notepad.exe");
+        assert_eq!(rule.name, "");
+        assert_eq!(rule.prompt_addition, "");
+        assert_eq!(rule.backend_id, None);
+        assert_eq!(rule.formatting, None);
+        assert_eq!(cfg.vocabulary.keep, vec!["Tauri".to_string()]);
+        assert!(cfg.vocabulary.replacements.is_empty());
+    }
+
+    #[test]
+    fn a_broken_app_rule_never_stops_the_config_from_loading() {
+        let json = with(|v| {
+            v["commands"][0]["appRules"] = serde_json::json!([
+                {"exe": "OUTLOOK.EXE", "backendId": "ghost"},
+                {"exe": "  ", "promptAddition": "x"},
+                {"exe": "Code.exe", "backendId": "  ", "formatting": "plain"}
+            ]);
+        });
+        let cfg = parse(&json).expect("a bad rule must not make the whole config unreadable");
+        let rules = &cfg.commands[0].app_rules;
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules[0].backend_id.as_deref(), Some("ghost"));
+        assert_eq!(rules[2].backend_id, None, "a blank backend id means the command's own backend");
+    }
+
+    #[test]
+    fn exe_names_are_normalized_to_a_lowercase_file_name() {
+        assert_eq!(normalize_exe(" OUTLOOK.EXE "), "outlook.exe");
+        assert_eq!(normalize_exe(r#""C:\Program Files\App\App.exe""#), "app.exe");
+        assert_eq!(normalize_exe("/usr/bin/thing"), "thing");
+        assert_eq!(normalize_exe(""), "");
+    }
 }
