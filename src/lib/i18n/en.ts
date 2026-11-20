@@ -6,7 +6,8 @@ export const en = {
 		settings: 'Settings',
 		working: 'Working…',
 		version: (v: string) => `Version ${v}`,
-		quit: 'Quit Clipboard AI'
+		quit: 'Quit Clipboard AI',
+		needsAttention: 'Needs attention'
 	},
 
 	common: {
@@ -47,6 +48,32 @@ export const en = {
 		deleteAria: (name: string) => `Delete ${name}`,
 		deleteTitle: (name: string) => `Delete “${name}”?`,
 		deleteDescription: 'This removes the command and its hotkey permanently. This can’t be undone.',
+		problems: {
+			hotkeyTaken: 'Another app already uses this hotkey. Pick a different one.',
+			hotkeyClash: (other: string) => `Same hotkey as “${other}”, so only that one runs.`,
+			hotkeyInvalid: 'This hotkey isn’t recognised. Record it again.',
+			backendMissing: 'Its backend no longer exists. Pick another one.'
+		},
+		onboarding: {
+			title: 'Get started',
+			intro: 'Clipboard AI needs one backend that answers. Then select text anywhere and press a hotkey.',
+			hide: 'Hide',
+			hideAria: 'Hide this guide for good',
+			step1Title: 'Set up a backend',
+			step1Text:
+				'A local model through Ollama, your Claude subscription through the claude CLI, or an API key.',
+			checkBackends: 'Check backends',
+			openBackends: 'Open Backends',
+			checking: 'Checking your backends…',
+			works: (name: string) => `${name} works.`,
+			noneWorking: 'None of your backends answered yet.',
+			step2Title: (name: string) => `Try “${name}”`,
+			step2Text: 'Select a sentence in any app and press',
+			step2NoCommand: 'Add a command with a hotkey and a prompt.',
+			backendSilent: (backend: string) => `Its backend, ${backend}, didn’t answer.`,
+			useBackend: (name: string) => `Use ${name}`,
+			step2Done: 'It worked. You’re all set.'
+		},
 		form: {
 			addTitle: 'Add command',
 			editTitle: 'Edit command',
@@ -101,6 +128,9 @@ export const en = {
 			`Still used by: ${usedBy}. Point those commands at a different backend first, then delete it.`,
 		usedBy: (names: string) => `Used by ${names}`,
 		unused: 'Not used by any command',
+		check: 'Check',
+		checkAll: 'Check all',
+		checkAria: (name: string) => `Check ${name}`,
 		form: {
 			addTitle: 'Add backend',
 			editTitle: 'Edit backend',
@@ -133,6 +163,14 @@ export const en = {
 			apiKeyOptional: '(optional)',
 			showApiKey: 'Show API key',
 			hideApiKey: 'Hide API key',
+			apiKeyStoredPlaceholder: 'Saved in Windows Credential Manager',
+			apiKeyHint: 'Kept in Windows Credential Manager, not in config.json.',
+			apiKeyInline:
+				'Still in config.json, because Windows Credential Manager refused it. Saving tries again.',
+			apiKeyRemove: 'Remove key',
+			apiKeyWillBeRemoved: 'The key is removed when you save.',
+			apiKeyUndo: 'Undo',
+			apiKeyRevealFailed: 'Couldn’t read the key from Windows Credential Manager.',
 			timeoutLabel: 'Timeout (ms)',
 			timeoutHint: (defaultMs: string) =>
 				`A cold local model can take ~16,000 ms on its first request of the day — the ${defaultMs} ms default avoids a false timeout then.`,
@@ -143,6 +181,40 @@ export const en = {
 			saveSubmit: 'Save changes',
 			deleteSubmit: 'Delete backend'
 		}
+	},
+
+	health: {
+		checking: 'Checking…',
+		notChecked: 'Not checked yet',
+		checkFailed: 'The check itself failed',
+		ok: (time: string) => `Answered in ${time}`,
+		cold: (first: string, warm: string) =>
+			`Model was cold. First answer took ${first}, the next ${warm}`,
+		slow: (time: string) => `Works, but slow. Took ${time}`,
+		reachable: 'Reachable. Nothing was sent to it',
+		cliReady: (version: string) => `Signed in, CLI ${version}`,
+		cliSignedOut: 'Not signed in. Run claude in a terminal to log in',
+		cliUnknownAuth: (version: string) => `CLI ${version} found, sign-in not confirmed`,
+		cliMissing: 'Claude CLI not found. Install it and sign in',
+		keyMissing: 'No API key set',
+		keyRejected: 'Key rejected',
+		keyUnreadable: 'Couldn’t read the API key',
+		modelNotFound: 'Model or URL not found',
+		notReachable: 'Not reachable',
+		timeout: (secs: number) => `No answer within ${secs} s`,
+		needsUrl: 'No URL set',
+		needsModel: 'No model set',
+		misconfigured: 'Setup is incomplete',
+		badResponse: 'Unexpected answer'
+	},
+
+	update: {
+		promptTitle: (version: string) => `Clipboard AI ${version} is available`,
+		promptText: 'Install it now, or later from Settings.',
+		install: 'Install and restart',
+		later: 'Later',
+		downloading: 'Downloading…',
+		downloadingPercent: (percent: number) => `Downloading… ${percent}%`
 	},
 
 	hotkeyRecorder: {
@@ -195,6 +267,7 @@ export const en = {
 		title: 'Settings',
 		groupAppearance: 'Appearance',
 		groupStartup: 'Startup',
+		groupAbout: 'About',
 		themeLabel: 'Theme',
 		themeDescription: 'Applies to this window. Follows Windows by default.',
 		themeSystem: 'System',
@@ -208,6 +281,14 @@ export const en = {
 		autostartDevNoteBefore:
 			'Refused in development builds — it would register the debug executable to run at login instead of your installed app; test this with an installed (',
 		autostartDevNoteAfter: ') build instead.',
+		versionLabel: (version: string) => `Clipboard AI ${version}`,
+		updateDescription: 'Checks GitHub once a day. Nothing installs until you click.',
+		updateCheck: 'Check for updates',
+		updateChecking: 'Checking…',
+		updateUpToDate: 'You’re on the latest version.',
+		updateAvailable: (version: string) => `Version ${version} is available.`,
+		updateInstallFailed: 'Couldn’t install the update. Try again later.',
+		updateCheckFailed: 'Couldn’t check for updates. Try again later.',
 		saveErrorTitle: 'Couldn’t save that change',
 		saveFailedFallback: 'Could not save the change.'
 	}

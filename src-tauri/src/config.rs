@@ -112,6 +112,8 @@ pub struct Settings {
     pub language: Language,
     #[serde(default)]
     pub autostart: bool,
+    #[serde(default)]
+    pub onboarding_dismissed: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -261,6 +263,12 @@ pub fn default_config() -> Config {
         }],
         settings: Settings::default(),
     }
+}
+
+pub fn is_default_setup(config: &Config) -> bool {
+    let default = default_config();
+    serde_json::to_value(&config.backends).ok() == serde_json::to_value(&default.backends).ok()
+        && serde_json::to_value(&config.commands).ok() == serde_json::to_value(&default.commands).ok()
 }
 
 pub fn load_or_create(path: &Path) -> Result<Config, ConfigError> {
@@ -883,6 +891,34 @@ mod tests {
         assert_eq!(fs::read_to_string(&second_preserved).unwrap(), "second broken file");
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_old_settings_block_without_onboarding_dismissed_loads_as_not_dismissed() {
+        let json = json_with_settings(serde_json::json!({"theme": "dark", "autostart": true}));
+        let cfg = parse(&json).expect("settings from before onboarding existed must parse");
+        assert!(!cfg.settings.onboarding_dismissed);
+    }
+
+    #[test]
+    fn onboarding_dismissed_round_trips() {
+        let mut cfg = default_config();
+        cfg.settings.onboarding_dismissed = true;
+        let json = serde_json::to_string(&cfg).unwrap();
+        assert!(json.contains("\"onboardingDismissed\":true"));
+        assert!(parse(&json).unwrap().settings.onboarding_dismissed);
+    }
+
+    #[test]
+    fn the_default_setup_is_recognised_until_something_changes() {
+        let mut cfg = default_config();
+        cfg.settings.theme = Theme::Dark;
+        assert!(is_default_setup(&cfg), "settings do not count as a setup change");
+        cfg.commands[0].hotkey = "Ctrl+Alt+K".into();
+        assert!(!is_default_setup(&cfg));
+        let mut cfg = default_config();
+        cfg.backends[0].model = Some("llama3.2".into());
+        assert!(!is_default_setup(&cfg));
     }
 
     fn missing_version_json() -> &'static str {

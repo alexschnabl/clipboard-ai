@@ -8,6 +8,7 @@ export const de: typeof en = {
 		settings: 'Einstellungen',
 		working: 'Arbeitet…',
 		version: (v: string) => `Version ${v}`,
+		needsAttention: 'Braucht Aufmerksamkeit',
 		quit: 'Clipboard AI beenden'
 	},
 
@@ -50,6 +51,32 @@ export const de: typeof en = {
 		deleteTitle: (name: string) => `„${name}“ löschen?`,
 		deleteDescription:
 			'Dies entfernt den Befehl und seinen Hotkey dauerhaft. Diese Aktion kann nicht rückgängig gemacht werden.',
+		problems: {
+			hotkeyTaken: 'Eine andere App nutzt dieses Tastenkürzel schon. Wähle ein anderes.',
+			hotkeyClash: (other: string) => `Gleiches Tastenkürzel wie „${other}“, nur das läuft.`,
+			hotkeyInvalid: 'Dieses Tastenkürzel wird nicht erkannt. Nimm es neu auf.',
+			backendMissing: 'Sein Backend gibt es nicht mehr. Wähle ein anderes.'
+		},
+		onboarding: {
+			title: 'Erste Schritte',
+			intro: 'Clipboard AI braucht ein Backend, das antwortet. Dann markierst du irgendwo Text und drückst ein Tastenkürzel.',
+			hide: 'Ausblenden',
+			hideAria: 'Diese Anleitung dauerhaft ausblenden',
+			step1Title: 'Backend einrichten',
+			step1Text:
+				'Ein lokales Modell über Ollama, dein Claude-Abo über die claude CLI oder ein API-Schlüssel.',
+			checkBackends: 'Backends prüfen',
+			openBackends: 'Backends öffnen',
+			checking: 'Backends werden geprüft…',
+			works: (name: string) => `${name} funktioniert.`,
+			noneWorking: 'Noch hat keines deiner Backends geantwortet.',
+			step2Title: (name: string) => `„${name}“ ausprobieren`,
+			step2Text: 'Markiere einen Satz in einer beliebigen App und drücke',
+			step2NoCommand: 'Lege einen Befehl mit Tastenkürzel und Prompt an.',
+			backendSilent: (backend: string) => `Sein Backend, ${backend}, hat nicht geantwortet.`,
+			useBackend: (name: string) => `${name} verwenden`,
+			step2Done: 'Hat geklappt. Alles bereit.'
+		},
 		form: {
 			addTitle: 'Befehl hinzufügen',
 			editTitle: 'Befehl bearbeiten',
@@ -106,6 +133,9 @@ export const de: typeof en = {
 			`Wird noch verwendet von: ${usedBy}. Weisen Sie diesen Befehlen zuerst ein anderes Backend zu, bevor Sie es löschen.`,
 		usedBy: (names: string) => `Verwendet von ${names}`,
 		unused: 'Von keinem Befehl verwendet',
+		check: 'Prüfen',
+		checkAll: 'Alle prüfen',
+		checkAria: (name: string) => `${name} prüfen`,
 		form: {
 			addTitle: 'Backend hinzufügen',
 			editTitle: 'Backend bearbeiten',
@@ -139,6 +169,14 @@ export const de: typeof en = {
 			apiKeyOptional: '(optional)',
 			showApiKey: 'API-Schlüssel anzeigen',
 			hideApiKey: 'API-Schlüssel ausblenden',
+			apiKeyStoredPlaceholder: 'In der Windows-Anmeldeinformationsverwaltung gespeichert',
+			apiKeyHint: 'Liegt in der Windows-Anmeldeinformationsverwaltung, nicht in config.json.',
+			apiKeyInline:
+				'Noch in config.json, weil die Windows-Anmeldeinformationsverwaltung ihn abgelehnt hat. Beim Speichern wird es erneut versucht.',
+			apiKeyRemove: 'Schlüssel entfernen',
+			apiKeyWillBeRemoved: 'Der Schlüssel wird beim Speichern entfernt.',
+			apiKeyUndo: 'Rückgängig',
+			apiKeyRevealFailed: 'Der Schlüssel konnte nicht aus der Windows-Anmeldeinformationsverwaltung gelesen werden.',
 			timeoutLabel: 'Timeout (ms)',
 			timeoutHint: (defaultMs: string) =>
 				`Ein kaltgestartetes lokales Modell kann bei der ersten Anfrage des Tages bis zu ca. 16.000 ms benötigen — der Standardwert von ${defaultMs} ms vermeidet dabei einen falschen Timeout.`,
@@ -149,6 +187,40 @@ export const de: typeof en = {
 			saveSubmit: 'Änderungen speichern',
 			deleteSubmit: 'Backend löschen'
 		}
+	},
+
+	health: {
+		checking: 'Wird geprüft…',
+		notChecked: 'Noch nicht geprüft',
+		checkFailed: 'Die Prüfung selbst ist fehlgeschlagen',
+		ok: (time: string) => `Antwort in ${time}`,
+		cold: (first: string, warm: string) =>
+			`Modell war kalt. Erste Antwort nach ${first}, die nächste nach ${warm}`,
+		slow: (time: string) => `Funktioniert, aber langsam. Dauerte ${time}`,
+		reachable: 'Erreichbar. Es wurde nichts gesendet',
+		cliReady: (version: string) => `Angemeldet, CLI ${version}`,
+		cliSignedOut: 'Nicht angemeldet. Starte claude im Terminal und melde dich an',
+		cliUnknownAuth: (version: string) => `CLI ${version} gefunden, Anmeldung nicht bestätigt`,
+		cliMissing: 'Claude CLI nicht gefunden. Installiere sie und melde dich an',
+		keyMissing: 'Kein API-Schlüssel gesetzt',
+		keyRejected: 'Schlüssel abgelehnt',
+		keyUnreadable: 'API-Schlüssel konnte nicht gelesen werden',
+		modelNotFound: 'Modell oder URL nicht gefunden',
+		notReachable: 'Nicht erreichbar',
+		timeout: (secs: number) => `Keine Antwort innerhalb von ${secs} s`,
+		needsUrl: 'Keine URL gesetzt',
+		needsModel: 'Kein Modell gesetzt',
+		misconfigured: 'Einrichtung unvollständig',
+		badResponse: 'Unerwartete Antwort'
+	},
+
+	update: {
+		promptTitle: (version: string) => `Clipboard AI ${version} ist verfügbar`,
+		promptText: 'Jetzt installieren oder später in den Einstellungen.',
+		install: 'Installieren und neu starten',
+		later: 'Später',
+		downloading: 'Wird geladen…',
+		downloadingPercent: (percent: number) => `Wird geladen… ${percent} %`
 	},
 
 	hotkeyRecorder: {
@@ -202,6 +274,15 @@ export const de: typeof en = {
 		title: 'Einstellungen',
 		groupAppearance: 'Darstellung',
 		groupStartup: 'Start',
+		groupAbout: 'Über',
+		versionLabel: (version: string) => `Clipboard AI ${version}`,
+		updateDescription: 'Prüft einmal am Tag auf GitHub. Installiert wird erst, wenn du klickst.',
+		updateCheck: 'Nach Updates suchen',
+		updateChecking: 'Wird geprüft…',
+		updateUpToDate: 'Du hast die neueste Version.',
+		updateAvailable: (version: string) => `Version ${version} ist verfügbar.`,
+		updateInstallFailed: 'Das Update konnte nicht installiert werden. Versuch es später noch einmal.',
+		updateCheckFailed: 'Suche nach Updates fehlgeschlagen. Versuch es später noch einmal.',
 		themeLabel: 'Design',
 		themeDescription: 'Gilt für dieses Fenster. Folgt standardmäßig den Windows-Einstellungen.',
 		themeSystem: 'System',

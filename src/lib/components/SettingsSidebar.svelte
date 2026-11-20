@@ -7,6 +7,7 @@
 	import { getVersion } from '@tauri-apps/api/app';
 	import { invoke } from '@tauri-apps/api/core';
 	import { activity } from '$lib/state/activity.svelte.js';
+	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import CommandIcon from '@lucide/svelte/icons/command';
 	import ServerIcon from '@lucide/svelte/icons/server';
@@ -29,6 +30,8 @@
 			() => (version = null)
 		);
 	});
+
+	const commandsNeedAttention = $derived(configState.problems.some((p) => p.commandId));
 
 	const items = $derived([
 		{ id: 'commands' as const, label: i18n.t.nav.commands, icon: CommandIcon },
@@ -55,6 +58,13 @@
 		>
 			<Icon class="size-4 shrink-0" />
 			<span class="truncate">{item.label}</span>
+			{#if item.id === 'commands' && commandsNeedAttention}
+				<span
+					class="ml-auto size-[7px] shrink-0 rounded-full bg-destructive"
+					title={i18n.t.nav.needsAttention}
+				></span>
+				<span class="sr-only">{i18n.t.nav.needsAttention}</span>
+			{/if}
 		</button>
 	{/each}
 

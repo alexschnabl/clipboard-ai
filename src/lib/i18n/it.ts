@@ -8,6 +8,7 @@ export const it: typeof en = {
 		settings: 'Impostazioni',
 		working: 'In corso…',
 		version: (v: string) => `Versione ${v}`,
+		needsAttention: 'Richiede attenzione',
 		quit: 'Esci da Clipboard AI'
 	},
 
@@ -50,6 +51,32 @@ export const it: typeof en = {
 		deleteTitle: (name: string) => `Eliminare «${name}»?`,
 		deleteDescription:
 			'Rimuove definitivamente il comando e il relativo hotkey. Questa azione non può essere annullata.',
+		problems: {
+			hotkeyTaken: 'Un’altra app usa già questa scorciatoia. Scegline un’altra.',
+			hotkeyClash: (other: string) => `Stessa scorciatoia di «${other}», si avvia solo quello.`,
+			hotkeyInvalid: 'Questa scorciatoia non è riconosciuta. Registrala di nuovo.',
+			backendMissing: 'Il suo backend non esiste più. Scegline un altro.'
+		},
+		onboarding: {
+			title: 'Per iniziare',
+			intro: 'Clipboard AI ha bisogno di un backend che risponda. Poi seleziona del testo ovunque e premi una scorciatoia.',
+			hide: 'Nascondi',
+			hideAria: 'Nascondi questa guida per sempre',
+			step1Title: 'Configura un backend',
+			step1Text:
+				'Un modello locale con Ollama, il tuo abbonamento Claude con la CLI claude, oppure una chiave API.',
+			checkBackends: 'Verifica i backend',
+			openBackends: 'Apri Backend',
+			checking: 'Verifica dei backend…',
+			works: (name: string) => `${name} funziona.`,
+			noneWorking: 'Nessuno dei tuoi backend ha ancora risposto.',
+			step2Title: (name: string) => `Prova «${name}»`,
+			step2Text: 'Seleziona una frase in qualsiasi app e premi',
+			step2NoCommand: 'Aggiungi un comando con una scorciatoia e un prompt.',
+			backendSilent: (backend: string) => `Il suo backend, ${backend}, non ha risposto.`,
+			useBackend: (name: string) => `Usa ${name}`,
+			step2Done: 'Ha funzionato. È tutto pronto.'
+		},
 		form: {
 			addTitle: 'Aggiungi comando',
 			editTitle: 'Modifica comando',
@@ -105,6 +132,9 @@ export const it: typeof en = {
 			`Ancora utilizzato da: ${usedBy}. Assegna prima a questi comandi un backend diverso, poi eliminalo.`,
 		usedBy: (names: string) => `Usato da ${names}`,
 		unused: 'Non usato da nessun comando',
+		check: 'Verifica',
+		checkAll: 'Verifica tutti',
+		checkAria: (name: string) => `Verifica ${name}`,
 		form: {
 			addTitle: 'Aggiungi backend',
 			editTitle: 'Modifica backend',
@@ -138,6 +168,14 @@ export const it: typeof en = {
 			apiKeyOptional: '(opzionale)',
 			showApiKey: 'Mostra chiave API',
 			hideApiKey: 'Nascondi chiave API',
+			apiKeyStoredPlaceholder: 'Salvata in Gestione credenziali di Windows',
+			apiKeyHint: 'Conservata in Gestione credenziali di Windows, non in config.json.',
+			apiKeyInline:
+				'Ancora in config.json, perché Gestione credenziali di Windows l’ha rifiutata. Il salvataggio riprova.',
+			apiKeyRemove: 'Rimuovi chiave',
+			apiKeyWillBeRemoved: 'La chiave viene rimossa al salvataggio.',
+			apiKeyUndo: 'Annulla',
+			apiKeyRevealFailed: 'Impossibile leggere la chiave da Gestione credenziali di Windows.',
 			timeoutLabel: 'Timeout (ms)',
 			timeoutHint: (defaultMs: string) =>
 				`Un modello locale a freddo può richiedere fino a circa 16.000 ms alla prima richiesta della giornata — il valore predefinito di ${defaultMs} ms evita un timeout falso in quel caso.`,
@@ -148,6 +186,40 @@ export const it: typeof en = {
 			saveSubmit: 'Salva modifiche',
 			deleteSubmit: 'Elimina backend'
 		}
+	},
+
+	health: {
+		checking: 'Verifica…',
+		notChecked: 'Non ancora verificato',
+		checkFailed: 'La verifica stessa non è riuscita',
+		ok: (time: string) => `Risposta in ${time}`,
+		cold: (first: string, warm: string) =>
+			`Il modello era freddo. Prima risposta in ${first}, la successiva in ${warm}`,
+		slow: (time: string) => `Funziona, ma è lento. ${time}`,
+		reachable: 'Raggiungibile. Non gli è stato inviato nulla',
+		cliReady: (version: string) => `Accesso effettuato, CLI ${version}`,
+		cliSignedOut: 'Accesso non effettuato. Avvia claude in un terminale per accedere',
+		cliUnknownAuth: (version: string) => `CLI ${version} trovata, accesso non confermato`,
+		cliMissing: 'CLI di Claude non trovata. Installala ed effettua l’accesso',
+		keyMissing: 'Nessuna chiave API',
+		keyRejected: 'Chiave rifiutata',
+		keyUnreadable: 'Impossibile leggere la chiave API',
+		modelNotFound: 'Modello o URL non trovati',
+		notReachable: 'Non raggiungibile',
+		timeout: (secs: number) => `Nessuna risposta entro ${secs} s`,
+		needsUrl: 'Nessun URL',
+		needsModel: 'Nessun modello',
+		misconfigured: 'Configurazione incompleta',
+		badResponse: 'Risposta inattesa'
+	},
+
+	update: {
+		promptTitle: (version: string) => `Clipboard AI ${version} è disponibile`,
+		promptText: 'Installala ora, oppure più tardi dalle impostazioni.',
+		install: 'Installa e riavvia',
+		later: 'Più tardi',
+		downloading: 'Download in corso…',
+		downloadingPercent: (percent: number) => `Download in corso… ${percent}%`
 	},
 
 	hotkeyRecorder: {
@@ -200,6 +272,15 @@ export const it: typeof en = {
 		title: 'Impostazioni',
 		groupAppearance: 'Aspetto',
 		groupStartup: 'Avvio',
+		groupAbout: 'Informazioni',
+		versionLabel: (version: string) => `Clipboard AI ${version}`,
+		updateDescription: 'Controlla GitHub una volta al giorno. Non si installa nulla finché non fai clic.',
+		updateCheck: 'Cerca aggiornamenti',
+		updateChecking: 'Verifica…',
+		updateUpToDate: 'Hai l’ultima versione.',
+		updateAvailable: (version: string) => `La versione ${version} è disponibile.`,
+		updateInstallFailed: 'Impossibile installare l’aggiornamento. Riprova più tardi.',
+		updateCheckFailed: 'Impossibile cercare aggiornamenti. Riprova più tardi.',
 		themeLabel: 'Tema',
 		themeDescription: 'Si applica a questa finestra. Segue Windows per impostazione predefinita.',
 		themeSystem: 'Sistema',
