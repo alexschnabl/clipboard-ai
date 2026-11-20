@@ -48,7 +48,9 @@ Get-FileHash .\clipboard-ai-app_0.1.0_x64-setup.exe -Algorithm SHA256
 
 The build is **unsigned**. Windows SmartScreen will warn you the first time you run the installer: click "More info", then "Run anyway". If you would rather not run an unsigned download, [build from source](#build-from-source) instead; it takes a few minutes and produces the same installer.
 
-Built and tested on Windows 11, x64. Windows 10 should work but has not been tried. There is no auto-update yet, so a new version means a new download from the releases page.
+Built and tested on Windows 11, x64. Windows 10 should work but has not been tried.
+
+Once a day the app looks for a new release on GitHub and, if there is one, offers it in a small prompt. Nothing installs until you click "Install and restart". You can also check by hand under Settings, About. Updates are signed, and the app refuses one whose signature doesn't match.
 
 Footprint, measured on the release build: the installer is 4 MB and the exe 15 MB. Idle, the app itself holds about 8 MB of private memory; the WebView2 processes that render the settings window add roughly 160 MB on top while the app runs.
 
@@ -59,6 +61,7 @@ Footprint, measured on the release build: the installer is 4 MB and the exe 15 M
 - **Keeps formatting.** Bold, lists, links, tables and inline images in the selection survive the round trip. Per command you can also ask for formatted output, or stick to plain text. See [Formatting](#formatting).
 - **Four kinds of backend.** Local models, the Anthropic API, your Claude subscription through the `claude` CLI, or any HTTP endpoint you run. See [Backends](#backends).
 - **Live settings.** Add or edit a backend or command and it applies straight away. No restart.
+- **Backend checks.** One click tells you whether each backend answers, and how fast. The first run walks you through setting one up.
 - **Run history.** The last 100 runs, input and output, so you can copy back a result you lost. Clear it any time.
 - **It refuses to paste a bad result.** If the target window changed or the answer came back malformed, the command aborts instead of overwriting your text with a guess. See [Safety and privacy](#safety-and-privacy).
 - **Five-language UI.** English, German, Spanish, French, Italian.
@@ -94,7 +97,7 @@ The HTTP backend always sends and receives plain text. Fonts and colours are kep
 
 ## Use it
 
-First launch puts an icon in the tray. Left-click it to open settings. Add a backend, add a command (a name, a hotkey, a prompt), and you're done. While a command runs the tray icon pulses and, after half a second, the mouse pointer turns into the Windows "working in background" arrow; both return to normal when the result lands.
+First launch puts an icon in the tray. Left-click it to open settings. A short "Get started" card on the Commands page walks you through it: set up a backend, check that it answers, then try "Fix grammar". Hide the card when you're done and it stays hidden. While a command runs the tray icon pulses and, after half a second, the mouse pointer turns into the Windows "working in background" arrow; both return to normal when the result lands.
 
 The default flow:
 
@@ -113,7 +116,9 @@ You set everything up in the settings window; you don't need to hand-edit anythi
 - **Backends** - a type (OpenAI-compatible, Anthropic, Claude CLI, or HTTP), plus the endpoint, model, and key that type needs.
 - **Commands** - a name, a global hotkey, a prompt, a formatting mode, and which backend to use.
 
-Edits apply immediately. Config, keys, and history live under `%APPDATA%\com.clipboardai.app\` as a plain `config.json` (and a `history.json`), if you ever do want to look.
+Edits apply immediately. Config and history live under `%APPDATA%\com.clipboardai.app\` as a plain `config.json` (and a `history.json`), if you ever do want to look. API keys are not in there - see [Safety and privacy](#safety-and-privacy).
+
+On the Backends page, "Check" sends a tiny test request to a backend and tells you in one line how it went: how long it took to answer, a rejected key, a model that was cold, or a server that isn't there. For the Claude CLI it only asks the CLI for its version and sign-in status. For an HTTP backend it only opens a connection and sends nothing, so your webhook never fires from a check.
 
 ## Safety and privacy
 
@@ -121,7 +126,9 @@ Two things are worth understanding before you rely on this.
 
 **A hotkey sometimes does nothing, on purpose.** If you switched windows, a modifier key was still held, or the model's answer came back malformed, Clipboard AI aborts instead of pasting a guess over your text. This is deliberate - it would rather do nothing than clobber your selection with the wrong thing. When a command aborts, the History tab tells you why.
 
-**Your keys and history are stored in plain text** under `%APPDATA%\com.clipboardai.app\`. There's no encryption. Anyone with access to your user profile can read them. History keeps the last 100 runs - input and output - so you can copy back a result you lost; clear it any time from the History tab. The log file never contains your text.
+**API keys live in Windows Credential Manager**, one entry per backend, named `clipboard-ai:backend:<id>`. You can see them under Control Panel, Credential Manager, Windows Credentials. They are tied to your Windows account and not written to `config.json`. Anything running as you can still read them, so this protects against copied or synced config files, not against malware on your account. Older versions kept keys in `config.json`; the first start of this version moves them over, checks each one reads back correctly, and only then removes it from the file. If Credential Manager refuses, the key stays where it was and the settings window tells you.
+
+**History is stored in plain text** under `%APPDATA%\com.clipboardai.app\`. History keeps the last 100 runs - input and output - so you can copy back a result you lost; clear it any time from the History tab. The log file never contains your text or your keys.
 
 If you want everything to stay on your machine, use a local backend (Ollama or LM Studio). Then no text is sent anywhere.
 
@@ -139,6 +146,20 @@ npm run tauri build
 ```
 
 The installers end up in `src-tauri/target/release/bundle/`: an NSIS `-setup.exe` under `nsis/` and an `.msi` under `msi/`. They are unsigned like the released ones, so SmartScreen warns here as well. Click "More info" then "Run anyway" if you trust what you built.
+
+### Release checklist
+
+For maintainers. A release needs an update signature, or installed copies won't take it. Two values, kept out of the repo:
+
+- `TAURI_SIGNING_PRIVATE_KEY` - the updater private key (the file's contents, or its path). Its public half is `plugins.updater.pubkey` in `src-tauri/tauri.conf.json`.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` - the key's password. For a key without one, leave it unset; the build then asks for the password and Enter is the answer (PowerShell and cmd can't hold an empty variable).
+
+Set both in the shell for a local release build, or add them as repository secrets if a release workflow is added later. Losing the private key means installed copies can't update any more, so keep a backup.
+
+1. Bump the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
+2. Build with updater artifacts: `npm run tauri build -- --config src-tauri/tauri.updater.conf.json`. This writes a `.sig` next to the `-setup.exe`.
+3. Run `node scripts/latest-json.mjs --notes "What changed"` to write `latest.json` next to the installer.
+4. Create the GitHub release `v<version>` and upload the `-setup.exe`, the `.msi`, `SHA256SUMS.txt` and `latest.json`. The app reads `releases/latest/download/latest.json`, so the release must be marked as latest.
 
 ## Develop
 
@@ -169,8 +190,11 @@ Click to Do needs a Copilot+ PC, works on an OCR'd screenshot rather than your l
 **Why Windows only?**
 That's just where it's been built and tested. The stack (Tauri, Rust, Svelte) is cross-platform, but nothing else is done or verified yet.
 
-**Why are my API keys in plain text?**
-No secret storage is wired up yet. It's a known limitation - see [Safety and privacy](#safety-and-privacy). Use a local backend if you'd rather keep no keys at all.
+**Where are my API keys stored?**
+In Windows Credential Manager, not in `config.json`. Each backend gets one entry named `clipboard-ai:backend:<id>`. Deleting a backend deletes its entry. In the backend editor the key field stays empty; click the eye to show the stored key. See [Safety and privacy](#safety-and-privacy) for what this does and doesn't protect against.
+
+**A backend check says "Key rejected" or "Not reachable".**
+"Key rejected" means the service answered and refused the key - paste a fresh one. "Not reachable" means nothing answered at that address: for Ollama or LM Studio, start it first. "Model was cold" is fine - a local model loads into memory on its first request, and the next one is fast.
 
 **Why did my formatted text come back plain?**
 With the default formatting mode the app only goes rich when there is something to keep - bold, links, lists, images and so on. Plain paragraphs and code from an editor are handled as plain text on purpose. Set the command to "Always return formatted text" if you want HTML back regardless.
