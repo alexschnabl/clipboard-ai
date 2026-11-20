@@ -173,6 +173,8 @@ export const de: typeof en = {
 		statusSuccess: 'Erfolgreich',
 		statusFailed: 'Fehlgeschlagen',
 		statusAborted: 'Abgebrochen',
+		statusCancelled: 'Abgebrochen',
+		instructionTag: 'Anweisung',
 		emptyTitle: 'Noch keine Ausführungen',
 		emptyDescription: 'Lösen Sie einen Befehl über seinen Hotkey aus — das Ergebnis erscheint hier.',
 		loadErrorTitle: 'Verlauf konnte nicht geladen werden',
@@ -198,6 +200,51 @@ export const de: typeof en = {
 			`Löscht dauerhaft alle ${count} erfassten Ausführungen, einschließlich aller hier noch zur Wiederherstellung vorgehaltenen Eingabe- und Ergebnistexte. Diese Aktion kann nicht rückgängig gemacht werden.`
 	},
 
+	reasons: {
+		cancelled: 'Es wurde nichts eingefügt.',
+		focusChanged: 'Sie haben das Fenster gewechselt, bevor die Antwort da war.',
+		focusRestoreFailed: 'Ihr Fenster ließ sich nicht wieder nach vorne holen.',
+		captureTimeout: 'Es war kein Text markiert, oder er ließ sich nicht kopieren.',
+		modifiersStuck: 'Eine Zusatztaste war noch gedrückt.',
+		modifiersStuckBeforePaste: 'Beim Einfügen war noch eine Zusatztaste gedrückt.',
+		backendError: 'Das Backend hat einen Fehler gemeldet. Details stehen im Verlauf.',
+		noSentinel: 'Die Antwort kam in einem unerwarteten Format.',
+		emptyResult: 'Die Antwort war leer.',
+		clipboardWriteFailed: 'Die Zwischenablage war belegt, daher wurde nichts eingefügt.',
+		pasteFailed: 'Der Tastendruck zum Einfügen ließ sich nicht senden.',
+		noLastResult: 'Führen Sie zuerst einen Befehl aus, dann können Sie sein Ergebnis erneut einfügen.',
+		paletteFocusFailed: 'Die Palette ließ sich nicht öffnen. Versuchen Sie das Tastenkürzel erneut.',
+		unknown: (code: string) => `Abgebrochen: ${code}.`
+	},
+
+	hud: {
+		escHint: 'zum Abbrechen',
+		done: 'Fertig',
+		wordsChanged: (n: number) => (n === 1 ? '1 Wort geändert' : `${n} Wörter geändert`),
+		noChanges: 'Nichts zu ändern',
+		sent: 'Gesendet',
+		pastedAgain: 'Erneut eingefügt',
+		undoHint: 'rückgängig',
+		nothingPasted: 'Nichts eingefügt',
+		cancelled: 'Abgebrochen',
+		nothingToPaste: 'Noch nichts zum Einfügen',
+		paletteClosed: 'Palette geschlossen'
+	},
+
+	palette: {
+		placeholder: 'Befehle suchen oder Anweisung eingeben',
+		groupCommands: 'Befehle',
+		runInstruction: (text: string) => `„${text}“ ausführen`,
+		instructionHint: 'Einmalige Anweisung',
+		noBackend: 'Fügen Sie ein KI-Backend hinzu, um Anweisungen auszuführen',
+		noMatches: 'Kein Befehl passt. Mit Enter als Anweisung ausführen.',
+		empty: 'Noch keine Befehle. Geben Sie stattdessen eine Anweisung ein.',
+		footerRun: 'ausführen',
+		footerBackend: 'Backend',
+		footerClose: 'schließen',
+		listLabel: 'Befehle und Anweisungen'
+	},
+
 	settings: {
 		title: 'Einstellungen',
 		groupAppearance: 'Darstellung',
@@ -215,6 +262,20 @@ export const de: typeof en = {
 		autostartDevNoteBefore:
 			'In Entwicklungs-Builds abgelehnt — dies würde die Debug-Ausführungsdatei anstelle der installierten App bei der Anmeldung registrieren; testen Sie dies stattdessen mit einem installierten (',
 		autostartDevNoteAfter: ') Build.',
+		groupRunning: 'Während ein Befehl läuft',
+		hudLabel: 'Status am Cursor',
+		hudDescription:
+			'Zeigt, welcher Befehl läuft, lässt Sie mit Esc abbrechen und sagt, warum nichts eingefügt wurde.',
+		busyCursorLabel: 'Wartezeiger',
+		busyCursorDescription: 'Zeigt den Wartezeiger, während das Backend arbeitet.',
+		groupShortcuts: 'Tastenkürzel, die überall funktionieren',
+		paletteLabel: 'Befehlspalette',
+		paletteDescription:
+			'Einen beliebigen Befehl für den markierten Text wählen oder eine einmalige Anweisung eingeben.',
+		pasteLastLabel: 'Letztes Ergebnis erneut einfügen',
+		pasteLastDescription:
+			'Fügt das letzte Ergebnis am Cursor ein, auch über das Tray-Menü. Standardmäßig aus, weil Office Ctrl+Alt+V für Inhalte einfügen nutzt.',
+		pasteLastToggle: 'Tastenkürzel zum erneuten Einfügen des letzten Ergebnisses verwenden',
 		saveErrorTitle: 'Änderung konnte nicht gespeichert werden',
 		saveFailedFallback: 'Die Änderung konnte nicht gespeichert werden.'
 	}

@@ -11,13 +11,14 @@ import type {
 	SaveResult,
 	Settings
 } from '$lib/types';
+import { DEFAULT_SETTINGS } from '../types';
 
 function emptyConfig(): Config {
 	return {
 		version: 2,
 		backends: [],
 		commands: [],
-		settings: { theme: 'system', language: 'system', autostart: false }
+		settings: { ...DEFAULT_SETTINGS }
 	};
 }
 
@@ -38,7 +39,10 @@ export class ConfigState {
 		this.loading = true;
 		try {
 			const result = await invoke<GetConfigResult>('get_config');
-			this.config = result.config;
+			this.config = {
+				...result.config,
+				settings: { ...DEFAULT_SETTINGS, ...result.config.settings }
+			};
 			this.loadError = result.loadError;
 			this.problems = result.startupProblems ?? [];
 			this.error = null;

@@ -173,6 +173,8 @@ export const fr: typeof en = {
 		statusSuccess: 'Réussi',
 		statusFailed: 'Échoué',
 		statusAborted: 'Annulé',
+		statusCancelled: 'Annulé',
+		instructionTag: 'Instruction',
 		emptyTitle: 'Aucune exécution pour l’instant',
 		emptyDescription: 'Déclenchez une commande avec son raccourci et le résultat s’affichera ici.',
 		loadErrorTitle: 'Impossible de charger l’historique',
@@ -198,6 +200,51 @@ export const fr: typeof en = {
 			`Supprime définitivement les ${count} exécutions enregistrées, y compris tout texte d’entrée et de résultat encore conservé ici pour récupération. Cette action est irréversible.`
 	},
 
+	reasons: {
+		cancelled: 'Rien n’a été collé.',
+		focusChanged: 'Vous avez changé de fenêtre avant l’arrivée de la réponse.',
+		focusRestoreFailed: 'Impossible de revenir à votre fenêtre.',
+		captureTimeout: 'Aucun texte n’était sélectionné, ou il n’a pas pu être copié.',
+		modifiersStuck: 'Une touche de modification était encore enfoncée.',
+		modifiersStuckBeforePaste: 'Une touche de modification était enfoncée au moment de coller.',
+		backendError: 'Le backend a signalé une erreur. Les détails sont dans l’historique.',
+		noSentinel: 'La réponse est arrivée dans un format inattendu.',
+		emptyResult: 'La réponse était vide.',
+		clipboardWriteFailed: 'Le presse-papiers était occupé, rien n’a pu être collé.',
+		pasteFailed: 'La frappe pour coller n’a pas pu être envoyée.',
+		noLastResult: 'Lancez d’abord une commande, vous pourrez ensuite recoller son résultat.',
+		paletteFocusFailed: 'La palette n’a pas pu s’ouvrir. Réessayez le raccourci.',
+		unknown: (code: string) => `Arrêté : ${code}.`
+	},
+
+	hud: {
+		escHint: 'pour annuler',
+		done: 'Terminé',
+		wordsChanged: (n: number) => (n === 1 ? '1 mot modifié' : `${n} mots modifiés`),
+		noChanges: 'Rien à modifier',
+		sent: 'Envoyé',
+		pastedAgain: 'Collé à nouveau',
+		undoHint: 'pour défaire',
+		nothingPasted: 'Rien n’a été collé',
+		cancelled: 'Annulé',
+		nothingToPaste: 'Rien à coller pour l’instant',
+		paletteClosed: 'Palette fermée'
+	},
+
+	palette: {
+		placeholder: 'Chercher une commande ou saisir une instruction',
+		groupCommands: 'Commandes',
+		runInstruction: (text: string) => `Exécuter « ${text} »`,
+		instructionHint: 'Instruction ponctuelle',
+		noBackend: 'Ajoutez un backend IA pour exécuter des instructions',
+		noMatches: 'Aucune commande ne correspond. Entrée l’exécute comme instruction.',
+		empty: 'Aucune commande pour l’instant. Saisissez plutôt une instruction.',
+		footerRun: 'exécuter',
+		footerBackend: 'backend',
+		footerClose: 'fermer',
+		listLabel: 'Commandes et instructions'
+	},
+
 	settings: {
 		title: 'Paramètres',
 		groupAppearance: 'Apparence',
@@ -215,6 +262,20 @@ export const fr: typeof en = {
 		autostartDevNoteBefore:
 			'Refusé dans les builds de développement — cela enregistrerait l’exécutable de débogage à la place de l’application installée au démarrage de la session ; testez plutôt cela avec un build installé (',
 		autostartDevNoteAfter: ').',
+		groupRunning: 'Pendant l’exécution d’une commande',
+		hudLabel: 'Statut près du curseur',
+		hudDescription:
+			'Indique la commande en cours, permet d’annuler avec Esc et explique pourquoi rien n’a été collé.',
+		busyCursorLabel: 'Pointeur occupé',
+		busyCursorDescription: 'Affiche le pointeur occupé pendant que le backend travaille.',
+		groupShortcuts: 'Raccourcis disponibles partout',
+		paletteLabel: 'Palette de commandes',
+		paletteDescription:
+			'Choisissez une commande pour le texte sélectionné, ou saisissez une instruction ponctuelle.',
+		pasteLastLabel: 'Recoller le dernier résultat',
+		pasteLastDescription:
+			'Colle le résultat le plus récent au curseur, aussi depuis le menu de la zone de notification. Désactivé par défaut car Office utilise Ctrl+Alt+V pour le collage spécial.',
+		pasteLastToggle: 'Utiliser un raccourci pour recoller le dernier résultat',
 		saveErrorTitle: 'Impossible d’enregistrer cette modification',
 		saveFailedFallback: 'Impossible d’enregistrer la modification.'
 	}

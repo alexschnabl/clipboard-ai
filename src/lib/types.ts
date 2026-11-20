@@ -40,7 +40,62 @@ export interface Settings {
 	theme: Theme;
 	language: Language;
 	autostart: boolean;
+	hud: boolean;
+	busyCursor: boolean;
+	paletteHotkey: string;
+	pasteLastEnabled: boolean;
+	pasteLastHotkey: string;
 }
+
+export const DEFAULT_SETTINGS: Settings = {
+	theme: 'system',
+	language: 'system',
+	autostart: false,
+	hud: true,
+	busyCursor: true,
+	paletteHotkey: 'Ctrl+Alt+Space',
+	pasteLastEnabled: false,
+	pasteLastHotkey: 'Ctrl+Alt+V'
+};
+
+export interface OverlayLook {
+	theme: Theme;
+	language: Language;
+}
+
+export type HudView =
+	| { kind: 'working'; command: string; backend: string; cancellable: boolean }
+	| { kind: 'done'; wordsChanged: number | null; sent: boolean; again: boolean }
+	| { kind: 'stopped'; reason: string };
+
+export interface HudEvent extends OverlayLook {
+	id: number;
+	fresh: boolean;
+	view: HudView;
+}
+
+export interface PaletteCommand {
+	id: string;
+	name: string;
+	hotkey: string;
+	backendName: string;
+}
+
+export interface PaletteBackend {
+	id: string;
+	name: string;
+}
+
+export interface PaletteOpenEvent extends OverlayLook {
+	session: number;
+	commands: PaletteCommand[];
+	backends: PaletteBackend[];
+	backendId: string | null;
+}
+
+export type PaletteChoice =
+	| { kind: 'command'; commandId: string }
+	| { kind: 'instruction'; text: string; backendId: string };
 
 export interface Config {
 	version: number;

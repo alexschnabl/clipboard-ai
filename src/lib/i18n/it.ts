@@ -171,6 +171,8 @@ export const it: typeof en = {
 		statusSuccess: 'Riuscito',
 		statusFailed: 'Fallito',
 		statusAborted: 'Interrotto',
+		statusCancelled: 'Annullato',
+		instructionTag: 'Istruzione',
 		emptyTitle: 'Ancora nessuna esecuzione',
 		emptyDescription: 'Attiva un comando con il suo hotkey — il risultato comparirà qui.',
 		loadErrorTitle: 'Impossibile caricare la cronologia',
@@ -196,6 +198,51 @@ export const it: typeof en = {
 			`Rimuove definitivamente tutte le ${count} esecuzioni registrate, incluso qualsiasi testo di input e risultato ancora conservato qui per il recupero. Questa azione non può essere annullata.`
 	},
 
+	reasons: {
+		cancelled: 'Non è stato incollato nulla.',
+		focusChanged: 'Hai cambiato finestra prima che arrivasse la risposta.',
+		focusRestoreFailed: 'Impossibile tornare alla tua finestra.',
+		captureTimeout: 'Nessun testo era selezionato, oppure non è stato possibile copiarlo.',
+		modifiersStuck: 'Un tasto modificatore era ancora premuto.',
+		modifiersStuckBeforePaste: 'Un tasto modificatore era premuto al momento di incollare.',
+		backendError: 'Il backend ha segnalato un errore. I dettagli sono nella cronologia.',
+		noSentinel: 'La risposta è arrivata in un formato inatteso.',
+		emptyResult: 'La risposta era vuota.',
+		clipboardWriteFailed: 'Gli appunti erano occupati, quindi non è stato incollato nulla.',
+		pasteFailed: 'Non è stato possibile inviare la combinazione per incollare.',
+		noLastResult: 'Esegui prima un comando, poi potrai incollare di nuovo il suo risultato.',
+		paletteFocusFailed: 'Impossibile aprire la tavolozza. Riprova con la scorciatoia.',
+		unknown: (code: string) => `Interrotto: ${code}.`
+	},
+
+	hud: {
+		escHint: 'per annullare',
+		done: 'Fatto',
+		wordsChanged: (n: number) => (n === 1 ? '1 parola modificata' : `${n} parole modificate`),
+		noChanges: 'Niente da modificare',
+		sent: 'Inviato',
+		pastedAgain: 'Incollato di nuovo',
+		undoHint: 'per annullare la modifica',
+		nothingPasted: 'Non è stato incollato nulla',
+		cancelled: 'Annullato',
+		nothingToPaste: 'Ancora niente da incollare',
+		paletteClosed: 'Tavolozza chiusa'
+	},
+
+	palette: {
+		placeholder: 'Cerca comandi o scrivi un’istruzione',
+		groupCommands: 'Comandi',
+		runInstruction: (text: string) => `Esegui «${text}»`,
+		instructionHint: 'Istruzione una tantum',
+		noBackend: 'Aggiungi un backend IA per eseguire istruzioni',
+		noMatches: 'Nessun comando corrisponde. Premi Invio per eseguirlo come istruzione.',
+		empty: 'Ancora nessun comando. Scrivi invece un’istruzione.',
+		footerRun: 'esegui',
+		footerBackend: 'backend',
+		footerClose: 'chiudi',
+		listLabel: 'Comandi e istruzioni'
+	},
+
 	settings: {
 		title: 'Impostazioni',
 		groupAppearance: 'Aspetto',
@@ -213,6 +260,20 @@ export const it: typeof en = {
 		autostartDevNoteBefore:
 			'Rifiutato nelle build di sviluppo — registrerebbe l’eseguibile di debug al posto dell’app installata all’accesso; prova questa funzione con una build installata (',
 		autostartDevNoteAfter: ').',
+		groupRunning: 'Mentre un comando è in esecuzione',
+		hudLabel: 'Stato vicino al cursore',
+		hudDescription:
+			'Mostra quale comando è in esecuzione, permette di annullare con Esc e spiega perché non è stato incollato nulla.',
+		busyCursorLabel: 'Puntatore di attesa',
+		busyCursorDescription: 'Mostra il puntatore di attesa mentre il backend lavora.',
+		groupShortcuts: 'Scorciatoie disponibili ovunque',
+		paletteLabel: 'Tavolozza dei comandi',
+		paletteDescription:
+			'Scegli un comando per il testo selezionato oppure scrivi un’istruzione una tantum.',
+		pasteLastLabel: 'Incolla di nuovo l’ultimo risultato',
+		pasteLastDescription:
+			'Incolla il risultato più recente al cursore, anche dal menu dell’area di notifica. Disattivato di default perché Office usa Ctrl+Alt+V per Incolla speciale.',
+		pasteLastToggle: 'Usa una scorciatoia per incollare di nuovo l’ultimo risultato',
 		saveErrorTitle: 'Impossibile salvare questa modifica',
 		saveFailedFallback: 'Impossibile salvare la modifica.'
 	}

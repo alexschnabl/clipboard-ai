@@ -4,10 +4,18 @@
 	import { untrack, type Snippet } from 'svelte';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { page } from '$app/state';
 
 	let { children }: { children: Snippet } = $props();
 
+	const overlay = $derived(page.route.id === '/hud' || page.route.id === '/palette');
+
 	$effect(() => {
+		document.documentElement.classList.toggle('overlay-window', overlay);
+	});
+
+	$effect(() => {
+		if (overlay && configState.loading) return;
 		const theme = configState.config.settings.theme;
 		untrack(() => setMode(theme));
 	});
@@ -36,6 +44,6 @@
 <svelte:window onkeydown={onKeydown} oncontextmenu={onContextMenu} />
 
 <ModeWatcher />
-<main class="min-h-screen bg-background text-foreground">
+<main class={overlay ? 'text-foreground' : 'min-h-screen bg-background text-foreground'}>
 	{@render children()}
 </main>
