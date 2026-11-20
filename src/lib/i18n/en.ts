@@ -330,6 +330,8 @@ export const en = {
 		statusSuccess: 'Success',
 		statusFailed: 'Failed',
 		statusAborted: 'Aborted',
+		statusCancelled: 'Cancelled',
+		instructionTag: 'Instruction',
 		emptyTitle: 'No runs yet',
 		emptyDescription: 'Trigger a command with its hotkey and the result will show up here.',
 		loadErrorTitle: 'Couldn’t load history',
@@ -353,6 +355,51 @@ export const en = {
 		clearTitle: 'Clear history?',
 		clearDescription: (count: number) =>
 			`Permanently deletes all ${count} recorded runs, including any input and result text still held here for recovery. This can’t be undone.`
+	},
+
+	reasons: {
+		cancelled: 'Nothing was pasted.',
+		focusChanged: 'You switched windows before the answer arrived.',
+		focusRestoreFailed: 'Could not switch back to your window.',
+		captureTimeout: 'No text was selected, or it could not be copied.',
+		modifiersStuck: 'A modifier key was still held down.',
+		modifiersStuckBeforePaste: 'A modifier key was held down when it was time to paste.',
+		backendError: 'The backend reported an error. History has the details.',
+		noSentinel: 'The answer came back in an unexpected format.',
+		emptyResult: 'The answer was empty.',
+		clipboardWriteFailed: 'The clipboard was busy, so nothing could be pasted.',
+		pasteFailed: 'The paste keystroke could not be sent.',
+		noLastResult: 'Run a command first, then you can paste its result again.',
+		paletteFocusFailed: 'The palette could not open. Try the hotkey again.',
+		unknown: (code: string) => `Stopped: ${code}.`
+	},
+
+	hud: {
+		escHint: 'to cancel',
+		done: 'Done',
+		wordsChanged: (n: number) => (n === 1 ? '1 word changed' : `${n} words changed`),
+		noChanges: 'Nothing needed changing',
+		sent: 'Sent',
+		pastedAgain: 'Pasted again',
+		undoHint: 'to undo',
+		nothingPasted: 'Nothing pasted',
+		cancelled: 'Cancelled',
+		nothingToPaste: 'Nothing to paste yet',
+		paletteClosed: 'Palette closed'
+	},
+
+	palette: {
+		placeholder: 'Search commands or type an instruction',
+		groupCommands: 'Commands',
+		runInstruction: (text: string) => `Run "${text}"`,
+		instructionHint: 'One-off instruction',
+		noBackend: 'Add an AI backend to run instructions',
+		noMatches: 'No command matches. Press Enter to run it as an instruction.',
+		empty: 'No commands yet. Type an instruction instead.',
+		footerRun: 'run',
+		footerBackend: 'backend',
+		footerClose: 'close',
+		listLabel: 'Commands and instructions'
 	},
 
 	vocabulary: {
@@ -397,6 +444,19 @@ export const en = {
 		autostartDevNoteBefore:
 			'Refused in development builds — it would register the debug executable to run at login instead of your installed app; test this with an installed (',
 		autostartDevNoteAfter: ') build instead.',
+		groupRunning: 'While a command runs',
+		hudLabel: 'Status near the cursor',
+		hudDescription:
+			'Shows which command is running, lets you cancel with Esc, and says why nothing was pasted.',
+		busyCursorLabel: 'Busy pointer',
+		busyCursorDescription: 'Shows the busy pointer while the backend works.',
+		groupShortcuts: 'Shortcuts that work everywhere',
+		paletteLabel: 'Command palette',
+		paletteDescription: 'Pick any command for the selected text, or type a one-off instruction.',
+		pasteLastLabel: 'Paste the last result again',
+		pasteLastDescription:
+			'Pastes the most recent result at the cursor. Also in the tray menu. Off by default because Office uses Ctrl+Alt+V for Paste Special.',
+		pasteLastToggle: 'Use a hotkey to paste the last result again',
 		versionLabel: (version: string) => `Clipboard AI ${version}`,
 		updateDescription: 'Checks GitHub once a day. Nothing installs until you click.',
 		updateCheck: 'Check for updates',

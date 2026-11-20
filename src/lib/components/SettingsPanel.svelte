@@ -6,6 +6,7 @@
 	import { getVersion } from '@tauri-apps/api/app';
 	import { onMount } from 'svelte';
 	import PageHeader from './PageHeader.svelte';
+	import HotkeyRecorder from './HotkeyRecorder.svelte';
 	import StatusLine from './StatusLine.svelte';
 	import { updateState } from '$lib/state/updates.svelte.js';
 	import { configState } from '$lib/state/config.svelte.js';
@@ -87,6 +88,17 @@
 		void applySettings({ language: value as Language });
 	}
 
+	const paletteProblem = $derived(
+		configState.problems.find((p) => p.commandId === 'palette')?.message ?? null
+	);
+	const pasteLastProblem = $derived(
+		configState.problems.find((p) => p.commandId === 'paste-last')?.message ?? null
+	);
+
+	function setHotkey(patch: Pick<Partial<Settings>, 'paletteHotkey' | 'pasteLastHotkey'>): void {
+		void applySettings(patch);
+	}
+
 	async function setAutostart(checked: boolean): Promise<void> {
 		autostartPending = true;
 		const ok = await applySettings({ autostart: checked });
@@ -156,6 +168,83 @@
 							{/each}
 						</Select.Content>
 					</Select.Root>
+				</div>
+			</div>
+		</section>
+
+		<section>
+			<div class="group-title"><span>{i18n.t.settings.groupRunning}</span></div>
+			<div class="list-card">
+				<div class="list-row justify-between gap-4">
+					<div class="flex flex-col gap-0.5">
+						<span>{i18n.t.settings.hudLabel}</span>
+						<span class="text-[13px] text-muted-foreground">{i18n.t.settings.hudDescription}</span>
+					</div>
+					<Switch
+						checked={configState.config.settings.hud}
+						onCheckedChange={(checked: boolean) => void applySettings({ hud: checked })}
+						class="shrink-0"
+						aria-label={i18n.t.settings.hudLabel}
+					/>
+				</div>
+
+				<div class="list-row justify-between gap-4">
+					<div class="flex flex-col gap-0.5">
+						<span>{i18n.t.settings.busyCursorLabel}</span>
+						<span class="text-[13px] text-muted-foreground">{i18n.t.settings.busyCursorDescription}</span>
+					</div>
+					<Switch
+						checked={configState.config.settings.busyCursor}
+						onCheckedChange={(checked: boolean) => void applySettings({ busyCursor: checked })}
+						class="shrink-0"
+						aria-label={i18n.t.settings.busyCursorLabel}
+					/>
+				</div>
+			</div>
+		</section>
+
+		<section>
+			<div class="group-title"><span>{i18n.t.settings.groupShortcuts}</span></div>
+			<div class="list-card">
+				<div class="list-row justify-between gap-4">
+					<div class="flex min-w-0 flex-col gap-0.5">
+						<span>{i18n.t.settings.paletteLabel}</span>
+						<span class="text-[13px] text-muted-foreground">{i18n.t.settings.paletteDescription}</span>
+						{#if paletteProblem}
+							<span class="text-[13px] text-destructive" role="alert">{paletteProblem}</span>
+						{/if}
+					</div>
+					<div class="w-44 shrink-0">
+						<HotkeyRecorder
+							value={configState.config.settings.paletteHotkey}
+							onchange={(paletteHotkey) => setHotkey({ paletteHotkey })}
+						/>
+					</div>
+				</div>
+
+				<div class="list-row justify-between gap-4">
+					<div class="flex min-w-0 flex-col gap-0.5">
+						<span>{i18n.t.settings.pasteLastLabel}</span>
+						<span class="text-[13px] text-muted-foreground">{i18n.t.settings.pasteLastDescription}</span>
+						{#if pasteLastProblem && configState.config.settings.pasteLastEnabled}
+							<span class="text-[13px] text-destructive" role="alert">{pasteLastProblem}</span>
+						{/if}
+					</div>
+					<div class="flex shrink-0 items-center gap-3">
+						{#if configState.config.settings.pasteLastEnabled}
+							<div class="w-44">
+								<HotkeyRecorder
+									value={configState.config.settings.pasteLastHotkey}
+									onchange={(pasteLastHotkey) => setHotkey({ pasteLastHotkey })}
+								/>
+							</div>
+						{/if}
+						<Switch
+							checked={configState.config.settings.pasteLastEnabled}
+							onCheckedChange={(checked: boolean) => void applySettings({ pasteLastEnabled: checked })}
+							aria-label={i18n.t.settings.pasteLastToggle}
+						/>
+					</div>
 				</div>
 			</div>
 		</section>

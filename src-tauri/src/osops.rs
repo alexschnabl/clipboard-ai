@@ -27,6 +27,8 @@ pub struct Clip {
 
 const CONTROL_RELEASE_RETRIES: u32 = 3;
 
+const ACTIVATE_TIMEOUT_MS: u64 = 400;
+
 const HTML_FORMAT_NAME: &str = "HTML Format";
 
 const CLIPBOARD_OPEN_ATTEMPTS: usize = 10;
@@ -46,6 +48,9 @@ pub trait OsOps: Send + Sync {
     fn send_paste(&self) -> Result<(), OsError>;
     fn sleep_ms(&self, ms: u64);
     fn now_ms(&self) -> u64;
+    fn activate_window(&self, _window: isize) -> bool {
+        false
+    }
 }
 
 fn html_format() -> Option<u32> {
@@ -192,6 +197,10 @@ impl OsOps for WindowsOps {
     fn now_ms(&self) -> u64 {
         self.start.elapsed().as_millis() as u64
     }
+
+    fn activate_window(&self, window: isize) -> bool {
+        crate::overlay::activate(window, ACTIVATE_TIMEOUT_MS)
+    }
 }
 
 pub struct NullOps {
@@ -323,9 +332,10 @@ mod tests {
     fn a_cycle_run_against_null_ops_aborts_immediately_without_touching_anything() {
         let ops = NullOps::new();
         let vocabulary = crate::config::Vocabulary::default();
+        let backend: std::sync::Arc<dyn crate::backend::Backend> = std::sync::Arc::new(PanicIfCalledBackend);
         let outcome = crate::cycle::run(
             &|_| crate::cycle::Job {
-                backend: &PanicIfCalledBackend,
+                backend: &backend,
                 system_prompt: "Fix.",
                 prompt_addition: None,
                 formatting: crate::config::Formatting::Auto,

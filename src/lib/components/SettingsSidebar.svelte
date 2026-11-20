@@ -32,7 +32,10 @@
 		);
 	});
 
-	const commandsNeedAttention = $derived(configState.problems.some((p) => p.commandId));
+	const GLOBAL_SHORTCUT_IDS = ['palette', 'paste-last'];
+	const commandsNeedAttention = $derived(
+		configState.problems.some((p) => p.commandId && !GLOBAL_SHORTCUT_IDS.includes(p.commandId))
+	);
 
 	const items = $derived([
 		{ id: 'commands' as const, label: i18n.t.nav.commands, icon: CommandIcon },

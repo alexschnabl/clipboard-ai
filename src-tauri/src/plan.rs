@@ -87,7 +87,7 @@ impl CommandPlan {
 
     pub fn job_for(&self, exe: Option<&str>) -> Job<'_> {
         let rule = self.rule_for(exe);
-        let backend = rule.and_then(|r| r.backend.as_deref()).unwrap_or(self.backend.as_ref());
+        let backend = rule.and_then(|r| r.backend.as_ref()).unwrap_or(&self.backend);
         Job {
             backend,
             system_prompt: &self.system_prompt,

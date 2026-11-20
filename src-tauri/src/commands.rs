@@ -362,3 +362,35 @@ pub fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
 pub fn quit_app(app: AppHandle, state: State<'_, AppState>) {
     crate::quit_app(&app, &state);
 }
+
+#[tauri::command]
+pub fn hud_measured(state: State<'_, AppState>, id: u64, width: f64, height: f64, inset: f64) {
+    state.hud.measured(id, width, height, inset);
+}
+
+#[tauri::command]
+pub fn palette_measured(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session: u64,
+    width: f64,
+    height: f64,
+    inset: f64,
+) {
+    crate::palette::measured(&app, &state, session, width, height, inset);
+}
+
+#[tauri::command]
+pub fn palette_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    session: u64,
+    choice: crate::palette::PaletteChoice,
+) {
+    crate::palette::run(&app, &state, session, choice);
+}
+
+#[tauri::command]
+pub fn palette_close(app: AppHandle, state: State<'_, AppState>, session: u64) {
+    crate::palette::close(&app, &state, Some(session), true);
+}

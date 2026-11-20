@@ -336,6 +336,8 @@ export const es: typeof en = {
 		statusSuccess: 'Correcto',
 		statusFailed: 'Fallido',
 		statusAborted: 'Cancelado',
+		statusCancelled: 'Cancelado',
+		instructionTag: 'Instrucción',
 		emptyTitle: 'Aún no hay ejecuciones',
 		emptyDescription: 'Ejecute un comando con su hotkey y el resultado aparecerá aquí.',
 		loadErrorTitle: 'No se pudo cargar el historial',
@@ -359,6 +361,51 @@ export const es: typeof en = {
 		clearTitle: '¿Borrar el historial?',
 		clearDescription: (count: number) =>
 			`Elimina permanentemente las ${count} ejecuciones registradas, incluido cualquier texto de entrada y resultado que aún se conserve aquí para su recuperación. Esta acción no se puede deshacer.`
+	},
+
+	reasons: {
+		cancelled: 'No se pegó nada.',
+		focusChanged: 'Cambió de ventana antes de que llegara la respuesta.',
+		focusRestoreFailed: 'No se pudo volver a su ventana.',
+		captureTimeout: 'No había texto seleccionado o no se pudo copiar.',
+		modifiersStuck: 'Una tecla modificadora seguía pulsada.',
+		modifiersStuckBeforePaste: 'Una tecla modificadora estaba pulsada al momento de pegar.',
+		backendError: 'El backend informó de un error. Los detalles están en el historial.',
+		noSentinel: 'La respuesta llegó en un formato inesperado.',
+		emptyResult: 'La respuesta estaba vacía.',
+		clipboardWriteFailed: 'El portapapeles estaba ocupado, así que no se pudo pegar nada.',
+		pasteFailed: 'No se pudo enviar la pulsación para pegar.',
+		noLastResult: 'Ejecute primero un comando y luego podrá volver a pegar su resultado.',
+		paletteFocusFailed: 'No se pudo abrir la paleta. Vuelva a pulsar el atajo.',
+		unknown: (code: string) => `Detenido: ${code}.`
+	},
+
+	hud: {
+		escHint: 'para cancelar',
+		done: 'Listo',
+		wordsChanged: (n: number) => (n === 1 ? '1 palabra cambiada' : `${n} palabras cambiadas`),
+		noChanges: 'No había nada que cambiar',
+		sent: 'Enviado',
+		pastedAgain: 'Pegado de nuevo',
+		undoHint: 'para deshacer',
+		nothingPasted: 'No se pegó nada',
+		cancelled: 'Cancelado',
+		nothingToPaste: 'Todavía no hay nada que pegar',
+		paletteClosed: 'Paleta cerrada'
+	},
+
+	palette: {
+		placeholder: 'Buscar comandos o escribir una instrucción',
+		groupCommands: 'Comandos',
+		runInstruction: (text: string) => `Ejecutar «${text}»`,
+		instructionHint: 'Instrucción puntual',
+		noBackend: 'Añada un backend de IA para ejecutar instrucciones',
+		noMatches: 'Ningún comando coincide. Pulse Intro para ejecutarlo como instrucción.',
+		empty: 'Aún no hay comandos. Escriba una instrucción en su lugar.',
+		footerRun: 'ejecutar',
+		footerBackend: 'backend',
+		footerClose: 'cerrar',
+		listLabel: 'Comandos e instrucciones'
 	},
 
 	vocabulary: {
@@ -411,6 +458,20 @@ export const es: typeof en = {
 		autostartDevNoteBefore:
 			'Rechazado en compilaciones de desarrollo: registraría el ejecutable de depuración para iniciarse al iniciar sesión en lugar de la aplicación instalada; pruebe esto con una compilación instalada (',
 		autostartDevNoteAfter: ').',
+		groupRunning: 'Mientras se ejecuta un comando',
+		hudLabel: 'Estado junto al cursor',
+		hudDescription:
+			'Muestra qué comando se está ejecutando, permite cancelar con Esc e indica por qué no se pegó nada.',
+		busyCursorLabel: 'Puntero ocupado',
+		busyCursorDescription: 'Muestra el puntero ocupado mientras el backend trabaja.',
+		groupShortcuts: 'Atajos que funcionan en todas partes',
+		paletteLabel: 'Paleta de comandos',
+		paletteDescription:
+			'Elija cualquier comando para el texto seleccionado o escriba una instrucción puntual.',
+		pasteLastLabel: 'Volver a pegar el último resultado',
+		pasteLastDescription:
+			'Pega el resultado más reciente en el cursor, también desde el menú del área de notificación. Desactivado por defecto porque Office usa Ctrl+Alt+V para Pegado especial.',
+		pasteLastToggle: 'Usar un atajo para volver a pegar el último resultado',
 		saveErrorTitle: 'No se pudo guardar ese cambio',
 		saveFailedFallback: 'No se pudo guardar el cambio.'
 	}

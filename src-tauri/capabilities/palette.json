@@ -1,0 +1,13 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "palette-window",
+  "description": "The command palette. It listens for palette://open and its own focus events, reports its rendered size, and answers with a run or a close for the session it was opened for. It never reads or saves the config: the command list arrives in the open event.",
+  "windows": ["palette"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-palette-measured",
+    "allow-palette-run",
+    "allow-palette-close"
+  ]
+}

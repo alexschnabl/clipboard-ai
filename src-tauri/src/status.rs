@@ -86,6 +86,7 @@ mod tests {
             backend_ms: 1234,
             captured_text: None,
             result_text: None,
+            result_html: None,
             backend_name: None,
             app: None,
             rule: None,
