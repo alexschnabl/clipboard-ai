@@ -1,14 +1,13 @@
 <script lang="ts">
-	import * as Table from '$lib/components/shadcn/table/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
-	import { Badge } from '$lib/components/shadcn/badge/index.js';
 	import * as Dialog from '$lib/components/shadcn/dialog/index.js';
-	import RiAddLine from 'remixicon-svelte/icons/add-line';
-	import RiPencilLine from 'remixicon-svelte/icons/pencil-line';
-	import RiDeleteBinLine from 'remixicon-svelte/icons/delete-bin-line';
+	import PlusIcon from '@lucide/svelte/icons/plus';
+	import ChevronRightIcon from '@lucide/svelte/icons/chevron-right';
+	import { fade } from 'svelte/transition';
 	import CommandForm from './CommandForm.svelte';
+	import Keycaps from './Keycaps.svelte';
+	import PageHeader from './PageHeader.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
-	import { TABLE_HEAD_CLASS } from '$lib/table';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { CommandConfig, Problem } from '$lib/types';
 
@@ -37,6 +36,7 @@
 		const target = pendingDelete;
 		confirmDeleteOpen = false;
 		pendingDelete = null;
+		formOpen = false;
 		await configState.deleteCommand(target.id);
 	}
 
@@ -55,90 +55,74 @@
 	function problemsFor(command: CommandConfig): Problem[] {
 		return configState.problems.filter((p) => p.commandId === command.id);
 	}
-
 </script>
 
-<div class="flex h-full min-h-0 flex-col">
-	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
-		<h2 class="text-[12.5px] font-bold">{i18n.t.commands.title}</h2>
-		<span class="text-[11px] text-muted-foreground"
-			>{i18n.t.commands.count(configState.config.commands.length)}</span
+{#if !formOpen}
+	<div class="flex h-full min-h-0 flex-col" in:fade={{ duration: 120 }}>
+		<PageHeader
+			title={i18n.t.commands.title}
+			subtitle={i18n.t.commands.count(configState.config.commands.length)}
 		>
-		<div class="flex-1"></div>
-		<Button size="sm" onclick={openAdd}>
-			<RiAddLine class="size-4" />
-			{i18n.t.commands.addCommand}
-		</Button>
-	</div>
+			{#snippet actions()}
+				<Button size="sm" onclick={openAdd}>
+					<PlusIcon class="size-4" />
+					{i18n.t.commands.addCommand}
+				</Button>
+			{/snippet}
+		</PageHeader>
 
-	<div class="min-h-0 flex-1 overflow-y-auto p-4">
-		<Table.Root>
-			<Table.Header>
-				<Table.Row class="hover:bg-transparent">
-					<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.commands.columnName}</Table.Head>
-					<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.commands.columnHotkey}</Table.Head>
-					<Table.Head class={TABLE_HEAD_CLASS}>{i18n.t.commands.columnBackend}</Table.Head>
-					<Table.Head class="{TABLE_HEAD_CLASS} text-right">{i18n.t.commands.columnActions}</Table.Head>
-				</Table.Row>
-			</Table.Header>
-			<Table.Body>
-				{#each configState.config.commands as command (command.id)}
-					{@const problems = problemsFor(command)}
-					<Table.Row>
-						<Table.Cell class="max-w-48 py-1.5 font-medium">
-							<span class="block truncate" title={command.name}>{command.name}</span>
-							{#if problems.length > 0}
-								<p class="mt-1 text-xs font-normal whitespace-normal text-destructive">
-									{problems.map((p) => p.message).join(' ')}
-								</p>
-							{/if}
-						</Table.Cell>
-						<Table.Cell class="py-1.5">
-							{#if command.hotkey}
-								<Badge variant="outline" class="font-mono">{command.hotkey}</Badge>
-							{:else}
-								<span class="text-muted-foreground">—</span>
-							{/if}
-						</Table.Cell>
-						<Table.Cell class="max-w-48 py-1.5">
-							<span class="block truncate" title={backendName(command.backendId)}
-								>{backendName(command.backendId)}</span
-							>
-						</Table.Cell>
-						<Table.Cell class="py-1.5 text-right">
-							<div class="flex justify-end gap-2">
-								<Button
-									variant="outline"
-									size="icon-sm"
-									onclick={() => openEdit(command)}
-									aria-label={i18n.t.commands.editAria(command.name)}
-								>
-									<RiPencilLine class="size-4" />
-								</Button>
-								<Button
-									variant="outline"
-									size="icon-sm"
-									onclick={() => handleDelete(command)}
-									aria-label={i18n.t.commands.deleteAria(command.name)}
-								>
-									<RiDeleteBinLine class="size-4" />
-								</Button>
+		<div class="page-body">
+			<section>
+				<div class="group-title">
+					<span>{i18n.t.commands.groupTitle}</span>
+					<span class="text-xs text-muted-foreground/80">{i18n.t.commands.groupHint}</span>
+				</div>
+				<div class="list-card">
+					{#each configState.config.commands as command (command.id)}
+						{@const problems = problemsFor(command)}
+						<button
+							type="button"
+							class="list-row"
+							onclick={() => openEdit(command)}
+							aria-label={i18n.t.commands.editAria(command.name)}
+						>
+							<div class="min-w-0 flex-1">
+								<div class="truncate" title={command.name}>{command.name}</div>
+								{#if problems.length > 0}
+									<div class="mt-1 text-[13px] text-destructive">
+										{problems.map((p) => p.message).join(' ')}
+									</div>
+								{:else if command.systemPrompt}
+									<div class="mt-1 truncate text-[13px] text-muted-foreground">
+										{command.systemPrompt}
+									</div>
+								{/if}
 							</div>
-						</Table.Cell>
-					</Table.Row>
-				{:else}
-					<Table.Row>
-						<Table.Cell colspan={4} class="py-8 text-center text-muted-foreground">
+							<span
+								class="max-w-40 shrink-0 truncate rounded-[5px] bg-muted px-2 py-0.5 text-[11.5px] text-muted-foreground"
+								title={backendName(command.backendId)}>{backendName(command.backendId)}</span
+							>
+							{#if command.hotkey}
+								<Keycaps hotkey={command.hotkey} />
+							{/if}
+							<ChevronRightIcon class="size-4 shrink-0 text-muted-foreground/60" />
+						</button>
+					{:else}
+						<div class="px-5 py-8 text-center text-sm text-muted-foreground">
 							{i18n.t.commands.empty}
-						</Table.Cell>
-					</Table.Row>
-				{/each}
-			</Table.Body>
-		</Table.Root>
+						</div>
+					{/each}
+				</div>
+			</section>
+		</div>
 	</div>
-</div>
+{/if}
 
-<CommandForm bind:open={formOpen} command={editingCommand} />
+<CommandForm
+	bind:open={formOpen}
+	command={editingCommand}
+	onDelete={editingCommand ? () => editingCommand && handleDelete(editingCommand) : undefined}
+/>
 
 <Dialog.Root bind:open={confirmDeleteOpen}>
 	<Dialog.Content class="sm:max-w-md">

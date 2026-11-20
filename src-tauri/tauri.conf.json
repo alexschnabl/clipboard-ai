@@ -15,12 +15,14 @@
       {
         "label": "settings",
         "title": "Clipboard AI",
-        "width": 900,
-        "height": 640,
-        "minWidth": 720,
-        "minHeight": 520,
+        "width": 1060,
+        "height": 740,
+        "minWidth": 820,
+        "minHeight": 580,
         "visible": false,
         "resizable": true,
+        "decorations": false,
+        "shadow": true,
         "center": true
       }
     ],

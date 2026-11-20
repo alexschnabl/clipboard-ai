@@ -6,13 +6,16 @@ export const it: typeof en = {
 		backends: 'Backend',
 		history: 'Cronologia',
 		settings: 'Impostazioni',
-		working: 'In corso…'
+		working: 'In corso…',
+		version: (v: string) => `Versione ${v}`,
+		quit: 'Esci da Clipboard AI'
 	},
 
 	common: {
 		cancel: 'Annulla',
 		delete: 'Elimina',
-		saving: 'Salvataggio…'
+		saving: 'Salvataggio…',
+		back: 'Indietro'
 	},
 
 	app: {
@@ -32,6 +35,8 @@ export const it: typeof en = {
 
 	commands: {
 		title: 'Comandi',
+		groupTitle: 'Seleziona del testo ovunque, poi premi una scorciatoia',
+		groupHint: 'Sostituisce la selezione',
 		count: (n: number) => `${n} ${n === 1 ? 'configurato' : 'configurati'}`,
 		addCommand: 'Aggiungi comando',
 		columnName: 'Nome',
@@ -75,12 +80,15 @@ export const it: typeof en = {
 			saveError: 'Impossibile salvare il comando',
 			saveFailedFallback: 'Salvataggio non riuscito.',
 			addSubmit: 'Aggiungi comando',
-			saveSubmit: 'Salva modifiche'
+			saveSubmit: 'Salva modifiche',
+			deleteSubmit: 'Elimina comando'
 		}
 	},
 
 	backends: {
 		title: 'Backend',
+		groupTitle: 'Dove i comandi inviano il testo',
+		groupHint: 'Ogni comando ne usa uno',
 		count: (n: number) => `${n} ${n === 1 ? 'configurato' : 'configurati'}`,
 		addBackend: 'Aggiungi backend',
 		columnName: 'Nome',
@@ -95,6 +103,8 @@ export const it: typeof en = {
 		blockedDeleteTitle: (name: string) => `Impossibile eliminare «${name}»`,
 		blockedDeleteDescription: (usedBy: string) =>
 			`Ancora utilizzato da: ${usedBy}. Assegna prima a questi comandi un backend diverso, poi eliminalo.`,
+		usedBy: (names: string) => `Usato da ${names}`,
+		unused: 'Non usato da nessun comando',
 		form: {
 			addTitle: 'Aggiungi backend',
 			editTitle: 'Modifica backend',
@@ -135,7 +145,8 @@ export const it: typeof en = {
 			saveError: 'Impossibile salvare il backend',
 			saveFailedFallback: 'Salvataggio non riuscito.',
 			addSubmit: 'Aggiungi backend',
-			saveSubmit: 'Salva modifiche'
+			saveSubmit: 'Salva modifiche',
+			deleteSubmit: 'Elimina backend'
 		}
 	},
 
@@ -175,6 +186,11 @@ export const it: typeof en = {
 		copy: 'Copia',
 		copied: 'Copiato',
 		copyResult: 'Copia risultato',
+		searchPlaceholder: 'Cerca nella cronologia',
+		noMatches: 'Nessuna esecuzione corrisponde alla ricerca.',
+		changesLabel: 'Cosa è cambiato',
+		durationDetail: (total: string, backend: string) =>
+			`${total} in totale, di cui ${backend} in attesa del backend`,
 		clearTitle: 'Svuotare la cronologia?',
 		clearDescription: (count: number) =>
 			`Rimuove definitivamente tutte le ${count} esecuzioni registrate, incluso qualsiasi testo di input e risultato ancora conservato qui per il recupero. Questa azione non può essere annullata.`
@@ -182,6 +198,8 @@ export const it: typeof en = {
 
 	settings: {
 		title: 'Impostazioni',
+		groupAppearance: 'Aspetto',
+		groupStartup: 'Avvio',
 		themeLabel: 'Tema',
 		themeDescription: 'Si applica a questa finestra. Segue Windows per impostazione predefinita.',
 		themeSystem: 'Sistema',

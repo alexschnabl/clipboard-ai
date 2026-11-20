@@ -7,6 +7,7 @@ fn main() {
             "resume_hotkeys",
             "get_history",
             "clear_history",
+            "quit_app",
         ])),
     )
     .expect("failed to run tauri-build");

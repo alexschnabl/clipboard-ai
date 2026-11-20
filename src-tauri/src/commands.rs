@@ -171,3 +171,8 @@ pub fn get_history(state: State<'_, AppState>) -> Vec<history::HistoryEntry> {
 pub fn clear_history(state: State<'_, AppState>) -> Result<(), String> {
     history::clear(&state.config_dir.join(history::FILE_NAME)).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub fn quit_app(app: AppHandle, state: State<'_, AppState>) {
+    crate::quit_app(&app, &state);
+}

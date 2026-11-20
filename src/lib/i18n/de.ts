@@ -6,13 +6,16 @@ export const de: typeof en = {
 		backends: 'Backends',
 		history: 'Verlauf',
 		settings: 'Einstellungen',
-		working: 'Arbeitet…'
+		working: 'Arbeitet…',
+		version: (v: string) => `Version ${v}`,
+		quit: 'Clipboard AI beenden'
 	},
 
 	common: {
 		cancel: 'Abbrechen',
 		delete: 'Löschen',
-		saving: 'Wird gespeichert…'
+		saving: 'Wird gespeichert…',
+		back: 'Zurück'
 	},
 
 	app: {
@@ -32,6 +35,8 @@ export const de: typeof en = {
 
 	commands: {
 		title: 'Befehle',
+		groupTitle: 'Text irgendwo markieren, dann Tastenkürzel drücken',
+		groupHint: 'Ersetzt die Auswahl',
 		count: (n: number) => `${n} konfiguriert`,
 		addCommand: 'Befehl hinzufügen',
 		columnName: 'Name',
@@ -75,12 +80,15 @@ export const de: typeof en = {
 			saveError: 'Befehl konnte nicht gespeichert werden',
 			saveFailedFallback: 'Speichern fehlgeschlagen.',
 			addSubmit: 'Befehl hinzufügen',
-			saveSubmit: 'Änderungen speichern'
+			saveSubmit: 'Änderungen speichern',
+			deleteSubmit: 'Befehl löschen'
 		}
 	},
 
 	backends: {
 		title: 'Backends',
+		groupTitle: 'Wohin Befehle den Text schicken',
+		groupHint: 'Jeder Befehl nutzt eines',
 		count: (n: number) => `${n} konfiguriert`,
 		addBackend: 'Backend hinzufügen',
 		columnName: 'Name',
@@ -96,6 +104,8 @@ export const de: typeof en = {
 		blockedDeleteTitle: (name: string) => `„${name}“ kann nicht gelöscht werden`,
 		blockedDeleteDescription: (usedBy: string) =>
 			`Wird noch verwendet von: ${usedBy}. Weisen Sie diesen Befehlen zuerst ein anderes Backend zu, bevor Sie es löschen.`,
+		usedBy: (names: string) => `Verwendet von ${names}`,
+		unused: 'Von keinem Befehl verwendet',
 		form: {
 			addTitle: 'Backend hinzufügen',
 			editTitle: 'Backend bearbeiten',
@@ -136,7 +146,8 @@ export const de: typeof en = {
 			saveError: 'Backend konnte nicht gespeichert werden',
 			saveFailedFallback: 'Speichern fehlgeschlagen.',
 			addSubmit: 'Backend hinzufügen',
-			saveSubmit: 'Änderungen speichern'
+			saveSubmit: 'Änderungen speichern',
+			deleteSubmit: 'Backend löschen'
 		}
 	},
 
@@ -177,6 +188,11 @@ export const de: typeof en = {
 		copy: 'Kopieren',
 		copied: 'Kopiert',
 		copyResult: 'Ergebnis kopieren',
+		searchPlaceholder: 'Verlauf durchsuchen',
+		noMatches: 'Keine Einträge passen zur Suche.',
+		changesLabel: 'Was sich geändert hat',
+		durationDetail: (total: string, backend: string) =>
+			`${total} insgesamt, davon ${backend} Warten auf das Backend`,
 		clearTitle: 'Verlauf leeren?',
 		clearDescription: (count: number) =>
 			`Löscht dauerhaft alle ${count} erfassten Ausführungen, einschließlich aller hier noch zur Wiederherstellung vorgehaltenen Eingabe- und Ergebnistexte. Diese Aktion kann nicht rückgängig gemacht werden.`
@@ -184,6 +200,8 @@ export const de: typeof en = {
 
 	settings: {
 		title: 'Einstellungen',
+		groupAppearance: 'Darstellung',
+		groupStartup: 'Start',
 		themeLabel: 'Design',
 		themeDescription: 'Gilt für dieses Fenster. Folgt standardmäßig den Windows-Einstellungen.',
 		themeSystem: 'System',

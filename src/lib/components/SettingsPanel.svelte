@@ -2,6 +2,7 @@
 	import * as Select from '$lib/components/shadcn/select/index.js';
 	import * as Alert from '$lib/components/shadcn/alert/index.js';
 	import { Switch } from '$lib/components/shadcn/switch/index.js';
+	import PageHeader from './PageHeader.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { registry, type LanguageChoice } from '$lib/i18n/registry';
@@ -58,83 +59,90 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<div class="flex shrink-0 items-center gap-2 border-b px-4 py-2.5">
-		<h2 class="text-[12.5px] font-bold">{i18n.t.settings.title}</h2>
-		<div class="flex-1"></div>
-	</div>
+	<PageHeader title={i18n.t.settings.title} />
 
-	<div class="min-h-0 flex-1 overflow-y-auto p-4">
+	<div class="page-body">
 		{#if settingsNotice}
-			<Alert.Root variant="destructive" class="mb-3">
+			<Alert.Root variant="destructive">
 				<Alert.Title>{i18n.t.settings.saveErrorTitle}</Alert.Title>
 				<Alert.Description>{settingsNotice}</Alert.Description>
 			</Alert.Root>
 		{/if}
 
-		<div class="flex flex-col">
-			<div class="flex items-center justify-between gap-4 border-b py-3">
-				<div class="flex flex-col gap-0.5">
-					<span class="text-sm font-medium">{i18n.t.settings.themeLabel}</span>
-					<span class="text-xs text-muted-foreground">{i18n.t.settings.themeDescription}</span>
-				</div>
-				<div
-					class="inline-flex shrink-0 gap-0.5 rounded-md bg-muted p-0.5"
-					role="radiogroup"
-					aria-label={i18n.t.settings.themeLabel}
-				>
-					{#each themeOptions as opt (opt.value)}
-						{@const active = configState.config.settings.theme === opt.value}
-						<button
-							type="button"
-							role="radio"
-							aria-checked={active}
-							class="rounded-sm px-2.5 py-1 text-xs font-medium transition-colors {active
-								? 'bg-background text-foreground shadow-sm'
-								: 'text-muted-foreground hover:text-foreground'}"
-							onclick={() => setTheme(opt.value)}
-						>
-							{opt.label}
-						</button>
-					{/each}
-				</div>
-			</div>
-
-			<div class="flex items-center justify-between gap-4 border-b py-3">
-				<div class="flex flex-col gap-0.5">
-					<span class="text-sm font-medium">{i18n.t.settings.languageLabel}</span>
-					<span class="text-xs text-muted-foreground">{i18n.t.settings.languageDescription}</span>
-				</div>
-				<Select.Root
-					type="single"
-					value={configState.config.settings.language}
-					onValueChange={handleLanguageChange}
-				>
-					<Select.Trigger class="w-32 shrink-0">{languageLabel}</Select.Trigger>
-					<Select.Content>
-						{#each languageOptions as opt (opt.value)}
-							<Select.Item value={opt.value} label={opt.label} />
+		<section>
+			<div class="group-title"><span>{i18n.t.settings.groupAppearance}</span></div>
+			<div class="list-card">
+				<div class="list-row justify-between gap-4">
+					<div class="flex flex-col gap-0.5">
+						<span>{i18n.t.settings.themeLabel}</span>
+						<span class="text-[13px] text-muted-foreground">{i18n.t.settings.themeDescription}</span>
+					</div>
+					<div
+						class="inline-flex shrink-0 gap-0.5 rounded-[9px] bg-muted p-[3px]"
+						role="radiogroup"
+						aria-label={i18n.t.settings.themeLabel}
+					>
+						{#each themeOptions as opt (opt.value)}
+							{@const active = configState.config.settings.theme === opt.value}
+							<button
+								type="button"
+								role="radio"
+								aria-checked={active}
+								class="rounded-[7px] px-3 py-1 text-[12.5px] transition-colors duration-150 {active
+									? 'bg-card text-foreground shadow-[0_1px_2px_rgb(0_0_0/0.12)]'
+									: 'text-muted-foreground hover:text-foreground'}"
+								onclick={() => setTheme(opt.value)}
+							>
+								{opt.label}
+							</button>
 						{/each}
-					</Select.Content>
-				</Select.Root>
-			</div>
-
-			<div class="flex items-center justify-between gap-4 py-3">
-				<div class="flex flex-col gap-0.5">
-					<span class="text-sm font-medium">{i18n.t.settings.autostartLabel}</span>
-					<span class="text-xs text-muted-foreground">
-						{i18n.t.settings.autostartDescription}
-						{i18n.t.settings.autostartDevNoteBefore}<code>npm run tauri build</code
-						>{i18n.t.settings.autostartDevNoteAfter}
-					</span>
+					</div>
 				</div>
-				<Switch
-					checked={configState.config.settings.autostart}
-					disabled={autostartPending}
-					onCheckedChange={(checked: boolean) => void setAutostart(checked)}
-					class="shrink-0"
-					aria-label={i18n.t.settings.autostartLabel}
-				/>
+
+				<div class="list-row justify-between gap-4">
+					<div class="flex flex-col gap-0.5">
+						<span>{i18n.t.settings.languageLabel}</span>
+						<span class="text-[13px] text-muted-foreground">{i18n.t.settings.languageDescription}</span>
+					</div>
+					<Select.Root
+						type="single"
+						value={configState.config.settings.language}
+						onValueChange={handleLanguageChange}
+					>
+						<Select.Trigger class="w-32 shrink-0">{languageLabel}</Select.Trigger>
+						<Select.Content>
+							{#each languageOptions as opt (opt.value)}
+								<Select.Item value={opt.value} label={opt.label} />
+							{/each}
+						</Select.Content>
+					</Select.Root>
+				</div>
 			</div>
-		</div>
+		</section>
+
+		<section>
+			<div class="group-title"><span>{i18n.t.settings.groupStartup}</span></div>
+			<div class="list-card">
+				<div class="list-row justify-between gap-4">
+					<div class="flex flex-col gap-0.5">
+						<span>{i18n.t.settings.autostartLabel}</span>
+						<span class="text-[13px] text-muted-foreground">
+							{i18n.t.settings.autostartDescription}
+							{#if import.meta.env.DEV}
+								{i18n.t.settings.autostartDevNoteBefore}<code>npm run tauri build</code
+								>{i18n.t.settings.autostartDevNoteAfter}
+							{/if}
+						</span>
+					</div>
+					<Switch
+						checked={configState.config.settings.autostart}
+						disabled={autostartPending}
+						onCheckedChange={(checked: boolean) => void setAutostart(checked)}
+						class="shrink-0"
+						aria-label={i18n.t.settings.autostartLabel}
+					/>
+				</div>
+			</div>
+		</section>
 	</div>
 </div>

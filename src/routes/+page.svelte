@@ -1,5 +1,6 @@
 <script lang="ts">
 	import * as Alert from '$lib/components/shadcn/alert/index.js';
+	import TitleBar from '$lib/components/TitleBar.svelte';
 	import SettingsSidebar, { type SectionId } from '$lib/components/SettingsSidebar.svelte';
 	import BackendList from '$lib/components/BackendList.svelte';
 	import CommandList from '$lib/components/CommandList.svelte';
@@ -9,6 +10,7 @@
 	import { activity } from '$lib/state/activity.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { onMount } from 'svelte';
+	import { fade } from 'svelte/transition';
 	import { listen } from '@tauri-apps/api/event';
 
 	let activeSection = $state<SectionId>('commands');
@@ -35,78 +37,80 @@
 	});
 </script>
 
-<div class="flex h-screen min-h-0 overflow-hidden">
-	<SettingsSidebar
-		active={activeSection}
-		onNavigate={(id) => (activeSection = id)}
-		commandCount={configState.config.commands.length}
-		backendCount={configState.config.backends.length}
-	/>
+<div class="flex h-screen min-h-0 flex-col overflow-hidden bg-canvas">
+	<TitleBar />
+	<div class="flex min-h-0 flex-1">
+		<SettingsSidebar active={activeSection} onNavigate={(id) => (activeSection = id)} />
 
-	<div class="flex min-w-0 flex-1 flex-col overflow-hidden">
-		{#if configState.loadError || configState.error || configState.problems.length > 0}
-			<div class="flex max-h-48 shrink-0 flex-col gap-2 overflow-y-auto border-b px-4 py-3">
-				{#if configState.loadError}
-					<Alert.Root variant="destructive">
-						<Alert.Title>{i18n.t.app.loadErrorTitle}</Alert.Title>
-						<Alert.Description>
-							<p>{configState.loadError.reason}</p>
-							{#if configState.loadError.preservedPath}
-								<p>
-									{i18n.t.app.loadErrorPreservedBefore}
-									<code>{configState.loadError.preservedPath}</code>. {i18n.t.app
-										.loadErrorPreservedAfter}
-								</p>
-							{:else}
-								<p>{i18n.t.app.loadErrorNotPreserved}</p>
-							{/if}
-							<p>{i18n.t.app.loadErrorFallbackNotice}</p>
-						</Alert.Description>
-					</Alert.Root>
-				{/if}
-
-				{#if configState.error}
-					<Alert.Root variant="destructive">
-						<Alert.Title>
-							{configState.error.source === 'load'
-								? i18n.t.app.errorLoadTitle
-								: i18n.t.app.errorSaveTitle}
-						</Alert.Title>
-						<Alert.Description>{configState.error.message}</Alert.Description>
-					</Alert.Root>
-				{/if}
-
-				{#if configState.problems.length > 0}
-					<Alert.Root>
-						<Alert.Title>{i18n.t.app.problemsTitle}</Alert.Title>
-						<Alert.Description>
-							<ul class="list-disc pl-4">
-								{#each configState.problems as problem, i (i)}
-									<li>{problem.message}</li>
-								{/each}
-							</ul>
-						</Alert.Description>
-					</Alert.Root>
-				{/if}
-			</div>
-		{/if}
-
-		{#if configState.loading}
-			<p class="p-4 text-sm text-muted-foreground">{i18n.t.app.loading}</p>
-		{:else}
-			<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-				{#key configState.revision}
-					{#if activeSection === 'commands'}
-						<CommandList />
-					{:else if activeSection === 'backends'}
-						<BackendList />
-					{:else if activeSection === 'history'}
-						<HistoryPanel />
-					{:else}
-						<SettingsPanel />
+		<div
+			class="mr-2.5 mb-2.5 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[14px] border bg-card text-card-foreground"
+		>
+			{#if configState.loadError || configState.error || configState.problems.length > 0}
+				<div class="flex max-h-48 shrink-0 flex-col gap-2 overflow-y-auto border-b px-7 py-3">
+					{#if configState.loadError}
+						<Alert.Root variant="destructive">
+							<Alert.Title>{i18n.t.app.loadErrorTitle}</Alert.Title>
+							<Alert.Description>
+								<p>{configState.loadError.reason}</p>
+								{#if configState.loadError.preservedPath}
+									<p>
+										{i18n.t.app.loadErrorPreservedBefore}
+										<code>{configState.loadError.preservedPath}</code>. {i18n.t.app
+											.loadErrorPreservedAfter}
+									</p>
+								{:else}
+									<p>{i18n.t.app.loadErrorNotPreserved}</p>
+								{/if}
+								<p>{i18n.t.app.loadErrorFallbackNotice}</p>
+							</Alert.Description>
+						</Alert.Root>
 					{/if}
-				{/key}
-			</div>
-		{/if}
+
+					{#if configState.error}
+						<Alert.Root variant="destructive">
+							<Alert.Title>
+								{configState.error.source === 'load'
+									? i18n.t.app.errorLoadTitle
+									: i18n.t.app.errorSaveTitle}
+							</Alert.Title>
+							<Alert.Description>{configState.error.message}</Alert.Description>
+						</Alert.Root>
+					{/if}
+
+					{#if configState.problems.length > 0}
+						<Alert.Root>
+							<Alert.Title>{i18n.t.app.problemsTitle}</Alert.Title>
+							<Alert.Description>
+								<ul class="list-disc pl-4">
+									{#each configState.problems as problem, i (i)}
+										<li>{problem.message}</li>
+									{/each}
+								</ul>
+							</Alert.Description>
+						</Alert.Root>
+					{/if}
+				</div>
+			{/if}
+
+			{#if configState.loading}
+				<p class="px-7 py-6 text-sm text-muted-foreground">{i18n.t.app.loading}</p>
+			{:else}
+				<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
+					{#key `${configState.revision}-${activeSection}`}
+						<div class="flex min-h-0 flex-1 flex-col" in:fade={{ duration: 140 }}>
+							{#if activeSection === 'commands'}
+								<CommandList />
+							{:else if activeSection === 'backends'}
+								<BackendList />
+							{:else if activeSection === 'history'}
+								<HistoryPanel />
+							{:else}
+								<SettingsPanel />
+							{/if}
+						</div>
+					{/key}
+				</div>
+			{/if}
+		</div>
 	</div>
 </div>

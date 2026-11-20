@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Keycaps from './Keycaps.svelte';
 	import { invoke } from '@tauri-apps/api/core';
 	import { onDestroy } from 'svelte';
 	import { hotkeyFromEvent } from '$lib/hotkey';
@@ -86,8 +87,11 @@
 <button
 	{id}
 	type="button"
-	class="w-full rounded-md border px-3 py-1.5 text-left font-mono text-sm"
-	class:ring-2={recording}
+	class={[
+		'flex h-9 w-full items-center rounded-[9px] border border-input bg-card px-2.5 text-left text-sm shadow-xs',
+		recording && 'ring-2 ring-ring/40',
+		!value && !recording && 'text-muted-foreground'
+	]}
 	onclick={start}
 	onblur={() => void stop(false)}
 	aria-pressed={recording}
@@ -97,7 +101,13 @@
 			? i18n.t.hotkeyRecorder.ariaHotkey(value)
 			: i18n.t.hotkeyRecorder.ariaEmpty}
 >
-	{recording ? i18n.t.hotkeyRecorder.prompt : value || i18n.t.hotkeyRecorder.placeholder}
+	{#if recording}
+		{i18n.t.hotkeyRecorder.prompt}
+	{:else if value}
+		<Keycaps hotkey={value} />
+	{:else}
+		{i18n.t.hotkeyRecorder.placeholder}
+	{/if}
 </button>
 {#if recording}
 	<p class="sr-only" role="status">

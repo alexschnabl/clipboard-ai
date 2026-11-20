@@ -6,13 +6,16 @@ export const fr: typeof en = {
 		backends: 'Backends',
 		history: 'Historique',
 		settings: 'Paramètres',
-		working: 'En cours…'
+		working: 'En cours…',
+		version: (v: string) => `Version ${v}`,
+		quit: 'Quitter Clipboard AI'
 	},
 
 	common: {
 		cancel: 'Annuler',
 		delete: 'Supprimer',
-		saving: 'Enregistrement…'
+		saving: 'Enregistrement…',
+		back: 'Retour'
 	},
 
 	app: {
@@ -32,6 +35,8 @@ export const fr: typeof en = {
 
 	commands: {
 		title: 'Commandes',
+		groupTitle: 'Sélectionnez du texte n’importe où, puis appuyez sur un raccourci',
+		groupHint: 'Remplace la sélection',
 		count: (n: number) => `${n} configurée${n === 1 ? '' : 's'}`,
 		addCommand: 'Ajouter une commande',
 		columnName: 'Nom',
@@ -75,12 +80,15 @@ export const fr: typeof en = {
 			saveError: 'Impossible d’enregistrer la commande',
 			saveFailedFallback: 'Échec de l’enregistrement.',
 			addSubmit: 'Ajouter la commande',
-			saveSubmit: 'Enregistrer les modifications'
+			saveSubmit: 'Enregistrer les modifications',
+			deleteSubmit: 'Supprimer la commande'
 		}
 	},
 
 	backends: {
 		title: 'Backends',
+		groupTitle: 'Où les commandes envoient le texte',
+		groupHint: 'Chaque commande en utilise un',
 		count: (n: number) => `${n} configuré${n === 1 ? '' : 's'}`,
 		addBackend: 'Ajouter un backend',
 		columnName: 'Nom',
@@ -95,6 +103,8 @@ export const fr: typeof en = {
 		blockedDeleteTitle: (name: string) => `Impossible de supprimer « ${name} »`,
 		blockedDeleteDescription: (usedBy: string) =>
 			`Encore utilisé par : ${usedBy}. Faites d’abord pointer ces commandes vers un autre backend, puis supprimez-le.`,
+		usedBy: (names: string) => `Utilisé par ${names}`,
+		unused: 'Utilisé par aucune commande',
 		form: {
 			addTitle: 'Ajouter un backend',
 			editTitle: 'Modifier le backend',
@@ -135,7 +145,8 @@ export const fr: typeof en = {
 			saveError: 'Impossible d’enregistrer le backend',
 			saveFailedFallback: 'Échec de l’enregistrement.',
 			addSubmit: 'Ajouter le backend',
-			saveSubmit: 'Enregistrer les modifications'
+			saveSubmit: 'Enregistrer les modifications',
+			deleteSubmit: 'Supprimer le backend'
 		}
 	},
 
@@ -177,6 +188,11 @@ export const fr: typeof en = {
 		copy: 'Copier',
 		copied: 'Copié',
 		copyResult: 'Copier le résultat',
+		searchPlaceholder: 'Rechercher dans l’historique',
+		noMatches: 'Aucune exécution ne correspond à votre recherche.',
+		changesLabel: 'Ce qui a changé',
+		durationDetail: (total: string, backend: string) =>
+			`${total} au total, dont ${backend} d’attente du backend`,
 		clearTitle: 'Effacer l’historique ?',
 		clearDescription: (count: number) =>
 			`Supprime définitivement les ${count} exécutions enregistrées, y compris tout texte d’entrée et de résultat encore conservé ici pour récupération. Cette action est irréversible.`
@@ -184,6 +200,8 @@ export const fr: typeof en = {
 
 	settings: {
 		title: 'Paramètres',
+		groupAppearance: 'Apparence',
+		groupStartup: 'Démarrage',
 		themeLabel: 'Thème',
 		themeDescription: 'S’applique à cette fenêtre. Suit Windows par défaut.',
 		themeSystem: 'Système',

@@ -1,13 +1,15 @@
 <script lang="ts">
-	import * as Dialog from '$lib/components/shadcn/dialog/index.js';
 	import * as Select from '$lib/components/shadcn/select/index.js';
 	import * as Alert from '$lib/components/shadcn/alert/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import { Input } from '$lib/components/shadcn/input/index.js';
 	import { Label } from '$lib/components/shadcn/label/index.js';
 	import { Switch } from '$lib/components/shadcn/switch/index.js';
-	import RiEyeLine from 'remixicon-svelte/icons/eye-line';
-	import RiEyeOffLine from 'remixicon-svelte/icons/eye-off-line';
+	import TrashIcon from '@lucide/svelte/icons/trash';
+	import PageHeader from './PageHeader.svelte';
+	import { fade } from 'svelte/transition';
+	import EyeIcon from '@lucide/svelte/icons/eye';
+	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { KIND_LABELS, type BackendConfig, type BackendKind, type Effort } from '$lib/types';
@@ -16,10 +18,12 @@
 
 	let {
 		open = $bindable(false),
-		backend = null
+		backend = null,
+		onDelete
 	}: {
 		open: boolean;
 		backend?: BackendConfig | null;
+		onDelete?: () => void;
 	} = $props();
 
 	const DEFAULT_TIMEOUT_MS = 120_000;
@@ -111,185 +115,200 @@
 			submitError = configState.error?.message ?? i18n.t.backends.form.saveFailedFallback;
 		}
 	}
+
+	function onWindowKeydown(event: KeyboardEvent): void {
+		if (!open || saving || event.key !== 'Escape' || event.defaultPrevented) return;
+		if (document.querySelector('[data-slot=select-content], [data-slot=dialog-content]')) return;
+		open = false;
+	}
 </script>
 
-<Dialog.Root bind:open>
-	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>{isEdit ? i18n.t.backends.form.editTitle : i18n.t.backends.form.addTitle}</Dialog.Title>
-			<Dialog.Description>
-				{isEdit ? i18n.t.backends.form.editDescription : i18n.t.backends.form.addDescription}
-			</Dialog.Description>
-		</Dialog.Header>
+<svelte:window onkeydown={onWindowKeydown} />
 
-		<div class="flex flex-col gap-3">
-			<div class="flex flex-col gap-1.5">
-				<Label for="backend-name">{i18n.t.backends.form.nameLabel}</Label>
-				<Input
-					id="backend-name"
-					bind:value={name}
-					placeholder={i18n.t.backends.form.namePlaceholder}
-					autocomplete="off"
-				/>
-			</div>
+{#if open}
+	<div class="flex h-full min-h-0 flex-col" in:fade={{ duration: 120 }}>
+		<PageHeader
+			title={isEdit ? (backend?.name ?? '') : i18n.t.backends.form.addTitle}
+			onBack={() => (open = false)}
+		/>
 
-			<div class="flex flex-col gap-1.5">
-				<Label for="backend-kind">{i18n.t.backends.form.kindLabel}</Label>
-				<Select.Root type="single" value={kind} onValueChange={handleKindChange}>
-					<Select.Trigger id="backend-kind" class="w-full">
-						{KIND_LABELS[kind]}
-					</Select.Trigger>
-					<Select.Content>
-						{#each Object.entries(KIND_LABELS) as [value, label] (value)}
-							<Select.Item {value} {label} />
-						{/each}
-					</Select.Content>
-				</Select.Root>
-			</div>
-
-			{#if usesBaseUrl}
+		<div class="page-body">
+			<div class="list-card flex flex-col gap-4 p-5">
 				<div class="flex flex-col gap-1.5">
-					<Label for="backend-base-url">{i18n.t.backends.form.baseUrlLabel}</Label>
+					<Label for="backend-name">{i18n.t.backends.form.nameLabel}</Label>
 					<Input
-						id="backend-base-url"
-						bind:value={baseUrl}
-						placeholder={kind === 'http'
-							? 'http://localhost:8080/transform'
-							: 'http://localhost:11434/v1'}
+						id="backend-name"
+						bind:value={name}
+						placeholder={i18n.t.backends.form.namePlaceholder}
 						autocomplete="off"
 					/>
-					{#if kind === 'http'}
-						<p class="text-xs text-muted-foreground">{i18n.t.backends.form.httpUrlHint}</p>
-					{/if}
 				</div>
-			{/if}
 
-			{#if kind !== 'http'}
 				<div class="flex flex-col gap-1.5">
-					<Label for="backend-model">{i18n.t.backends.form.modelLabel}</Label>
-					<Input
-						id="backend-model"
-						bind:value={model}
-						placeholder={kind === 'openai-compatible'
-							? i18n.t.backends.form.modelPlaceholderOpenAiCompatible
-							: kind === 'claude-cli'
-								? i18n.t.backends.form.modelPlaceholderClaudeCli
-								: i18n.t.backends.form.modelPlaceholderOther}
-						autocomplete="off"
-					/>
-					{#if kind === 'claude-cli'}
-						<p class="text-xs text-muted-foreground">{i18n.t.backends.form.modelHintClaudeCli}</p>
-					{/if}
-				</div>
-			{/if}
-
-			{#if kind === 'claude-cli'}
-				<div class="flex flex-col gap-1.5">
-					<Label for="backend-effort">{i18n.t.backends.form.effortLabel}</Label>
-					<Select.Root type="single" value={effort} onValueChange={handleEffortChange}>
-						<Select.Trigger id="backend-effort" class="w-full">
-							{effortLabels[effort]}
+					<Label for="backend-kind">{i18n.t.backends.form.kindLabel}</Label>
+					<Select.Root type="single" value={kind} onValueChange={handleKindChange}>
+						<Select.Trigger id="backend-kind" class="w-full">
+							{KIND_LABELS[kind]}
 						</Select.Trigger>
 						<Select.Content>
-							{#each EFFORT_VALUES as value (value)}
-								<Select.Item {value} label={effortLabels[value]} />
+							{#each Object.entries(KIND_LABELS) as [value, label] (value)}
+								<Select.Item {value} {label} />
 							{/each}
 						</Select.Content>
 					</Select.Root>
-					<p class="text-xs text-muted-foreground">{i18n.t.backends.form.effortHint}</p>
 				</div>
-			{/if}
 
-			{#if kind === 'http'}
-				<div class="flex items-center justify-between gap-3">
-					<div class="flex flex-col gap-0.5">
-						<Label for="backend-expect-response">{i18n.t.backends.form.expectResponseLabel}</Label>
-						<p class="text-xs text-muted-foreground">
-							{i18n.t.backends.form.expectResponseHint}
-						</p>
-					</div>
-					<Switch id="backend-expect-response" bind:checked={expectsResponse} />
-				</div>
-			{/if}
-
-			{#if usesKey}
-				<div class="flex flex-col gap-1.5">
-					<Label for="backend-api-key">
-						{i18n.t.backends.form.apiKeyLabel}
-						{#if kind === 'openai-compatible' || kind === 'http'}
-							<span class="font-normal text-muted-foreground"
-								>{i18n.t.backends.form.apiKeyOptional}</span
-							>
-						{/if}
-					</Label>
-					<div class="relative">
+				{#if usesBaseUrl}
+					<div class="flex flex-col gap-1.5">
+						<Label for="backend-base-url">{i18n.t.backends.form.baseUrlLabel}</Label>
 						<Input
-							id="backend-api-key"
-							type={revealed ? 'text' : 'password'}
-							bind:value={apiKey}
-							class="pr-9"
+							id="backend-base-url"
+							bind:value={baseUrl}
+							placeholder={kind === 'http'
+								? 'http://localhost:8080/transform'
+								: 'http://localhost:11434/v1'}
 							autocomplete="off"
 						/>
-						<button
-							type="button"
-							onclick={() => (revealed = !revealed)}
-							class="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-							aria-label={revealed
-								? i18n.t.backends.form.hideApiKey
-								: i18n.t.backends.form.showApiKey}
-						>
-							{#if revealed}
-								<RiEyeOffLine class="size-4" />
-							{:else}
-								<RiEyeLine class="size-4" />
-							{/if}
-						</button>
+						{#if kind === 'http'}
+							<p class="text-xs text-muted-foreground">{i18n.t.backends.form.httpUrlHint}</p>
+						{/if}
 					</div>
+				{/if}
+
+				{#if kind !== 'http'}
+					<div class="flex flex-col gap-1.5">
+						<Label for="backend-model">{i18n.t.backends.form.modelLabel}</Label>
+						<Input
+							id="backend-model"
+							bind:value={model}
+							placeholder={kind === 'openai-compatible'
+								? i18n.t.backends.form.modelPlaceholderOpenAiCompatible
+								: kind === 'claude-cli'
+									? i18n.t.backends.form.modelPlaceholderClaudeCli
+									: i18n.t.backends.form.modelPlaceholderOther}
+							autocomplete="off"
+						/>
+						{#if kind === 'claude-cli'}
+							<p class="text-xs text-muted-foreground">{i18n.t.backends.form.modelHintClaudeCli}</p>
+						{/if}
+					</div>
+				{/if}
+
+				{#if kind === 'claude-cli'}
+					<div class="flex flex-col gap-1.5">
+						<Label for="backend-effort">{i18n.t.backends.form.effortLabel}</Label>
+						<Select.Root type="single" value={effort} onValueChange={handleEffortChange}>
+							<Select.Trigger id="backend-effort" class="w-full">
+								{effortLabels[effort]}
+							</Select.Trigger>
+							<Select.Content>
+								{#each EFFORT_VALUES as value (value)}
+									<Select.Item {value} label={effortLabels[value]} />
+								{/each}
+							</Select.Content>
+						</Select.Root>
+						<p class="text-xs text-muted-foreground">{i18n.t.backends.form.effortHint}</p>
+					</div>
+				{/if}
+
+				{#if kind === 'http'}
+					<div class="flex items-center justify-between gap-3">
+						<div class="flex flex-col gap-0.5">
+							<Label for="backend-expect-response">{i18n.t.backends.form.expectResponseLabel}</Label>
+							<p class="text-xs text-muted-foreground">
+								{i18n.t.backends.form.expectResponseHint}
+							</p>
+						</div>
+						<Switch id="backend-expect-response" bind:checked={expectsResponse} />
+					</div>
+				{/if}
+
+				{#if usesKey}
+					<div class="flex flex-col gap-1.5">
+						<Label for="backend-api-key">
+							{i18n.t.backends.form.apiKeyLabel}
+							{#if kind === 'openai-compatible' || kind === 'http'}
+								<span class="font-normal text-muted-foreground"
+									>{i18n.t.backends.form.apiKeyOptional}</span
+								>
+							{/if}
+						</Label>
+						<div class="relative">
+							<Input
+								id="backend-api-key"
+								type={revealed ? 'text' : 'password'}
+								bind:value={apiKey}
+								class="pr-9"
+								autocomplete="off"
+							/>
+							<button
+								type="button"
+								onclick={() => (revealed = !revealed)}
+								class="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+								aria-label={revealed
+									? i18n.t.backends.form.hideApiKey
+									: i18n.t.backends.form.showApiKey}
+							>
+								{#if revealed}
+									<EyeOffIcon class="size-4" />
+								{:else}
+									<EyeIcon class="size-4" />
+								{/if}
+							</button>
+						</div>
+					</div>
+				{/if}
+
+				<div class="flex flex-col gap-1.5">
+					<Label for="backend-timeout">{i18n.t.backends.form.timeoutLabel}</Label>
+					<Input
+						id="backend-timeout"
+						type="number"
+						min={MIN_TIMEOUT_MS}
+						step="1000"
+						value={timeoutMs}
+						oninput={handleTimeoutInput}
+						aria-invalid={timeoutTooLow}
+					/>
+					{#if kind === 'openai-compatible'}
+						<p class="text-xs text-muted-foreground">
+							{i18n.t.backends.form.timeoutHint(DEFAULT_TIMEOUT_MS.toLocaleString())}
+						</p>
+					{/if}
+					{#if timeoutTooLow}
+						<p class="text-xs text-destructive">
+							{i18n.t.backends.form.timeoutTooLow(MIN_TIMEOUT_MS)}
+						</p>
+					{/if}
 				</div>
+			</div>
+
+			{#if submitError}
+				<Alert.Root variant="destructive">
+					<Alert.Title>{i18n.t.backends.form.saveError}</Alert.Title>
+					<Alert.Description>{submitError}</Alert.Description>
+				</Alert.Root>
 			{/if}
 
-			<div class="flex flex-col gap-1.5">
-				<Label for="backend-timeout">{i18n.t.backends.form.timeoutLabel}</Label>
-				<Input
-					id="backend-timeout"
-					type="number"
-					min={MIN_TIMEOUT_MS}
-					step="1000"
-					value={timeoutMs}
-					oninput={handleTimeoutInput}
-					aria-invalid={timeoutTooLow}
-				/>
-				{#if kind === 'openai-compatible'}
-					<p class="text-xs text-muted-foreground">
-						{i18n.t.backends.form.timeoutHint(DEFAULT_TIMEOUT_MS.toLocaleString())}
-					</p>
+			<div class="flex items-center gap-2">
+				{#if isEdit && onDelete}
+					<Button variant="ghost" class="text-destructive hover:text-destructive" onclick={onDelete}>
+						<TrashIcon class="size-4" />
+						{i18n.t.backends.form.deleteSubmit}
+					</Button>
 				{/if}
-				{#if timeoutTooLow}
-					<p class="text-xs text-destructive">
-						{i18n.t.backends.form.timeoutTooLow(MIN_TIMEOUT_MS)}
-					</p>
-				{/if}
+				<div class="flex-1"></div>
+				<Button variant="outline" onclick={() => (open = false)} disabled={saving}
+					>{i18n.t.common.cancel}</Button
+				>
+				<Button onclick={() => void handleSave()} disabled={!canSave || saving}>
+					{saving
+						? i18n.t.common.saving
+						: isEdit
+							? i18n.t.backends.form.saveSubmit
+							: i18n.t.backends.form.addSubmit}
+				</Button>
 			</div>
 		</div>
-
-		{#if submitError}
-			<Alert.Root variant="destructive">
-				<Alert.Title>{i18n.t.backends.form.saveError}</Alert.Title>
-				<Alert.Description>{submitError}</Alert.Description>
-			</Alert.Root>
-		{/if}
-
-		<Dialog.Footer>
-			<Button variant="outline" onclick={() => (open = false)} disabled={saving}
-				>{i18n.t.common.cancel}</Button
-			>
-			<Button onclick={() => void handleSave()} disabled={!canSave || saving}>
-				{saving
-					? i18n.t.common.saving
-					: isEdit
-						? i18n.t.backends.form.saveSubmit
-						: i18n.t.backends.form.addSubmit}
-			</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
+	</div>
+{/if}

@@ -6,13 +6,16 @@ export const es: typeof en = {
 		backends: 'Backends',
 		history: 'Historial',
 		settings: 'Ajustes',
-		working: 'En curso…'
+		working: 'En curso…',
+		version: (v: string) => `Versión ${v}`,
+		quit: 'Salir de Clipboard AI'
 	},
 
 	common: {
 		cancel: 'Cancelar',
 		delete: 'Eliminar',
-		saving: 'Guardando…'
+		saving: 'Guardando…',
+		back: 'Volver'
 	},
 
 	app: {
@@ -32,6 +35,8 @@ export const es: typeof en = {
 
 	commands: {
 		title: 'Comandos',
+		groupTitle: 'Selecciona texto en cualquier lugar y pulsa un atajo',
+		groupHint: 'Reemplaza la selección',
 		count: (n: number) => `${n} configurado${n === 1 ? '' : 's'}`,
 		addCommand: 'Añadir comando',
 		columnName: 'Nombre',
@@ -74,12 +79,15 @@ export const es: typeof en = {
 			saveError: 'No se pudo guardar el comando',
 			saveFailedFallback: 'No se pudo guardar.',
 			addSubmit: 'Añadir comando',
-			saveSubmit: 'Guardar cambios'
+			saveSubmit: 'Guardar cambios',
+			deleteSubmit: 'Eliminar comando'
 		}
 	},
 
 	backends: {
 		title: 'Backends',
+		groupTitle: 'Adónde envían el texto los comandos',
+		groupHint: 'Cada comando usa uno',
 		count: (n: number) => `${n} configurado${n === 1 ? '' : 's'}`,
 		addBackend: 'Añadir backend',
 		columnName: 'Nombre',
@@ -94,6 +102,8 @@ export const es: typeof en = {
 		blockedDeleteTitle: (name: string) => `No se puede eliminar «${name}»`,
 		blockedDeleteDescription: (usedBy: string) =>
 			`Aún lo utilizan: ${usedBy}. Asigne primero otro backend a esos comandos antes de eliminarlo.`,
+		usedBy: (names: string) => `Usado por ${names}`,
+		unused: 'No lo usa ningún comando',
 		form: {
 			addTitle: 'Añadir backend',
 			editTitle: 'Editar backend',
@@ -134,7 +144,8 @@ export const es: typeof en = {
 			saveError: 'No se pudo guardar el backend',
 			saveFailedFallback: 'No se pudo guardar.',
 			addSubmit: 'Añadir backend',
-			saveSubmit: 'Guardar cambios'
+			saveSubmit: 'Guardar cambios',
+			deleteSubmit: 'Eliminar backend'
 		}
 	},
 
@@ -174,6 +185,11 @@ export const es: typeof en = {
 		copy: 'Copiar',
 		copied: 'Copiado',
 		copyResult: 'Copiar resultado',
+		searchPlaceholder: 'Buscar en el historial',
+		noMatches: 'Ninguna ejecución coincide con la búsqueda.',
+		changesLabel: 'Qué cambió',
+		durationDetail: (total: string, backend: string) =>
+			`${total} en total, ${backend} de ellos esperando al backend`,
 		clearTitle: '¿Borrar el historial?',
 		clearDescription: (count: number) =>
 			`Elimina permanentemente las ${count} ejecuciones registradas, incluido cualquier texto de entrada y resultado que aún se conserve aquí para su recuperación. Esta acción no se puede deshacer.`
@@ -181,6 +197,8 @@ export const es: typeof en = {
 
 	settings: {
 		title: 'Ajustes',
+		groupAppearance: 'Apariencia',
+		groupStartup: 'Inicio',
 		themeLabel: 'Tema',
 		themeDescription: 'Se aplica a esta ventana. Sigue la configuración de Windows de forma predeterminada.',
 		themeSystem: 'Sistema',

@@ -579,26 +579,7 @@ pub fn run() {
                         status::append_log(&menu_state.config_dir, &format!("RELOAD {line}"));
                         set_status(&menu_state, line);
                     }
-                    "quit" => {
-                        let _ = app.global_shortcut().unregister_all();
-                        if menu_state.busy.load(Ordering::SeqCst) {
-                            let start = Instant::now();
-                            while menu_state.busy.load(Ordering::SeqCst)
-                                && start.elapsed() < QUIT_CYCLE_WAIT
-                            {
-                                std::thread::sleep(Duration::from_millis(20));
-                            }
-                            if menu_state.busy.load(Ordering::SeqCst) {
-                                let line = "QUIT cycle still in flight after \
-                                            bounded wait; exiting anyway"
-                                    .to_string();
-                                eprintln!("{line}");
-                                status::append_log(&menu_state.config_dir, &line);
-                            }
-                        }
-                        let _ = cursor::restore_if_left_busy(&menu_state.config_dir);
-                        app.exit(0)
-                    }
+                    "quit" => quit_app(app, &menu_state),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
@@ -628,7 +609,25 @@ pub fn run() {
             commands::resume_hotkeys,
             commands::get_history,
             commands::clear_history,
+            commands::quit_app,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+pub(crate) fn quit_app(app: &tauri::AppHandle, state: &AppState) {
+    let _ = app.global_shortcut().unregister_all();
+    if state.busy.load(Ordering::SeqCst) {
+        let start = Instant::now();
+        while state.busy.load(Ordering::SeqCst) && start.elapsed() < QUIT_CYCLE_WAIT {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if state.busy.load(Ordering::SeqCst) {
+            let line = "QUIT cycle still in flight after bounded wait; exiting anyway".to_string();
+            eprintln!("{line}");
+            status::append_log(&state.config_dir, &line);
+        }
+    }
+    let _ = cursor::restore_if_left_busy(&state.config_dir);
+    app.exit(0)
 }

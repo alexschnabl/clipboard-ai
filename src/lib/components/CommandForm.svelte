@@ -1,22 +1,26 @@
 <script lang="ts">
-	import * as Dialog from '$lib/components/shadcn/dialog/index.js';
 	import * as Select from '$lib/components/shadcn/select/index.js';
 	import * as Alert from '$lib/components/shadcn/alert/index.js';
 	import { Button } from '$lib/components/shadcn/button/index.js';
 	import { Input } from '$lib/components/shadcn/input/index.js';
 	import { Label } from '$lib/components/shadcn/label/index.js';
 	import { Textarea } from '$lib/components/shadcn/textarea/index.js';
+	import TrashIcon from '@lucide/svelte/icons/trash';
 	import HotkeyRecorder from './HotkeyRecorder.svelte';
+	import PageHeader from './PageHeader.svelte';
+	import { fade } from 'svelte/transition';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { CommandConfig, Formatting } from '$lib/types';
 
 	let {
 		open = $bindable(false),
-		command = null
+		command = null,
+		onDelete
 	}: {
 		open: boolean;
 		command?: CommandConfig | null;
+		onDelete?: () => void;
 	} = $props();
 
 	let name = $state('');
@@ -103,104 +107,119 @@
 			submitError = configState.error?.message ?? i18n.t.commands.form.saveFailedFallback;
 		}
 	}
+
+	function onWindowKeydown(event: KeyboardEvent): void {
+		if (!open || saving || event.key !== 'Escape' || event.defaultPrevented) return;
+		if (document.querySelector('[data-slot=select-content], [data-slot=dialog-content]')) return;
+		open = false;
+	}
 </script>
 
-<Dialog.Root bind:open>
-	<Dialog.Content class="sm:max-w-md">
-		<Dialog.Header>
-			<Dialog.Title>{isEdit ? i18n.t.commands.form.editTitle : i18n.t.commands.form.addTitle}</Dialog.Title>
-			<Dialog.Description>
-				{isEdit ? i18n.t.commands.form.editDescription : i18n.t.commands.form.addDescription}
-			</Dialog.Description>
-		</Dialog.Header>
+<svelte:window onkeydown={onWindowKeydown} />
 
-		<div class="flex flex-col gap-3">
-			<div class="flex flex-col gap-1.5">
-				<Label for="command-name">{i18n.t.commands.form.nameLabel}</Label>
-				<Input
-					id="command-name"
-					bind:value={name}
-					placeholder={i18n.t.commands.form.namePlaceholder}
-					autocomplete="off"
-				/>
-			</div>
+{#if open}
+	<div class="flex h-full min-h-0 flex-col" in:fade={{ duration: 120 }}>
+		<PageHeader
+			title={isEdit ? (command?.name ?? '') : i18n.t.commands.form.addTitle}
+			onBack={() => (open = false)}
+		/>
 
-			<div class="flex flex-col gap-1.5">
-				<Label for="command-backend">{i18n.t.commands.form.backendLabel}</Label>
-				<Select.Root type="single" value={backendId} onValueChange={handleBackendChange}>
-					<Select.Trigger id="command-backend" class="w-full">
-						{backendName}
-					</Select.Trigger>
-					<Select.Content>
-						{#each configState.config.backends as backend (backend.id)}
-							<Select.Item value={backend.id} label={backend.name} />
-						{/each}
-					</Select.Content>
-				</Select.Root>
-				{#if configState.config.backends.length === 0}
-					<p class="text-xs text-muted-foreground">
-						{i18n.t.commands.form.noBackendsHint}
-					</p>
-				{/if}
-			</div>
-
-			<div class="flex flex-col gap-1.5">
-				<Label for="command-hotkey">{i18n.t.commands.form.hotkeyLabel}</Label>
-				<HotkeyRecorder id="command-hotkey" value={hotkey} onchange={handleHotkeyChange} />
-			</div>
-
-			<div class="flex flex-col gap-1.5">
-				<Label for="command-prompt">{i18n.t.commands.form.promptLabel}</Label>
-				<Textarea
-					id="command-prompt"
-					bind:value={systemPrompt}
-					placeholder={i18n.t.commands.form.promptPlaceholder}
-					rows={4}
-					class="max-h-48 overflow-y-auto"
-				/>
-				<p class="text-xs text-muted-foreground">
-					{backendIsHttp
-						? i18n.t.commands.form.promptHttpHint
-						: i18n.t.commands.form.promptSentinelHint}
-				</p>
-			</div>
-
-			{#if !backendIsHttp}
+		<div class="page-body">
+			<div class="list-card grid grid-cols-2 gap-x-4 gap-y-4 p-5">
 				<div class="flex flex-col gap-1.5">
-					<Label for="command-formatting">{i18n.t.commands.form.formattingLabel}</Label>
-					<Select.Root type="single" value={formatting} onValueChange={handleFormattingChange}>
-						<Select.Trigger id="command-formatting" class="w-full">
-							{formattingCurrent.label}
+					<Label for="command-name">{i18n.t.commands.form.nameLabel}</Label>
+					<Input
+						id="command-name"
+						bind:value={name}
+						placeholder={i18n.t.commands.form.namePlaceholder}
+						autocomplete="off"
+					/>
+				</div>
+
+				<div class="flex flex-col gap-1.5">
+					<Label for="command-hotkey">{i18n.t.commands.form.hotkeyLabel}</Label>
+					<HotkeyRecorder id="command-hotkey" value={hotkey} onchange={handleHotkeyChange} />
+				</div>
+
+				<div class={['flex flex-col gap-1.5', backendIsHttp && 'col-span-2']}>
+					<Label for="command-backend">{i18n.t.commands.form.backendLabel}</Label>
+					<Select.Root type="single" value={backendId} onValueChange={handleBackendChange}>
+						<Select.Trigger id="command-backend" class="w-full">
+							<span class="truncate">{backendName}</span>
 						</Select.Trigger>
 						<Select.Content>
-							{#each FORMATTING_VALUES as value (value)}
-								<Select.Item {value} label={formattingTexts[value].label} />
+							{#each configState.config.backends as backend (backend.id)}
+								<Select.Item value={backend.id} label={backend.name} />
 							{/each}
 						</Select.Content>
 					</Select.Root>
-					<p class="text-xs text-muted-foreground">{formattingCurrent.hint}</p>
+					{#if configState.config.backends.length === 0}
+						<p class="text-xs text-muted-foreground">
+							{i18n.t.commands.form.noBackendsHint}
+						</p>
+					{/if}
 				</div>
+
+				{#if !backendIsHttp}
+					<div class="flex flex-col gap-1.5">
+						<Label for="command-formatting">{i18n.t.commands.form.formattingLabel}</Label>
+						<Select.Root type="single" value={formatting} onValueChange={handleFormattingChange}>
+							<Select.Trigger id="command-formatting" class="w-full">
+								<span class="truncate">{formattingCurrent.label}</span>
+							</Select.Trigger>
+							<Select.Content>
+								{#each FORMATTING_VALUES as value (value)}
+									<Select.Item {value} label={formattingTexts[value].label} />
+								{/each}
+							</Select.Content>
+						</Select.Root>
+					</div>
+					<p class="col-span-2 -mt-2 text-xs text-muted-foreground">{formattingCurrent.hint}</p>
+				{/if}
+
+				<div class="col-span-2 flex flex-col gap-1.5">
+					<Label for="command-prompt">{i18n.t.commands.form.promptLabel}</Label>
+					<Textarea
+						id="command-prompt"
+						bind:value={systemPrompt}
+						placeholder={i18n.t.commands.form.promptPlaceholder}
+						rows={5}
+						class="max-h-64 overflow-y-auto"
+					/>
+					<p class="text-xs text-muted-foreground">
+						{backendIsHttp
+							? i18n.t.commands.form.promptHttpHint
+							: i18n.t.commands.form.promptSentinelHint}
+					</p>
+				</div>
+			</div>
+
+			{#if submitError}
+				<Alert.Root variant="destructive">
+					<Alert.Title>{i18n.t.commands.form.saveError}</Alert.Title>
+					<Alert.Description>{submitError}</Alert.Description>
+				</Alert.Root>
 			{/if}
+
+			<div class="flex items-center gap-2">
+				{#if isEdit && onDelete}
+					<Button variant="ghost" class="text-destructive hover:text-destructive" onclick={onDelete}>
+						<TrashIcon class="size-4" />
+						{i18n.t.commands.form.deleteSubmit}
+					</Button>
+				{/if}
+				<div class="flex-1"></div>
+				<Button variant="outline" onclick={() => (open = false)} disabled={saving}
+					>{i18n.t.common.cancel}</Button
+				>
+				<Button onclick={() => void handleSave()} disabled={!canSave || saving}>
+					{saving
+						? i18n.t.common.saving
+						: isEdit
+							? i18n.t.commands.form.saveSubmit
+							: i18n.t.commands.form.addSubmit}
+				</Button>
+			</div>
 		</div>
-
-		{#if submitError}
-			<Alert.Root variant="destructive">
-				<Alert.Title>{i18n.t.commands.form.saveError}</Alert.Title>
-				<Alert.Description>{submitError}</Alert.Description>
-			</Alert.Root>
-		{/if}
-
-		<Dialog.Footer>
-			<Button variant="outline" onclick={() => (open = false)} disabled={saving}
-				>{i18n.t.common.cancel}</Button
-			>
-			<Button onclick={() => void handleSave()} disabled={!canSave || saving}>
-				{saving
-					? i18n.t.common.saving
-					: isEdit
-						? i18n.t.commands.form.saveSubmit
-						: i18n.t.commands.form.addSubmit}
-			</Button>
-		</Dialog.Footer>
-	</Dialog.Content>
-</Dialog.Root>
+	</div>
+{/if}

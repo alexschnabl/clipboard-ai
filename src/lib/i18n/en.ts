@@ -4,13 +4,16 @@ export const en = {
 		backends: 'Backends',
 		history: 'History',
 		settings: 'Settings',
-		working: 'Working…'
+		working: 'Working…',
+		version: (v: string) => `Version ${v}`,
+		quit: 'Quit Clipboard AI'
 	},
 
 	common: {
 		cancel: 'Cancel',
 		delete: 'Delete',
-		saving: 'Saving…'
+		saving: 'Saving…',
+		back: 'Back'
 	},
 
 	app: {
@@ -30,6 +33,8 @@ export const en = {
 
 	commands: {
 		title: 'Commands',
+		groupTitle: 'Select text anywhere, then press a hotkey',
+		groupHint: 'Replaces the selection',
 		count: (n: number) => `${n} configured`,
 		addCommand: 'Add command',
 		columnName: 'Name',
@@ -71,12 +76,15 @@ export const en = {
 			saveError: 'Couldn’t save command',
 			saveFailedFallback: 'Save failed.',
 			addSubmit: 'Add command',
-			saveSubmit: 'Save changes'
+			saveSubmit: 'Save changes',
+			deleteSubmit: 'Delete command'
 		}
 	},
 
 	backends: {
 		title: 'Backends',
+		groupTitle: 'Where commands send text',
+		groupHint: 'Each command uses one',
 		count: (n: number) => `${n} configured`,
 		addBackend: 'Add backend',
 		columnName: 'Name',
@@ -91,6 +99,8 @@ export const en = {
 		blockedDeleteTitle: (name: string) => `Can’t delete “${name}”`,
 		blockedDeleteDescription: (usedBy: string) =>
 			`Still used by: ${usedBy}. Point those commands at a different backend first, then delete it.`,
+		usedBy: (names: string) => `Used by ${names}`,
+		unused: 'Not used by any command',
 		form: {
 			addTitle: 'Add backend',
 			editTitle: 'Edit backend',
@@ -130,7 +140,8 @@ export const en = {
 			saveError: 'Couldn’t save backend',
 			saveFailedFallback: 'Save failed.',
 			addSubmit: 'Add backend',
-			saveSubmit: 'Save changes'
+			saveSubmit: 'Save changes',
+			deleteSubmit: 'Delete backend'
 		}
 	},
 
@@ -170,6 +181,11 @@ export const en = {
 		copy: 'Copy',
 		copied: 'Copied',
 		copyResult: 'Copy result',
+		searchPlaceholder: 'Search history',
+		noMatches: 'No runs match your search.',
+		changesLabel: 'What changed',
+		durationDetail: (total: string, backend: string) =>
+			`${total} in total, ${backend} of it waiting for the backend`,
 		clearTitle: 'Clear history?',
 		clearDescription: (count: number) =>
 			`Permanently deletes all ${count} recorded runs, including any input and result text still held here for recovery. This can’t be undone.`
@@ -177,6 +193,8 @@ export const en = {
 
 	settings: {
 		title: 'Settings',
+		groupAppearance: 'Appearance',
+		groupStartup: 'Startup',
 		themeLabel: 'Theme',
 		themeDescription: 'Applies to this window. Follows Windows by default.',
 		themeSystem: 'System',
