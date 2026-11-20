@@ -4,6 +4,7 @@ const invokeMock = vi.hoisted(() => vi.fn());
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
 import { ConfigState } from '../../src/lib/state/config.svelte';
+import { DEFAULT_SETTINGS } from '../../src/lib/types';
 import type {
 	BackendConfig,
 	CommandConfig,
@@ -40,7 +41,7 @@ function command(overrides: Partial<CommandConfig> = {}): CommandConfig {
 }
 
 function defaultSettings(): Settings {
-	return { theme: 'system', language: 'system', autostart: false };
+	return { ...DEFAULT_SETTINGS };
 }
 
 function ok(): SaveResult {
@@ -266,7 +267,7 @@ describe('ConfigState commit-and-rollback semantics', () => {
 			state.config.backends.push(backend({ id: 'b2', name: 'Backend B' }));
 			state.config.commands.push(command({ id: 'c1', name: 'Command One', backendId: 'b1' }));
 			state.config.commands.push(command({ id: 'c2', name: 'Command Two', backendId: 'b2' }));
-			state.config.settings = { theme: 'dark', language: 'de', autostart: true };
+			state.config.settings = { ...DEFAULT_SETTINGS, theme: 'dark', language: 'de', autostart: true };
 			invokeMock.mockResolvedValue(ok());
 
 			await state.updateBackend(backend({ id: 'b2', name: 'Backend B Renamed' }));
@@ -284,7 +285,7 @@ describe('ConfigState commit-and-rollback semantics', () => {
 					command({ id: 'c1', name: 'Command One', backendId: 'b1' }),
 					command({ id: 'c2', name: 'Command Two', backendId: 'b2' })
 				],
-				settings: { theme: 'dark', language: 'de', autostart: true }
+				settings: { ...DEFAULT_SETTINGS, theme: 'dark', language: 'de', autostart: true }
 			});
 		});
 	});
@@ -402,22 +403,24 @@ describe('ConfigState commit-and-rollback semantics', () => {
 			invokeMock.mockResolvedValue(ok());
 
 			const result = await state.updateSettings({
+				...DEFAULT_SETTINGS,
 				theme: 'dark',
 				language: 'de',
 				autostart: true
 			});
 
 			expect(result).toBe(true);
-			expect(state.config.settings).toEqual({ theme: 'dark', language: 'de', autostart: true });
+			expect(state.config.settings).toEqual({ ...DEFAULT_SETTINGS, theme: 'dark', language: 'de', autostart: true });
 			const [command_, payload] = invokeMock.mock.calls[0]!;
 			expect(command_).toBe('save_config');
-			expect(payload.config.settings).toEqual({ theme: 'dark', language: 'de', autostart: true });
+			expect(payload.config.settings).toEqual({ ...DEFAULT_SETTINGS, theme: 'dark', language: 'de', autostart: true });
 		});
 
 		it('rolls back to the pre-change settings when the save is rejected', async () => {
 			invokeMock.mockResolvedValue(rejected('refusing to enable autostart from a debug build'));
 
 			const result = await state.updateSettings({
+				...DEFAULT_SETTINGS,
 				theme: 'system',
 				language: 'system',
 				autostart: true
@@ -439,12 +442,14 @@ describe('ConfigState commit-and-rollback semantics', () => {
 			);
 
 			const firstCommit = state.updateSettings({
+				...DEFAULT_SETTINGS,
 				theme: 'dark',
 				language: 'system',
 				autostart: false
 			});
 			invokeMock.mockResolvedValueOnce(ok());
 			const secondCommit = state.updateSettings({
+				...DEFAULT_SETTINGS,
 				theme: 'dark',
 				language: 'de',
 				autostart: false
@@ -455,7 +460,7 @@ describe('ConfigState commit-and-rollback semantics', () => {
 
 			expect(firstOk).toBe(false);
 			expect(secondOk).toBe(true);
-			expect(state.config.settings).toEqual({ theme: 'dark', language: 'de', autostart: false });
+			expect(state.config.settings).toEqual({ ...DEFAULT_SETTINGS, theme: 'dark', language: 'de', autostart: false });
 		});
 
 		it('a later commit failing does not discard an earlier, already-succeeded change', async () => {
@@ -467,12 +472,14 @@ describe('ConfigState commit-and-rollback semantics', () => {
 			);
 
 			const firstCommit = state.updateSettings({
+				...DEFAULT_SETTINGS,
 				theme: 'dark',
 				language: 'system',
 				autostart: false
 			});
 			invokeMock.mockResolvedValueOnce(rejected('transient write failure'));
 			const secondCommit = state.updateSettings({
+				...DEFAULT_SETTINGS,
 				theme: 'dark',
 				language: 'de',
 				autostart: false
@@ -484,6 +491,7 @@ describe('ConfigState commit-and-rollback semantics', () => {
 			expect(firstOk).toBe(true);
 			expect(secondOk).toBe(false);
 			expect(state.config.settings).toEqual({
+				...DEFAULT_SETTINGS,
 				theme: 'dark',
 				language: 'system',
 				autostart: false
@@ -594,5 +602,49 @@ describe('ConfigState commit-and-rollback semantics', () => {
 				expect(state.historyError).toContain('command clear_history not found');
 			});
 		});
+	});
+});
+
+describe('ConfigState vocabulary and app-rule backends', () => {
+	let state: ConfigState;
+
+	beforeEach(() => {
+		invokeMock.mockReset();
+		state = new ConfigState();
+	});
+
+	it('reads an empty vocabulary from an older config without one', () => {
+		state.config = {
+			version: 2,
+			backends: [backend()],
+			commands: [command()],
+			settings: defaultSettings()
+		};
+		expect(state.vocabulary).toEqual({ keep: [], replacements: [] });
+	});
+
+	it('saves a new vocabulary and rolls it back when the save is rejected', async () => {
+		state.config.vocabulary = { keep: ['Tauri'], replacements: [] };
+		invokeMock.mockResolvedValueOnce(ok());
+		expect(await state.updateVocabulary({ keep: ['Tauri', 'Villach'], replacements: [] })).toBe(true);
+		expect(state.vocabulary.keep).toEqual(['Tauri', 'Villach']);
+
+		invokeMock.mockResolvedValueOnce(rejected());
+		expect(await state.updateVocabulary({ keep: [], replacements: [] })).toBe(false);
+		expect(state.vocabulary.keep).toEqual(['Tauri', 'Villach']);
+	});
+
+	it('counts a backend used only by an app rule as in use', async () => {
+		state.config.backends = [backend(), backend({ id: 'b2', name: 'Other' })];
+		state.config.commands = [
+			command({
+				appRules: [
+					{ exe: 'OUTLOOK.EXE', name: 'Outlook', promptAddition: '', backendId: 'b2', formatting: null }
+				]
+			})
+		];
+		const result = await state.deleteBackend('b2');
+		expect(result).toEqual({ ok: false, usedBy: ['Command'] });
+		expect(invokeMock).not.toHaveBeenCalled();
 	});
 });

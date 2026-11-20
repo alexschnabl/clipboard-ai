@@ -95,7 +95,12 @@ fn log(config_dir: &Path, line: &str) {
     crate::status::append_log(config_dir, line);
 }
 
-fn run_animation(app: AppHandle, config_dir: PathBuf, cancel: std::sync::Arc<AtomicBool>) {
+fn run_animation(
+    app: AppHandle,
+    config_dir: PathBuf,
+    show_cursor: bool,
+    cancel: std::sync::Arc<AtomicBool>,
+) {
     if sleep_cancellable(&cancel, SHOW_DELAY_MS) {
         return;
     }
@@ -104,7 +109,7 @@ fn run_animation(app: AppHandle, config_dir: PathBuf, cancel: std::sync::Arc<Ato
     emit_running(&app, true);
 
     let mut busy_cursor: Option<BusyCursor> = None;
-    let mut cursor_attempted = false;
+    let mut cursor_attempted = !show_cursor;
     let mut elapsed_ms = SHOW_DELAY_MS;
     let mut i = 0;
     loop {
@@ -142,14 +147,14 @@ pub struct TrayAnimation {
 }
 
 impl TrayAnimation {
-    pub fn begin(app: AppHandle, config_dir: PathBuf) -> Self {
+    pub fn begin(app: AppHandle, config_dir: PathBuf, show_cursor: bool) -> Self {
         let has_frames = FRAMES.get_or_init(build_frames).is_some();
         let cancel = std::sync::Arc::new(AtomicBool::new(false));
         let handle = if has_frames {
             let app = app.clone();
             let cancel = cancel.clone();
             let config_dir = config_dir.clone();
-            Some(std::thread::spawn(move || run_animation(app, config_dir, cancel)))
+            Some(std::thread::spawn(move || run_animation(app, config_dir, show_cursor, cancel)))
         } else {
             None
         };

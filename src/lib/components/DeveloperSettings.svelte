@@ -9,6 +9,7 @@
 	import CheckIcon from '@lucide/svelte/icons/check';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
+	import StatusLine from './StatusLine.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { LocalApiSettings, LocalApiStatus } from '$lib/types';
@@ -152,26 +153,19 @@
 				<div class="flex min-w-0 flex-col gap-0.5">
 					<span>{i18n.t.developers.addressLabel}</span>
 					{#if status?.error}
-						<span class="text-[13px] text-destructive">{status.error}</span>
+						<StatusLine tone="error" text={status.error} class="text-[13px] text-destructive" />
+					{:else if status?.running}
+						<StatusLine tone="ok" text={i18n.t.developers.addressDescription} class="text-[13px] text-muted-foreground" />
 					{:else}
-						<span class="text-[13px] text-muted-foreground">{i18n.t.developers.addressDescription}</span>
+						<StatusLine tone="idle" text={i18n.t.developers.statusStopped} class="text-[13px] text-muted-foreground" />
 					{/if}
 				</div>
-				<div class="flex shrink-0 items-center gap-1">
-					{#if status?.running && status.url}
-						<span class="flex items-center gap-2 rounded-[7px] bg-muted px-2.5 py-1 font-mono text-[12.5px]">
-							<span class="size-1.5 rounded-full bg-success" aria-hidden="true"></span>
-							<span>{status.url}</span>
-							<span class="sr-only">{i18n.t.developers.statusRunning}</span>
-						</span>
+				{#if status?.running && status.url}
+					<div class="flex shrink-0 items-center gap-1">
+						<code class="rounded-[7px] bg-muted px-2.5 py-1 font-mono text-[12.5px]">{status.url}</code>
 						{@render copyButton(status.url, 'url', i18n.t.developers.copyAddress)}
-					{:else}
-						<span class="flex items-center gap-2 text-[13px] text-muted-foreground">
-							<span class="size-1.5 rounded-full {status?.error ? 'bg-destructive' : 'bg-muted-foreground/50'}" aria-hidden="true"></span>
-							{i18n.t.developers.statusStopped}
-						</span>
-					{/if}
-				</div>
+					</div>
+				{/if}
 			</div>
 
 			<div class="list-row justify-between gap-4">

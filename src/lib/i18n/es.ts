@@ -5,9 +5,11 @@ export const es: typeof en = {
 		commands: 'Comandos',
 		backends: 'Backends',
 		history: 'Historial',
+		vocabulary: 'Vocabulario',
 		settings: 'Ajustes',
 		working: 'En curso…',
 		version: (v: string) => `Versión ${v}`,
+		needsAttention: 'Requiere atención',
 		quit: 'Salir de Clipboard AI'
 	},
 
@@ -49,6 +51,32 @@ export const es: typeof en = {
 		deleteAria: (name: string) => `Eliminar ${name}`,
 		deleteTitle: (name: string) => `¿Eliminar «${name}»?`,
 		deleteDescription: 'Esto elimina el comando y su hotkey de forma permanente. Esta acción no se puede deshacer.',
+		problems: {
+			hotkeyTaken: 'Otra aplicación ya usa este atajo. Elige otro.',
+			hotkeyClash: (other: string) => `Mismo atajo que «${other}», solo se ejecuta ese.`,
+			hotkeyInvalid: 'No se reconoce este atajo. Vuelve a grabarlo.',
+			backendMissing: 'Su backend ya no existe. Elige otro.'
+		},
+		onboarding: {
+			title: 'Primeros pasos',
+			intro: 'Clipboard AI necesita un backend que responda. Luego selecciona texto en cualquier sitio y pulsa un atajo.',
+			hide: 'Ocultar',
+			hideAria: 'Ocultar esta guía para siempre',
+			step1Title: 'Configura un backend',
+			step1Text:
+				'Un modelo local con Ollama, tu suscripción de Claude con la CLI claude, o una clave de API.',
+			checkBackends: 'Comprobar backends',
+			openBackends: 'Abrir Backends',
+			checking: 'Comprobando tus backends…',
+			works: (name: string) => `${name} funciona.`,
+			noneWorking: 'Ninguno de tus backends ha respondido todavía.',
+			step2Title: (name: string) => `Prueba «${name}»`,
+			step2Text: 'Selecciona una frase en cualquier aplicación y pulsa',
+			step2NoCommand: 'Añade un comando con un atajo y un prompt.',
+			backendSilent: (backend: string) => `Su backend, ${backend}, no ha respondido.`,
+			useBackend: (name: string) => `Usar ${name}`,
+			step2Done: 'Ha funcionado. Todo listo.'
+		},
 		form: {
 			addTitle: 'Añadir comando',
 			editTitle: 'Editar comando',
@@ -81,6 +109,99 @@ export const es: typeof en = {
 			addSubmit: 'Añadir comando',
 			saveSubmit: 'Guardar cambios',
 			deleteSubmit: 'Eliminar comando'
+		},
+		tryIt: {
+			title: 'Probar',
+			hint: 'No se pega nada',
+			inputLabel: 'Su texto',
+			inputPlaceholder: 'Escriba o pegue un ejemplo, como el texto que seleccionaría.',
+			outputLabel: 'Lo que se pegaría',
+			run: 'Ejecutar',
+			shortcutOr: 'o',
+			stop: 'Detener',
+			asking: (backend: string) => `Preguntando a ${backend}…`,
+			idle: 'Ejecute un ejemplo para ver aquí el resultado. El ejemplo se envía como texto sin formato.',
+			stale: 'Cambiado desde esta prueba',
+			noChanges: 'Sin cambios. Una ejecución real pegaría el mismo texto.',
+			appLabel: 'Como en',
+			appAnywhere: 'cualquier otra app',
+			defaultModel: 'modelo predeterminado',
+			ruleApplied: (app: string) => `regla para ${app}`,
+			sendOnly:
+				'Este backend solo envía el texto y no pega nada de vuelta, así que no hay nada que previsualizar. La pestaña Historial muestra cada ejecución.',
+			httpNote: 'Ejecutar envía el ejemplo al endpoint, como una ejecución real.',
+			errors: {
+				timeout:
+					'El backend no respondió dentro de su tiempo de espera. Un modelo lento o en frío puede necesitar más tiempo.',
+				unreachable:
+					'No se pudo contactar con el backend. Compruebe que está en marcha y que su dirección es correcta.',
+				misconfigured: 'El backend no está configurado del todo.',
+				badResponse: 'El backend respondió con un error.',
+				noSentinel:
+					'El modelo respondió, pero no con la forma esperada. Vuelva a intentarlo o simplifique el prompt.',
+				emptyResult: 'El modelo no devolvió nada.',
+				nothingToPreview: 'Este backend no pega nada de vuelta, así que no hay nada que previsualizar.',
+				unknownBackend: 'Elija primero un backend.',
+				emptyInput: 'Escriba primero un ejemplo.',
+				notAnAiBackend: 'Este backend no puede escribir prompts. Elija un backend de IA.',
+				internal: 'Algo falló dentro de la app.'
+			}
+		},
+		writer: {
+			openClaude: 'Escribir con Claude',
+			openOther: 'Escribir con IA',
+			title: 'Escribir el prompt por mí',
+			description:
+				'Diga con palabras sencillas qué debe hacer el comando. El resultado sustituye al prompt, y puede editarlo o deshacerlo.',
+			label: '¿Qué debe hacer el comando?',
+			placeholder: 'Que mis correos suenen más amables, pero que sigan siendo breves.',
+			reviseHint:
+				'Su prompt actual también se envía, así que puede pedir un cambio, como «hazlo más corto».',
+			backendLabel: 'Escrito por',
+			submit: 'Escribir prompt',
+			working: 'Escribiendo…',
+			done: (backend: string) => `Escrito por ${backend}.`,
+			undo: 'Deshacer',
+			errorTitle: 'No se pudo escribir el prompt'
+		},
+		rules: {
+			title: 'En algunas apps',
+			hint: 'Se usa allí en su lugar',
+			add: 'Añadir una regla para una app',
+			adds: (text: string) => `Añade: ${text}`,
+			uses: (backend: string) => `Usa ${backend}`,
+			nothing: 'Todavía no cambia nada',
+			savedWithCommand: 'Las reglas se guardan con el comando.',
+			addTitle: 'Añadir una regla para una app',
+			editTitle: (app: string) => `Regla para ${app}`,
+			description: 'Cuando ejecute este comando en esa app, se usarán estos ajustes en su lugar.',
+			appLabel: 'App',
+			search: 'Buscar entre las apps abiertas',
+			loading: 'Buscando apps abiertas…',
+			none: 'No se encontraron apps abiertas. Escriba el nombre del programa.',
+			noMatch: 'Ninguna app abierta coincide.',
+			manual: 'Escribir el nombre del programa',
+			pickFromList: 'Elegir entre las apps abiertas',
+			refresh: 'Actualizar',
+			change: 'Cambiar',
+			exeLabel: 'Archivo del programa',
+			exePlaceholder: 'OUTLOOK.EXE',
+			exeHint: 'El nombre del .exe, tal como lo muestra el Administrador de tareas en Detalles.',
+			nameLabel: 'Se muestra como',
+			namePlaceholder: 'Outlook',
+			promptLabel: 'Añadir al prompt',
+			promptPlaceholder: 'Mantén un tono formal y trata al lector de usted.',
+			promptHint: 'Se añade después del prompt del comando, solo en esta app.',
+			backendLabel: 'Backend',
+			formattingLabel: 'Formato',
+			same: 'Igual que el comando',
+			duplicate: 'Este comando ya tiene una regla para esa app.',
+			empty: 'Cambie al menos una cosa para esta app.',
+			pickApp: 'Elija primero una app.',
+			submitAdd: 'Añadir regla',
+			submitSave: 'Guardar regla',
+			delete: 'Eliminar regla',
+			editAria: (app: string) => `Editar la regla para ${app}`
 		}
 	},
 
@@ -101,9 +222,12 @@ export const es: typeof en = {
 		deleteDescription: 'Esto elimina el backend de forma permanente. Esta acción no se puede deshacer.',
 		blockedDeleteTitle: (name: string) => `No se puede eliminar «${name}»`,
 		blockedDeleteDescription: (usedBy: string) =>
-			`Aún lo utilizan: ${usedBy}. Asigne primero otro backend a esos comandos antes de eliminarlo.`,
+			`Aún lo utilizan: ${usedBy}. Asigne primero otro backend a esos comandos y a sus reglas por app antes de eliminarlo.`,
 		usedBy: (names: string) => `Usado por ${names}`,
 		unused: 'No lo usa ningún comando',
+		check: 'Comprobar',
+		checkAll: 'Comprobar todo',
+		checkAria: (name: string) => `Comprobar ${name}`,
 		form: {
 			addTitle: 'Añadir backend',
 			editTitle: 'Editar backend',
@@ -137,6 +261,14 @@ export const es: typeof en = {
 			apiKeyOptional: '(opcional)',
 			showApiKey: 'Mostrar clave de API',
 			hideApiKey: 'Ocultar clave de API',
+			apiKeyStoredPlaceholder: 'Guardada en el Administrador de credenciales de Windows',
+			apiKeyHint: 'Se guarda en el Administrador de credenciales de Windows, no en config.json.',
+			apiKeyInline:
+				'Sigue en config.json porque el Administrador de credenciales de Windows la rechazó. Al guardar se vuelve a intentar.',
+			apiKeyRemove: 'Quitar clave',
+			apiKeyWillBeRemoved: 'La clave se quitará al guardar.',
+			apiKeyUndo: 'Deshacer',
+			apiKeyRevealFailed: 'No se pudo leer la clave del Administrador de credenciales de Windows.',
 			timeoutLabel: 'Tiempo de espera (ms)',
 			timeoutHint: (defaultMs: string) =>
 				`Un modelo local en frío puede tardar unos 16.000 ms en su primera solicitud del día — el valor predeterminado de ${defaultMs} ms evita entonces un falso tiempo de espera.`,
@@ -147,6 +279,40 @@ export const es: typeof en = {
 			saveSubmit: 'Guardar cambios',
 			deleteSubmit: 'Eliminar backend'
 		}
+	},
+
+	health: {
+		checking: 'Comprobando…',
+		notChecked: 'Sin comprobar',
+		checkFailed: 'La comprobación misma falló',
+		ok: (time: string) => `Respondió en ${time}`,
+		cold: (first: string, warm: string) =>
+			`El modelo estaba frío. La primera respuesta tardó ${first}, la siguiente ${warm}`,
+		slow: (time: string) => `Funciona, pero lento. Tardó ${time}`,
+		reachable: 'Accesible. No se le envió nada',
+		cliReady: (version: string) => `Sesión iniciada, CLI ${version}`,
+		cliSignedOut: 'Sin sesión. Ejecuta claude en una terminal para iniciar sesión',
+		cliUnknownAuth: (version: string) => `CLI ${version} encontrada, sesión sin confirmar`,
+		cliMissing: 'No se encontró la CLI de Claude. Instálala e inicia sesión',
+		keyMissing: 'No hay clave de API',
+		keyRejected: 'Clave rechazada',
+		keyUnreadable: 'No se pudo leer la clave de API',
+		modelNotFound: 'Modelo o URL no encontrados',
+		notReachable: 'No accesible',
+		timeout: (secs: number) => `Sin respuesta en ${secs} s`,
+		needsUrl: 'No hay URL',
+		needsModel: 'No hay modelo',
+		misconfigured: 'Configuración incompleta',
+		badResponse: 'Respuesta inesperada'
+	},
+
+	update: {
+		promptTitle: (version: string) => `Clipboard AI ${version} está disponible`,
+		promptText: 'Instálala ahora, o más tarde desde Ajustes.',
+		install: 'Instalar y reiniciar',
+		later: 'Más tarde',
+		downloading: 'Descargando…',
+		downloadingPercent: (percent: number) => `Descargando… ${percent} %`
 	},
 
 	hotkeyRecorder: {
@@ -170,6 +336,8 @@ export const es: typeof en = {
 		statusSuccess: 'Correcto',
 		statusFailed: 'Fallido',
 		statusAborted: 'Cancelado',
+		statusCancelled: 'Cancelado',
+		instructionTag: 'Instrucción',
 		emptyTitle: 'Aún no hay ejecuciones',
 		emptyDescription: 'Ejecute un comando con su hotkey y el resultado aparecerá aquí.',
 		loadErrorTitle: 'No se pudo cargar el historial',
@@ -195,10 +363,88 @@ export const es: typeof en = {
 			`Elimina permanentemente las ${count} ejecuciones registradas, incluido cualquier texto de entrada y resultado que aún se conserve aquí para su recuperación. Esta acción no se puede deshacer.`
 	},
 
+	reasons: {
+		cancelled: 'No se pegó nada.',
+		focusChanged: 'Cambió de ventana antes de que llegara la respuesta.',
+		focusRestoreFailed: 'No se pudo volver a su ventana.',
+		captureTimeout: 'No había texto seleccionado o no se pudo copiar.',
+		modifiersStuck: 'Una tecla modificadora seguía pulsada.',
+		modifiersStuckBeforePaste: 'Una tecla modificadora estaba pulsada al momento de pegar.',
+		backendError: 'El backend informó de un error. Los detalles están en el historial.',
+		noSentinel: 'La respuesta llegó en un formato inesperado.',
+		emptyResult: 'La respuesta estaba vacía.',
+		clipboardWriteFailed: 'El portapapeles estaba ocupado, así que no se pudo pegar nada.',
+		pasteFailed: 'No se pudo enviar la pulsación para pegar.',
+		noLastResult: 'Ejecute primero un comando y luego podrá volver a pegar su resultado.',
+		paletteFocusFailed: 'No se pudo abrir la paleta. Vuelva a pulsar el atajo.',
+		unknown: (code: string) => `Detenido: ${code}.`
+	},
+
+	hud: {
+		escHint: 'para cancelar',
+		done: 'Listo',
+		wordsChanged: (n: number) => (n === 1 ? '1 palabra cambiada' : `${n} palabras cambiadas`),
+		noChanges: 'No había nada que cambiar',
+		sent: 'Enviado',
+		pastedAgain: 'Pegado de nuevo',
+		undoHint: 'para deshacer',
+		nothingPasted: 'No se pegó nada',
+		cancelled: 'Cancelado',
+		nothingToPaste: 'Todavía no hay nada que pegar',
+		paletteClosed: 'Paleta cerrada'
+	},
+
+	palette: {
+		placeholder: 'Buscar comandos o escribir una instrucción',
+		groupCommands: 'Comandos',
+		runInstruction: (text: string) => `Ejecutar «${text}»`,
+		instructionHint: 'Instrucción puntual',
+		noBackend: 'Añada un backend de IA para ejecutar instrucciones',
+		noMatches: 'Ningún comando coincide. Pulse Intro para ejecutarlo como instrucción.',
+		empty: 'Aún no hay comandos. Escriba una instrucción en su lugar.',
+		footerRun: 'ejecutar',
+		footerBackend: 'backend',
+		footerClose: 'cerrar',
+		listLabel: 'Comandos e instrucciones'
+	},
+
+	vocabulary: {
+		title: 'Vocabulario',
+		keepTitle: 'Palabras que todos los comandos mantienen tal cual',
+		keepHint: 'Nombres, productos, lugares',
+		keepPlaceholder: 'Añadir una palabra o un nombre',
+		keepAdd: 'Añadir',
+		keepRemove: (word: string) => `Quitar ${word}`,
+		keepEmpty: 'Aún no hay palabras. Añada los nombres que el modelo suele «corregir».',
+		replaceTitle: 'Reemplazar siempre',
+		replaceHint: 'Antes de que el texto llegue al modelo',
+		replaceFrom: 'Reemplazar',
+		replaceTo: 'Por',
+		replaceFromPlaceholder: 'sus tech',
+		replaceToPlaceholder: 'Sus-Tech',
+		replaceAdd: 'Añadir un reemplazo',
+		replaceSave: 'Guardar',
+		replaceDeleted: 'se elimina',
+		replaceEditAria: (from: string) => `Editar el reemplazo de ${from}`,
+		replaceRemove: (from: string) => `Quitar el reemplazo de ${from}`,
+		note: 'La lista de palabras va en las instrucciones de cada comando, porque un modelo que «corrige» un nombre que no conoce es el mal resultado más habitual. Los reemplazos afectan a palabras completas, sin importar mayúsculas, y cambian el texto seleccionado antes de que lo vea cualquier backend.',
+		saveErrorTitle: 'No se pudo guardar ese cambio',
+		saveFailedFallback: 'No se pudo guardar el cambio.'
+	},
+
 	settings: {
 		title: 'Ajustes',
 		groupAppearance: 'Apariencia',
 		groupStartup: 'Inicio',
+		groupAbout: 'Acerca de',
+		versionLabel: (version: string) => `Clipboard AI ${version}`,
+		updateDescription: 'Consulta GitHub una vez al día. No se instala nada hasta que hagas clic.',
+		updateCheck: 'Buscar actualizaciones',
+		updateChecking: 'Comprobando…',
+		updateUpToDate: 'Tienes la última versión.',
+		updateAvailable: (version: string) => `La versión ${version} está disponible.`,
+		updateInstallFailed: 'No se pudo instalar la actualización. Inténtalo más tarde.',
+		updateCheckFailed: 'No se pudieron buscar actualizaciones. Inténtalo más tarde.',
 		themeLabel: 'Tema',
 		themeDescription: 'Se aplica a esta ventana. Sigue la configuración de Windows de forma predeterminada.',
 		themeSystem: 'Sistema',
@@ -212,6 +458,20 @@ export const es: typeof en = {
 		autostartDevNoteBefore:
 			'Rechazado en compilaciones de desarrollo: registraría el ejecutable de depuración para iniciarse al iniciar sesión en lugar de la aplicación instalada; pruebe esto con una compilación instalada (',
 		autostartDevNoteAfter: ').',
+		groupRunning: 'Mientras se ejecuta un comando',
+		hudLabel: 'Estado junto al cursor',
+		hudDescription:
+			'Muestra qué comando se está ejecutando, permite cancelar con Esc e indica por qué no se pegó nada.',
+		busyCursorLabel: 'Puntero ocupado',
+		busyCursorDescription: 'Muestra el puntero ocupado mientras el backend trabaja.',
+		groupShortcuts: 'Atajos que funcionan en todas partes',
+		paletteLabel: 'Paleta de comandos',
+		paletteDescription:
+			'Elija cualquier comando para el texto seleccionado o escriba una instrucción puntual.',
+		pasteLastLabel: 'Volver a pegar el último resultado',
+		pasteLastDescription:
+			'Pega el resultado más reciente en el cursor, también desde el menú del área de notificación. Desactivado por defecto porque Office usa Ctrl+Alt+V para Pegado especial.',
+		pasteLastToggle: 'Usar un atajo para volver a pegar el último resultado',
 		saveErrorTitle: 'No se pudo guardar ese cambio',
 		saveFailedFallback: 'No se pudo guardar el cambio.'
 	},
@@ -222,7 +482,6 @@ export const es: typeof en = {
 		apiDescription: 'Permite que scripts y herramientas de este equipo ejecuten tus comandos por HTTP.',
 		addressLabel: 'Dirección',
 		addressDescription: 'Solo accesible desde este equipo. Las peticiones de páginas web se rechazan.',
-		statusRunning: 'En marcha',
 		statusStopped: 'Detenida',
 		copyAddress: 'Copiar dirección',
 		portLabel: 'Puerto',

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "hud-window",
+  "description": "The status capsule near the cursor. It only listens for hud://* events and reports its rendered size so the backend can place it; it never reads or changes the config and has no window controls.",
+  "windows": ["hud"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-hud-measured"
+  ]
+}

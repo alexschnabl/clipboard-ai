@@ -1,3 +1,4 @@
+mod apps;
 mod backend;
 mod cfhtml;
 pub mod cli;
@@ -5,16 +6,26 @@ mod commands;
 mod config;
 mod cursor;
 mod cycle;
+mod health;
+mod editor;
 mod hotkeys;
 mod history;
+mod hud;
 mod localapi;
 mod osops;
+mod overlay;
+mod palette;
+mod plan;
 mod richtext;
+mod runner;
+pub mod secrets;
 mod sentinel;
 mod settings;
 mod status;
 mod textrun;
 mod tray_anim;
+mod updater;
+mod vocabulary;
 
 use std::{
     collections::HashMap,
@@ -30,7 +41,7 @@ use serde::Serialize;
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -41,9 +52,7 @@ struct CommandEntry {
     id: String,
     name: String,
     hotkey: String,
-    system_prompt: String,
-    formatting: config::Formatting,
-    backend: Arc<dyn backend::Backend>,
+    plan: Arc<plan::CommandPlan>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -64,6 +73,12 @@ struct AppState {
     config_dir: PathBuf,
     config_load_error: Option<commands::ConfigLoadError>,
     startup_problems: Arc<Mutex<Vec<Problem>>>,
+    shortcuts: Arc<Mutex<hotkeys::GlobalShortcuts>>,
+    escape: Shortcut,
+    cancel: Arc<Mutex<Option<Arc<AtomicBool>>>>,
+    last_result: Arc<Mutex<Option<osops::Clip>>>,
+    hud: hud::Hud,
+    palette: palette::Palette,
 }
 
 fn record_history(
@@ -148,6 +163,47 @@ impl Drop for BusyGuard<'_> {
     }
 }
 
+fn create_overlay_windows(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let hud = tauri::WebviewWindowBuilder::new(
+        app,
+        hud::WINDOW_LABEL,
+        tauri::WebviewUrl::App("hud".into()),
+    )
+    .title("Clipboard AI status")
+    .inner_size(320.0, 64.0)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .focusable(false)
+    .visible(false)
+    .build()?;
+    if let Ok(raw) = hud.hwnd() {
+        overlay::ensure_overlay_style(raw.0 as isize);
+    }
+
+    tauri::WebviewWindowBuilder::new(
+        app,
+        palette::WINDOW_LABEL,
+        tauri::WebviewUrl::App("palette".into()),
+    )
+    .title("Clipboard AI")
+    .inner_size(472.0, 380.0)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .build()?;
+    Ok(())
+}
+
 fn show_settings(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.show();
@@ -194,6 +250,7 @@ fn handle_config_load_failure(
             backends: Vec::new(),
             commands: Vec::new(),
             settings: config::Settings::default(),
+            vocabulary: config::Vocabulary::default(),
         },
         commands::ConfigLoadError { reason: e.to_string(), preserved_path },
     )
@@ -316,8 +373,13 @@ pub fn run() {
 
             let mut config_load_failed = false;
             let mut config_load_error: Option<commands::ConfigLoadError> = None;
+            let mut key_migration_failures = Vec::new();
             let cfg = match config::load_or_create(&path) {
-                Ok(cfg) => cfg,
+                Ok(mut cfg) => {
+                    key_migration_failures =
+                        secrets::migrate_config_file(&path, &mut cfg, &secrets::CredentialManager);
+                    cfg
+                }
                 Err(e) => {
                     config_load_failed = true;
                     let (fallback, load_error) = handle_config_load_failure(&path, &config_dir, e);
@@ -326,7 +388,10 @@ pub fn run() {
                 }
             };
 
-            let mut problems: Vec<Problem> = Vec::new();
+            let mut problems: Vec<Problem> = key_migration_failures
+                .iter()
+                .map(|f| Problem { command_id: None, message: f.message() })
+                .collect();
 
             match cursor::restore_if_left_busy(&config_dir) {
                 Some(Ok(())) => {
@@ -363,12 +428,20 @@ pub fn run() {
             let status_item =
                 MenuItem::with_id(app, "status", "starting…", false, None::<&str>)?;
 
+            create_overlay_windows(app.handle())?;
+            if !overlay::track_foreground() {
+                let line = "STARTUP foreground tracking unavailable; tray paste-again will refuse to paste";
+                eprintln!("{line}");
+                status::append_log(&config_dir, line);
+            }
+
             let state = Arc::new(AppState {
                 config: Arc::new(Mutex::new(config::Config {
                     version: 1,
                     backends: Vec::new(),
                     commands: Vec::new(),
                     settings: config::Settings::default(),
+                    vocabulary: config::Vocabulary::default(),
                 })),
                 commands: Arc::new(Mutex::new(HashMap::new())),
                 ops,
@@ -378,23 +451,48 @@ pub fn run() {
                 config_dir: config_dir.clone(),
                 config_load_error,
                 startup_problems: Arc::new(Mutex::new(Vec::new())),
+                shortcuts: Arc::new(Mutex::new(hotkeys::GlobalShortcuts::default())),
+                escape: "Escape".parse::<Shortcut>()?,
+                cancel: Arc::new(Mutex::new(None)),
+                last_result: Arc::new(Mutex::new(None)),
+                hud: hud::Hud::new(handle.clone()),
+                palette: palette::Palette::default(),
             });
 
             app.manage((*state).clone());
+            app.manage(updater::PendingUpdate::default());
             app.manage(localapi::LocalApi::new(config_dir.clone()));
 
             app.handle().plugin(tauri_plugin_autostart::Builder::new().build())?;
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
 
             let handler_state = state.clone();
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(move |app, shortcut, event| {
+                        let key = *shortcut;
+                        let state = handler_state.clone();
+                        if key == state.escape {
+                            if event.state() == ShortcutState::Pressed {
+                                runner::request_cancel(&state);
+                            }
+                            return;
+                        }
                         if event.state() != ShortcutState::Released {
                             return;
                         }
-                        let key = *shortcut;
-                        let state = handler_state.clone();
-                        let app = app.clone();
+
+                        let globals =
+                            recover_lock(state.shortcuts.lock(), "shortcuts", Some(&state.config_dir))
+                                .clone();
+                        if globals.palette == Some(key) {
+                            palette::toggle(app, &state);
+                            return;
+                        }
+                        if globals.paste_last == Some(key) {
+                            runner::paste_last(&state, false);
+                            return;
+                        }
 
                         if state.busy.swap(true, Ordering::SeqCst) {
                             let line = "busy; hotkey ignored".to_string();
@@ -404,56 +502,15 @@ pub fn run() {
                             return;
                         }
 
-                        std::thread::spawn(move || {
-                            let _busy_guard = BusyGuard(&state.busy);
-                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                let entry = recover_lock(
-                                    state.commands.lock(),
-                                    "commands",
-                                    Some(&state.config_dir),
-                                )
-                                .get(&key)
-                                .cloned();
-                                if let Some(CommandEntry {
-                                    id, name, system_prompt, formatting, backend, ..
-                                }) = entry
-                                {
-                                    let indicator = tray_anim::TrayAnimation::begin(
-                                        app.clone(),
-                                        state.config_dir.clone(),
-                                    );
-                                    let cycle_start = state.ops.now_ms();
-                                    let outcome = cycle::run(
-                                        backend.as_ref(),
-                                        &system_prompt,
-                                        formatting,
-                                        state.ops.as_ref(),
-                                    );
-                                    let total_cycle_ms =
-                                        state.ops.now_ms().saturating_sub(cycle_start);
-                                    indicator.finish();
-                                    let line = status::log_line(&outcome, &name, backend.name());
-                                    println!("{line}");
-                                    status::append_log(&state.config_dir, &line);
-
-                                    set_status(&state, status::summary(&outcome, &name));
-
-                                    record_history(
-                                        &state,
-                                        &id,
-                                        &name,
-                                        backend.name(),
-                                        &outcome,
-                                        total_cycle_ms,
-                                    );
-                                }
-                            }));
-                            if let Err(payload) = result {
-                                let message = panic_message(&payload);
-                                let line = format!("PANIC hotkey-thread panicked: {message}");
-                                eprintln!("{line}");
-                                status::append_log(&state.config_dir, &line);
-                                set_status(&state, "internal error \u{2014} see log".to_string());
+                        let app = app.clone();
+                        runner::spawn_guarded(&state, "hotkey-thread", move |state| {
+                            let entry =
+                                recover_lock(state.commands.lock(), "commands", Some(&state.config_dir))
+                                    .get(&key)
+                                    .cloned();
+                            if let Some(CommandEntry { id, name, plan, .. }) = entry {
+                                let job = runner::Job { command_id: id, command_name: name, plan };
+                                runner::run_job(&app, state, job, None, None);
                             }
                         });
                     })
@@ -507,6 +564,8 @@ pub fn run() {
             set_status(&state, initial_status);
 
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let paste_last =
+                MenuItem::with_id(app, "paste-last", "Paste last result", true, None::<&str>)?;
             let open_config =
                 MenuItem::with_id(app, "open-config", "Open config file", true, None::<&str>)?;
             let reload = MenuItem::with_id(app, "reload", "Reload config", true, None::<&str>)?;
@@ -518,7 +577,7 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
             let mut items: Vec<&dyn IsMenuItem<_>> =
-                vec![&status_item, &sep_after_status, &settings, &sep_after_settings];
+                vec![&status_item, &sep_after_status, &settings, &paste_last, &sep_after_settings];
             for item in &command_items {
                 items.push(item);
             }
@@ -550,6 +609,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "settings" => show_settings(app),
+                    "paste-last" => runner::paste_last(&menu_state, true),
                     "open-config" => {
                         let _ = std::process::Command::new("cmd")
                             .args(["/C", "start", "", &menu_path.to_string_lossy()])
@@ -562,8 +622,24 @@ pub fn run() {
                     }
                     "reload" => {
                         let line = match config::load_or_create(&menu_path) {
-                            Ok(cfg) => {
-                                let problems = apply_config(app, &menu_state, cfg);
+                            Ok(mut cfg) => {
+                                let failures = secrets::migrate_config_file(
+                                    &menu_path,
+                                    &mut cfg,
+                                    &secrets::CredentialManager,
+                                );
+                                let mut problems = apply_config(app, &menu_state, cfg);
+                                problems.extend(
+                                    failures
+                                        .iter()
+                                        .map(|f| Problem { command_id: None, message: f.message() }),
+                                );
+                                *recover_lock(
+                                    menu_state.startup_problems.lock(),
+                                    "startup_problems",
+                                    Some(&menu_state.config_dir),
+                                ) = problems.clone();
+                                let _ = app.emit("config://reloaded", ());
                                 for problem in &problems {
                                     let line = format!("RELOAD problem: {}", problem.message);
                                     eprintln!("{line}");
@@ -593,6 +669,17 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            if let Some(window) = app.get_webview_window(palette::WINDOW_LABEL) {
+                let handle = handle.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Focused(focused) = event {
+                        if let Some(state) = handle.try_state::<AppState>() {
+                            palette::focus_changed(&handle, &state, *focused);
+                        }
+                    }
+                });
+            }
+
             if let Some(window) = app.get_webview_window("settings") {
                 let handle = handle.clone();
                 window.on_window_event(move |event| {
@@ -604,6 +691,8 @@ pub fn run() {
                 });
             }
 
+            updater::spawn_daily_check(handle.clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -614,6 +703,18 @@ pub fn run() {
             commands::get_history,
             commands::clear_history,
             commands::quit_app,
+            commands::hud_measured,
+            commands::palette_measured,
+            commands::palette_run,
+            commands::palette_close,
+            commands::get_api_key,
+            commands::check_backend,
+            updater::check_for_update,
+            updater::get_available_update,
+            updater::install_update,
+            editor::try_command,
+            editor::write_prompt,
+            editor::list_running_apps,
             localapi::local_api_status,
             localapi::local_api_regenerate_token,
         ])
@@ -623,7 +724,15 @@ pub fn run() {
 
 pub(crate) fn quit_app(app: &tauri::AppHandle, state: &AppState) {
     let _ = app.global_shortcut().unregister_all();
+    wait_for_running_cycle(state);
+    localapi::shutdown_for_app(app);
+    let _ = cursor::restore_if_left_busy(&state.config_dir);
+    app.exit(0)
+}
+
+pub(crate) fn wait_for_running_cycle(state: &AppState) {
     if state.busy.load(Ordering::SeqCst) {
+        runner::request_cancel(state);
         let start = Instant::now();
         while state.busy.load(Ordering::SeqCst) && start.elapsed() < QUIT_CYCLE_WAIT {
             std::thread::sleep(Duration::from_millis(20));
@@ -634,7 +743,4 @@ pub(crate) fn quit_app(app: &tauri::AppHandle, state: &AppState) {
             status::append_log(&state.config_dir, &line);
         }
     }
-    localapi::shutdown_for_app(app);
-    let _ = cursor::restore_if_left_busy(&state.config_dir);
-    app.exit(0)
 }

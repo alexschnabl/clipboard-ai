@@ -8,9 +8,11 @@
 	import TrashIcon from '@lucide/svelte/icons/trash';
 	import PageHeader from './PageHeader.svelte';
 	import { fade } from 'svelte/transition';
+	import { untrack } from 'svelte';
 	import EyeIcon from '@lucide/svelte/icons/eye';
 	import EyeOffIcon from '@lucide/svelte/icons/eye-off';
 	import { configState } from '$lib/state/config.svelte.js';
+	import { healthState } from '$lib/state/health.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { KIND_LABELS, type BackendConfig, type BackendKind, type Effort } from '$lib/types';
 
@@ -38,6 +40,13 @@
 	let effort = $state<Effort>('low');
 	let expectsResponse = $state(true);
 	let revealed = $state(false);
+	let keyStored = $state(false);
+	let keyInline = $state(false);
+	let keyDirty = $state(false);
+	let keyLoaded = $state(false);
+	let removeKey = $state(false);
+	let revealing = $state(false);
+	let revealError = $state<string | null>(null);
 	let saving = $state(false);
 	let submitError = $state<string | null>(null);
 
@@ -65,7 +74,15 @@
 			kind = backend?.kind ?? 'openai-compatible';
 			baseUrl = backend?.baseUrl ?? '';
 			model = backend?.model ?? '';
-			apiKey = backend?.apiKey ?? '';
+			apiKey = '';
+			const id = backend?.id;
+			keyStored = id ? untrack(() => configState.hasStoredKey(id)) : false;
+			keyInline = id ? untrack(() => configState.hasInlineKey(id)) : false;
+			keyDirty = false;
+			keyLoaded = false;
+			removeKey = false;
+			revealing = false;
+			revealError = null;
 			timeoutMs = backend?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 			effort = backend?.effort ?? 'low';
 			expectsResponse = backend?.expectsResponse ?? true;
@@ -92,6 +109,48 @@
 		timeoutMs = Number.isFinite(v) ? v : DEFAULT_TIMEOUT_MS;
 	}
 
+	async function toggleReveal(): Promise<void> {
+		revealError = null;
+		if (revealed) {
+			revealed = false;
+			return;
+		}
+		if (backend && keyStored && !keyLoaded && !keyDirty && !removeKey) {
+			revealing = true;
+			try {
+				apiKey = (await configState.revealApiKey(backend.id)) ?? '';
+				keyLoaded = true;
+			} catch {
+				revealError = i18n.t.backends.form.apiKeyRevealFailed;
+				return;
+			} finally {
+				revealing = false;
+			}
+		}
+		revealed = true;
+	}
+
+	function handleKeyInput(): void {
+		keyDirty = true;
+		removeKey = false;
+	}
+
+	function markKeyForRemoval(): void {
+		removeKey = true;
+		keyDirty = false;
+		keyLoaded = false;
+		revealed = false;
+		apiKey = '';
+	}
+
+	function keyChange(): string | null | undefined {
+		if (!usesKey) return undefined;
+		if (removeKey) return null;
+		if (!keyDirty) return undefined;
+		const trimmed = apiKey.trim();
+		return trimmed.length > 0 ? trimmed : undefined;
+	}
+
 	async function handleSave(): Promise<void> {
 		if (!canSave || saving) return;
 		const next: BackendConfig = {
@@ -100,17 +159,22 @@
 			kind,
 			baseUrl: usesBaseUrl ? baseUrl.trim() || null : null,
 			model: kind === 'http' ? null : model.trim() || null,
-			apiKey: usesKey ? apiKey.trim() || null : null,
+			apiKey: null,
 			timeoutMs,
 			effort: kind === 'claude-cli' ? effort : 'low',
 			expectsResponse: kind === 'http' ? expectsResponse : true
 		};
 		saving = true;
 		submitError = null;
-		const ok = backend ? await configState.updateBackend(next) : await configState.addBackend(next);
+		const change = keyChange();
+		const ok = backend
+			? await configState.updateBackend(next, change)
+			: await configState.addBackend(next, change);
 		saving = false;
 		if (ok) {
 			open = false;
+			healthState.forget(next.id);
+			void healthState.check(next.id);
 		} else {
 			submitError = configState.error?.message ?? i18n.t.backends.form.saveFailedFallback;
 		}
@@ -238,12 +302,18 @@
 								id="backend-api-key"
 								type={revealed ? 'text' : 'password'}
 								bind:value={apiKey}
+								oninput={handleKeyInput}
+								placeholder={keyStored && !keyInline && !keyDirty && !keyLoaded && !removeKey
+									? i18n.t.backends.form.apiKeyStoredPlaceholder
+									: ''}
 								class="pr-9"
 								autocomplete="off"
+								spellcheck="false"
 							/>
 							<button
 								type="button"
-								onclick={() => (revealed = !revealed)}
+								onclick={() => void toggleReveal()}
+								disabled={revealing}
 								class="absolute top-1/2 right-1 flex size-6 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
 								aria-label={revealed
 									? i18n.t.backends.form.hideApiKey
@@ -256,6 +326,31 @@
 								{/if}
 							</button>
 						</div>
+						{#if revealError}
+							<p class="text-xs text-destructive">{revealError}</p>
+						{:else if removeKey}
+							<p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+								{i18n.t.backends.form.apiKeyWillBeRemoved}
+								<button
+									type="button"
+									class="text-foreground underline-offset-2 hover:underline"
+									onclick={() => (removeKey = false)}>{i18n.t.backends.form.apiKeyUndo}</button
+								>
+							</p>
+						{:else}
+							<p class="flex items-center gap-1.5 text-xs text-muted-foreground">
+								{keyInline && !keyDirty
+									? i18n.t.backends.form.apiKeyInline
+									: i18n.t.backends.form.apiKeyHint}
+								{#if keyStored}
+									<button
+										type="button"
+										class="text-foreground underline-offset-2 hover:underline"
+										onclick={markKeyForRemoval}>{i18n.t.backends.form.apiKeyRemove}</button
+									>
+								{/if}
+							</p>
+						{/if}
 					</div>
 				{/if}
 

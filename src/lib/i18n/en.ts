@@ -3,10 +3,12 @@ export const en = {
 		commands: 'Commands',
 		backends: 'Backends',
 		history: 'History',
+		vocabulary: 'Vocabulary',
 		settings: 'Settings',
 		working: 'Working…',
 		version: (v: string) => `Version ${v}`,
-		quit: 'Quit Clipboard AI'
+		quit: 'Quit Clipboard AI',
+		needsAttention: 'Needs attention'
 	},
 
 	common: {
@@ -47,6 +49,32 @@ export const en = {
 		deleteAria: (name: string) => `Delete ${name}`,
 		deleteTitle: (name: string) => `Delete “${name}”?`,
 		deleteDescription: 'This removes the command and its hotkey permanently. This can’t be undone.',
+		problems: {
+			hotkeyTaken: 'Another app already uses this hotkey. Pick a different one.',
+			hotkeyClash: (other: string) => `Same hotkey as “${other}”, so only that one runs.`,
+			hotkeyInvalid: 'This hotkey isn’t recognised. Record it again.',
+			backendMissing: 'Its backend no longer exists. Pick another one.'
+		},
+		onboarding: {
+			title: 'Get started',
+			intro: 'Clipboard AI needs one backend that answers. Then select text anywhere and press a hotkey.',
+			hide: 'Hide',
+			hideAria: 'Hide this guide for good',
+			step1Title: 'Set up a backend',
+			step1Text:
+				'A local model through Ollama, your Claude subscription through the claude CLI, or an API key.',
+			checkBackends: 'Check backends',
+			openBackends: 'Open Backends',
+			checking: 'Checking your backends…',
+			works: (name: string) => `${name} works.`,
+			noneWorking: 'None of your backends answered yet.',
+			step2Title: (name: string) => `Try “${name}”`,
+			step2Text: 'Select a sentence in any app and press',
+			step2NoCommand: 'Add a command with a hotkey and a prompt.',
+			backendSilent: (backend: string) => `Its backend, ${backend}, didn’t answer.`,
+			useBackend: (name: string) => `Use ${name}`,
+			step2Done: 'It worked. You’re all set.'
+		},
 		form: {
 			addTitle: 'Add command',
 			editTitle: 'Edit command',
@@ -78,6 +106,97 @@ export const en = {
 			addSubmit: 'Add command',
 			saveSubmit: 'Save changes',
 			deleteSubmit: 'Delete command'
+		},
+		tryIt: {
+			title: 'Try it',
+			hint: 'Nothing is pasted',
+			inputLabel: 'Your text',
+			inputPlaceholder: 'Type or paste a sample, like the text you would select.',
+			outputLabel: 'What would be pasted',
+			run: 'Run',
+			shortcutOr: 'or',
+			stop: 'Stop',
+			asking: (backend: string) => `Asking ${backend}…`,
+			idle: 'Run a sample to see the result here. The sample is sent as plain text.',
+			stale: 'Changed since this run',
+			noChanges: 'No changes. A real run would paste the same text back.',
+			appLabel: 'As in',
+			appAnywhere: 'any other app',
+			defaultModel: 'default model',
+			ruleApplied: (app: string) => `rule for ${app}`,
+			sendOnly:
+				'This backend only sends the text and pastes nothing back, so there is nothing to preview. The History tab shows each run.',
+			httpNote: 'Run sends the sample to the endpoint, like a real run.',
+			errors: {
+				timeout:
+					'The backend did not answer within its timeout. A slow or cold model may need a longer timeout.',
+				unreachable: 'Could not reach the backend. Check that it is running and that its address is right.',
+				misconfigured: 'The backend is not set up completely.',
+				badResponse: 'The backend answered with an error.',
+				noSentinel:
+					'The model answered, but not in the expected shape. Run it again, or make the prompt simpler.',
+				emptyResult: 'The model answered with nothing.',
+				nothingToPreview: 'This backend pastes nothing back, so there is nothing to preview.',
+				unknownBackend: 'Pick a backend first.',
+				emptyInput: 'Type a sample first.',
+				notAnAiBackend: 'This backend cannot write prompts. Pick an AI backend.',
+				internal: 'Something went wrong inside the app.'
+			}
+		},
+		writer: {
+			openClaude: 'Write with Claude',
+			openOther: 'Write with AI',
+			title: 'Write the prompt for me',
+			description:
+				'Say in plain words what the command should do. The result replaces the prompt, and you can edit it or undo it.',
+			label: 'What should the command do?',
+			placeholder: 'Make my emails sound friendlier, but keep them short.',
+			reviseHint: 'Your current prompt is sent along, so you can also ask for a change, like "make it shorter".',
+			backendLabel: 'Written by',
+			submit: 'Write prompt',
+			working: 'Writing…',
+			done: (backend: string) => `Written by ${backend}.`,
+			undo: 'Undo',
+			errorTitle: 'Couldn’t write the prompt'
+		},
+		rules: {
+			title: 'In some apps',
+			hint: 'Used there instead',
+			add: 'Add a rule for an app',
+			adds: (text: string) => `Adds: ${text}`,
+			uses: (backend: string) => `Uses ${backend}`,
+			nothing: 'Changes nothing yet',
+			savedWithCommand: 'Rules are saved with the command.',
+			addTitle: 'Add a rule for an app',
+			editTitle: (app: string) => `Rule for ${app}`,
+			description: 'When you run this command in that app, these settings are used instead.',
+			appLabel: 'App',
+			search: 'Search open apps',
+			loading: 'Looking for open apps…',
+			none: 'No open apps found. Enter the program name instead.',
+			noMatch: 'No open app matches.',
+			manual: 'Enter the program name',
+			pickFromList: 'Pick from open apps',
+			refresh: 'Refresh',
+			change: 'Change',
+			exeLabel: 'Program file',
+			exePlaceholder: 'OUTLOOK.EXE',
+			exeHint: 'The .exe name, as Task Manager shows it under Details.',
+			nameLabel: 'Shown as',
+			namePlaceholder: 'Outlook',
+			promptLabel: 'Add to the prompt',
+			promptPlaceholder: 'Keep it formal and address the reader as Sie.',
+			promptHint: 'Added after the command’s prompt, in this app only.',
+			backendLabel: 'Backend',
+			formattingLabel: 'Formatting',
+			same: 'Same as the command',
+			duplicate: 'This command already has a rule for that app.',
+			empty: 'Change at least one thing for this app.',
+			pickApp: 'Pick an app first.',
+			submitAdd: 'Add rule',
+			submitSave: 'Save rule',
+			delete: 'Delete rule',
+			editAria: (app: string) => `Edit the rule for ${app}`
 		}
 	},
 
@@ -98,9 +217,12 @@ export const en = {
 		deleteDescription: 'This removes the backend permanently. This can’t be undone.',
 		blockedDeleteTitle: (name: string) => `Can’t delete “${name}”`,
 		blockedDeleteDescription: (usedBy: string) =>
-			`Still used by: ${usedBy}. Point those commands at a different backend first, then delete it.`,
+			`Still used by: ${usedBy}. Point those commands and their app rules at a different backend first, then delete it.`,
 		usedBy: (names: string) => `Used by ${names}`,
 		unused: 'Not used by any command',
+		check: 'Check',
+		checkAll: 'Check all',
+		checkAria: (name: string) => `Check ${name}`,
 		form: {
 			addTitle: 'Add backend',
 			editTitle: 'Edit backend',
@@ -133,6 +255,14 @@ export const en = {
 			apiKeyOptional: '(optional)',
 			showApiKey: 'Show API key',
 			hideApiKey: 'Hide API key',
+			apiKeyStoredPlaceholder: 'Saved in Windows Credential Manager',
+			apiKeyHint: 'Kept in Windows Credential Manager, not in config.json.',
+			apiKeyInline:
+				'Still in config.json, because Windows Credential Manager refused it. Saving tries again.',
+			apiKeyRemove: 'Remove key',
+			apiKeyWillBeRemoved: 'The key is removed when you save.',
+			apiKeyUndo: 'Undo',
+			apiKeyRevealFailed: 'Couldn’t read the key from Windows Credential Manager.',
 			timeoutLabel: 'Timeout (ms)',
 			timeoutHint: (defaultMs: string) =>
 				`A cold local model can take ~16,000 ms on its first request of the day — the ${defaultMs} ms default avoids a false timeout then.`,
@@ -143,6 +273,40 @@ export const en = {
 			saveSubmit: 'Save changes',
 			deleteSubmit: 'Delete backend'
 		}
+	},
+
+	health: {
+		checking: 'Checking…',
+		notChecked: 'Not checked yet',
+		checkFailed: 'The check itself failed',
+		ok: (time: string) => `Answered in ${time}`,
+		cold: (first: string, warm: string) =>
+			`Model was cold. First answer took ${first}, the next ${warm}`,
+		slow: (time: string) => `Works, but slow. Took ${time}`,
+		reachable: 'Reachable. Nothing was sent to it',
+		cliReady: (version: string) => `Signed in, CLI ${version}`,
+		cliSignedOut: 'Not signed in. Run claude in a terminal to log in',
+		cliUnknownAuth: (version: string) => `CLI ${version} found, sign-in not confirmed`,
+		cliMissing: 'Claude CLI not found. Install it and sign in',
+		keyMissing: 'No API key set',
+		keyRejected: 'Key rejected',
+		keyUnreadable: 'Couldn’t read the API key',
+		modelNotFound: 'Model or URL not found',
+		notReachable: 'Not reachable',
+		timeout: (secs: number) => `No answer within ${secs} s`,
+		needsUrl: 'No URL set',
+		needsModel: 'No model set',
+		misconfigured: 'Setup is incomplete',
+		badResponse: 'Unexpected answer'
+	},
+
+	update: {
+		promptTitle: (version: string) => `Clipboard AI ${version} is available`,
+		promptText: 'Install it now, or later from Settings.',
+		install: 'Install and restart',
+		later: 'Later',
+		downloading: 'Downloading…',
+		downloadingPercent: (percent: number) => `Downloading… ${percent}%`
 	},
 
 	hotkeyRecorder: {
@@ -166,6 +330,8 @@ export const en = {
 		statusSuccess: 'Success',
 		statusFailed: 'Failed',
 		statusAborted: 'Aborted',
+		statusCancelled: 'Cancelled',
+		instructionTag: 'Instruction',
 		emptyTitle: 'No runs yet',
 		emptyDescription: 'Trigger a command with its hotkey and the result will show up here.',
 		loadErrorTitle: 'Couldn’t load history',
@@ -191,10 +357,80 @@ export const en = {
 			`Permanently deletes all ${count} recorded runs, including any input and result text still held here for recovery. This can’t be undone.`
 	},
 
+	reasons: {
+		cancelled: 'Nothing was pasted.',
+		focusChanged: 'You switched windows before the answer arrived.',
+		focusRestoreFailed: 'Could not switch back to your window.',
+		captureTimeout: 'No text was selected, or it could not be copied.',
+		modifiersStuck: 'A modifier key was still held down.',
+		modifiersStuckBeforePaste: 'A modifier key was held down when it was time to paste.',
+		backendError: 'The backend reported an error. History has the details.',
+		noSentinel: 'The answer came back in an unexpected format.',
+		emptyResult: 'The answer was empty.',
+		clipboardWriteFailed: 'The clipboard was busy, so nothing could be pasted.',
+		pasteFailed: 'The paste keystroke could not be sent.',
+		noLastResult: 'Run a command first, then you can paste its result again.',
+		paletteFocusFailed: 'The palette could not open. Try the hotkey again.',
+		unknown: (code: string) => `Stopped: ${code}.`
+	},
+
+	hud: {
+		escHint: 'to cancel',
+		done: 'Done',
+		wordsChanged: (n: number) => (n === 1 ? '1 word changed' : `${n} words changed`),
+		noChanges: 'Nothing needed changing',
+		sent: 'Sent',
+		pastedAgain: 'Pasted again',
+		undoHint: 'to undo',
+		nothingPasted: 'Nothing pasted',
+		cancelled: 'Cancelled',
+		nothingToPaste: 'Nothing to paste yet',
+		paletteClosed: 'Palette closed'
+	},
+
+	palette: {
+		placeholder: 'Search commands or type an instruction',
+		groupCommands: 'Commands',
+		runInstruction: (text: string) => `Run "${text}"`,
+		instructionHint: 'One-off instruction',
+		noBackend: 'Add an AI backend to run instructions',
+		noMatches: 'No command matches. Press Enter to run it as an instruction.',
+		empty: 'No commands yet. Type an instruction instead.',
+		footerRun: 'run',
+		footerBackend: 'backend',
+		footerClose: 'close',
+		listLabel: 'Commands and instructions'
+	},
+
+	vocabulary: {
+		title: 'Vocabulary',
+		keepTitle: 'Words every command keeps as written',
+		keepHint: 'Names, products, places',
+		keepPlaceholder: 'Add a word or name',
+		keepAdd: 'Add',
+		keepRemove: (word: string) => `Remove ${word}`,
+		keepEmpty: 'No words yet. Add names the model tends to "correct".',
+		replaceTitle: 'Always replace',
+		replaceHint: 'Before the text reaches the model',
+		replaceFrom: 'Replace',
+		replaceTo: 'With',
+		replaceFromPlaceholder: 'sus tech',
+		replaceToPlaceholder: 'Sus-Tech',
+		replaceAdd: 'Add a replacement',
+		replaceSave: 'Save',
+		replaceDeleted: 'removed',
+		replaceEditAria: (from: string) => `Edit the replacement for ${from}`,
+		replaceRemove: (from: string) => `Remove the replacement for ${from}`,
+		note: 'The word list goes into the instructions of every command, because a model that "corrects" a name it doesn’t know is the most common bad result. Replacements match whole words in any capitalization and change the selected text before any backend sees it.',
+		saveErrorTitle: 'Couldn’t save that change',
+		saveFailedFallback: 'Could not save the change.'
+	},
+
 	settings: {
 		title: 'Settings',
 		groupAppearance: 'Appearance',
 		groupStartup: 'Startup',
+		groupAbout: 'About',
 		themeLabel: 'Theme',
 		themeDescription: 'Applies to this window. Follows Windows by default.',
 		themeSystem: 'System',
@@ -208,6 +444,27 @@ export const en = {
 		autostartDevNoteBefore:
 			'Refused in development builds — it would register the debug executable to run at login instead of your installed app; test this with an installed (',
 		autostartDevNoteAfter: ') build instead.',
+		groupRunning: 'While a command runs',
+		hudLabel: 'Status near the cursor',
+		hudDescription:
+			'Shows which command is running, lets you cancel with Esc, and says why nothing was pasted.',
+		busyCursorLabel: 'Busy pointer',
+		busyCursorDescription: 'Shows the busy pointer while the backend works.',
+		groupShortcuts: 'Shortcuts that work everywhere',
+		paletteLabel: 'Command palette',
+		paletteDescription: 'Pick any command for the selected text, or type a one-off instruction.',
+		pasteLastLabel: 'Paste the last result again',
+		pasteLastDescription:
+			'Pastes the most recent result at the cursor. Also in the tray menu. Off by default because Office uses Ctrl+Alt+V for Paste Special.',
+		pasteLastToggle: 'Use a hotkey to paste the last result again',
+		versionLabel: (version: string) => `Clipboard AI ${version}`,
+		updateDescription: 'Checks GitHub once a day. Nothing installs until you click.',
+		updateCheck: 'Check for updates',
+		updateChecking: 'Checking…',
+		updateUpToDate: 'You’re on the latest version.',
+		updateAvailable: (version: string) => `Version ${version} is available.`,
+		updateInstallFailed: 'Couldn’t install the update. Try again later.',
+		updateCheckFailed: 'Couldn’t check for updates. Try again later.',
 		saveErrorTitle: 'Couldn’t save that change',
 		saveFailedFallback: 'Could not save the change.'
 	},
@@ -218,7 +475,6 @@ export const en = {
 		apiDescription: 'Lets scripts and tools on this computer run your commands over HTTP.',
 		addressLabel: 'Address',
 		addressDescription: 'Reachable only from this computer. Requests from web pages are refused.',
-		statusRunning: 'Running',
 		statusStopped: 'Not running',
 		copyAddress: 'Copy address',
 		portLabel: 'Port',

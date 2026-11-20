@@ -12,6 +12,7 @@
 	import { formatDuration, formatHistoryTimestamp } from '$lib/time-format';
 	import { wordDiff } from '$lib/diff';
 	import { i18n } from '$lib/i18n/i18n.svelte';
+	import { knownReasonSentence } from '$lib/overlay';
 	import type { HistoryEntry } from '$lib/types';
 
 	const HISTORY_LIMIT = 100;
@@ -61,7 +62,9 @@
 			case 'succeeded':
 				return { label: i18n.t.history.statusSuccess, dot: 'bg-success' };
 			case 'aborted':
-				return { label: i18n.t.history.statusAborted, dot: 'bg-warning' };
+				return outcome.reason === 'cancelled'
+					? { label: i18n.t.history.statusCancelled, dot: 'bg-muted-foreground' }
+					: { label: i18n.t.history.statusAborted, dot: 'bg-warning' };
 			case 'failed':
 				return { label: i18n.t.history.statusFailed, dot: 'bg-destructive' };
 		}
@@ -212,7 +215,14 @@
 				{@const meta = outcomeMeta(entry.outcome)}
 				<section class="list-card flex min-w-0 flex-1 flex-col gap-5 overflow-y-auto p-5 select-text">
 					<div>
-						<div class="text-[16px]">{entry.commandName}</div>
+						<div class="flex items-baseline gap-2 text-[16px]">
+							<span class="min-w-0">{entry.commandName}</span>
+							{#if entry.commandId === 'palette-instruction'}
+								<span class="shrink-0 rounded-[6px] bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
+									>{i18n.t.history.instructionTag}</span
+								>
+							{/if}
+						</div>
 						<div class="mt-0.5 text-xs text-muted-foreground">{fullTimestamp(entry.timestampMs)}</div>
 					</div>
 
@@ -221,7 +231,9 @@
 							<span class={['mt-1.5 size-2 shrink-0 rounded-full', meta.dot]}></span>
 							<span>
 								{entry.outcome.status === 'aborted'
-									? `${i18n.t.history.abortedPrefix} ${entry.outcome.reason}`
+									? entry.outcome.reason === 'cancelled'
+										? (knownReasonSentence(entry.outcome.reason, i18n.t) ?? entry.outcome.reason)
+										: `${i18n.t.history.abortedPrefix} ${knownReasonSentence(entry.outcome.reason, i18n.t) ?? entry.outcome.reason}`
 									: `${i18n.t.history.failedPrefix} ${entry.outcome.error}`}
 							</span>
 						</div>

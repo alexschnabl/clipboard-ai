@@ -138,6 +138,12 @@
     }
 }
 
+html.overlay-window,
+html.overlay-window body {
+  background: transparent;
+  overflow: hidden;
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -170,8 +176,12 @@
   .list-row + .list-row {
     @apply border-t;
   }
-  button.list-row:hover {
+  button.list-row:hover,
+  .list-row:has(> .row-link:hover) {
     @apply bg-canvas;
+  }
+  .row-link:focus-visible {
+    @apply outline-2 -outline-offset-2 outline-ring;
   }
   .group-title {
     @apply flex items-baseline justify-between gap-3 px-1 pb-2 text-sm;

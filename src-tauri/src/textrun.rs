@@ -4,10 +4,11 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use thiserror::Error;
 
-use crate::backend::{self, Backend, BackendError};
-use crate::config::{BackendConfig, Config, Formatting};
+use crate::backend::{self, BackendError};
+use crate::config::{BackendConfig, Config, Formatting, Vocabulary};
+use crate::cycle::{self, Job, Transformed};
 use crate::osops::Clip;
-use crate::{richtext, sentinel};
+use crate::plan::BackendBuilder;
 
 #[derive(Debug, Clone)]
 pub struct Plan {
@@ -16,6 +17,7 @@ pub struct Plan {
     pub backend: BackendConfig,
     pub system_prompt: String,
     pub formatting: Formatting,
+    pub vocabulary: Vocabulary,
 }
 
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
@@ -61,6 +63,8 @@ pub enum RunError {
     NoSentinel,
     #[error("the backend returned an empty result")]
     EmptyResult,
+    #[error("the run did not finish ({0})")]
+    Other(&'static str),
 }
 
 impl RunError {
@@ -71,6 +75,7 @@ impl RunError {
             RunError::Backend(_) => "backend-error",
             RunError::NoSentinel => "no-sentinel",
             RunError::EmptyResult => "empty-result",
+            RunError::Other(reason) => reason,
         }
     }
 }
@@ -138,6 +143,7 @@ pub fn resolve(
                 backend: backend.clone(),
                 system_prompt: prompt.unwrap_or(&found.system_prompt).to_string(),
                 formatting: found.formatting,
+                vocabulary: config.vocabulary.clone(),
             })
         }
         None => {
@@ -158,53 +164,43 @@ pub fn resolve(
                 backend: backend.clone(),
                 system_prompt: prompt.to_string(),
                 formatting: Formatting::Auto,
+                vocabulary: config.vocabulary.clone(),
             })
         }
     }
 }
 
-pub fn run_on_text(
-    backend: &dyn Backend,
-    system_prompt: &str,
-    formatting: Formatting,
-    text: &str,
-) -> Result<TextResult, RunError> {
-    let input = Clip { text: text.to_string(), html: None };
-    let prepared = richtext::prepare(&input, formatting, backend.supports_rich_text());
-    let mut prompt = system_prompt.to_string();
-    if let Some(instruction) = prepared.instruction {
-        prompt.push_str("\n\n");
-        prompt.push_str(instruction);
-    }
-    let prompt =
-        if backend.uses_sentinel() { sentinel::wrap_system_prompt(&prompt) } else { prompt };
-
-    let started = Instant::now();
-    let raw = backend.transform(&prompt, &prepared.text).map_err(RunError::Backend)?;
-    let backend_ms = started.elapsed().as_millis() as u64;
-
-    if !backend.pastes_result() {
-        return Ok(TextResult { text: None, html: None, backend_ms });
-    }
-
-    let extracted = if backend.uses_sentinel() {
-        sentinel::extract(&raw).ok_or(RunError::NoSentinel)?
-    } else {
-        raw.trim().to_string()
+pub fn run_plan_with(plan: &Plan, text: &str, builder: BackendBuilder) -> Result<TextResult, RunError> {
+    let backend = builder(&plan.backend).map_err(RunError::Backend)?;
+    let job = Job {
+        backend: &backend,
+        system_prompt: &plan.system_prompt,
+        prompt_addition: None,
+        formatting: plan.formatting,
+        vocabulary: &plan.vocabulary,
+        rule_name: None,
     };
-    if extracted.trim().is_empty() {
-        return Err(RunError::EmptyResult);
+    let started = Instant::now();
+    let clock = || started.elapsed().as_millis() as u64;
+    let input = Clip { text: text.to_string(), html: None };
+    let transform = cycle::transform(&job, &input, &clock);
+    let backend_ms = transform.backend_ms;
+    match transform.result {
+        Ok(Transformed::Result(clip)) => {
+            Ok(TextResult { text: Some(clip.text), html: clip.html, backend_ms })
+        }
+        Ok(Transformed::Sent) => Ok(TextResult { text: None, html: None, backend_ms }),
+        Err(failure) => Err(match (failure.backend_error, failure.reason) {
+            (Some(e), _) => RunError::Backend(e),
+            (None, "no-sentinel") => RunError::NoSentinel,
+            (None, "empty-result") => RunError::EmptyResult,
+            (None, other) => RunError::Other(other),
+        }),
     }
-    let result = richtext::finish(&extracted, &prepared);
-    if result.text.trim().is_empty() {
-        return Err(RunError::EmptyResult);
-    }
-    Ok(TextResult { text: Some(result.text), html: result.html, backend_ms })
 }
 
 pub fn run_plan(plan: &Plan, text: &str) -> Result<TextResult, RunError> {
-    let backend = backend::build(&plan.backend).map_err(RunError::Backend)?;
-    run_on_text(backend.as_ref(), &plan.system_prompt, plan.formatting, text)
+    run_plan_with(plan, text, &backend::build)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -262,9 +258,10 @@ pub fn listing_json(config: &Config) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
+    use std::sync::{Arc, Mutex};
 
     use super::*;
+    use crate::backend::Backend;
     use crate::config::{self, CommandConfig, Effort, KIND_HTTP, KIND_OPENAI};
 
     fn backend_cfg(id: &str, name: &str) -> BackendConfig {
@@ -289,6 +286,7 @@ mod tests {
             hotkey: format!("Ctrl+Alt+{}", id.len()),
             system_prompt: format!("prompt of {id}"),
             formatting: Formatting::Auto,
+            app_rules: Vec::new(),
         }
     }
 
@@ -301,6 +299,7 @@ mod tests {
                 command_cfg("shorten", "Shorten", "cloud"),
             ],
             settings: config::Settings::default(),
+            vocabulary: Default::default(),
         }
     }
 
@@ -388,8 +387,14 @@ mod tests {
     }
 
     impl Recording {
-        fn new(reply: &str) -> Self {
-            Self { reply: Ok(reply.into()), sentinel: true, pastes: true, seen: Mutex::new(None) }
+        fn new(reply: &str) -> Arc<Self> {
+            Arc::new(Self { reply: Ok(reply.into()), sentinel: true, pastes: true, seen: Mutex::new(None) })
+        }
+        fn raw(reply: Result<String, BackendError>, sentinel: bool, pastes: bool) -> Arc<Self> {
+            Arc::new(Self { reply, sentinel, pastes, seen: Mutex::new(None) })
+        }
+        fn seen(&self) -> (String, String) {
+            self.seen.lock().unwrap().clone().expect("the backend was called")
         }
     }
 
@@ -409,60 +414,99 @@ mod tests {
         }
     }
 
+    fn run_with(backend: &Arc<Recording>, plan: &Plan, text: &str) -> Result<TextResult, RunError> {
+        let shared: Arc<dyn Backend> = backend.clone();
+        run_plan_with(plan, text, &move |_| Ok(shared.clone()))
+    }
+
+    fn plan_for(cfg: &Config, command: &str) -> Plan {
+        resolve(cfg, Some(command), None, None).unwrap()
+    }
+
     #[test]
-    fn assembles_the_prompt_like_the_hotkey_cycle_and_extracts_the_result() {
+    fn runs_through_the_shared_transform_like_a_hotkey_run_without_an_app() {
         let backend = Recording::new("thinking...<output>Fixed text.</output>");
-        let result = run_on_text(&backend, "Fix grammar.", Formatting::Auto, "fixd txt").unwrap();
+        let cfg = sample();
+        let plan = plan_for(&cfg, "fix");
+        let result = run_with(&backend, &plan, "fixd txt").unwrap();
         assert_eq!(result.text.as_deref(), Some("Fixed text."));
         assert_eq!(result.html, None);
-        let (prompt, text) = backend.seen.lock().unwrap().clone().unwrap();
-        assert_eq!(prompt, sentinel::wrap_system_prompt("Fix grammar."));
+
+        let shared: Arc<dyn Backend> = backend.clone();
+        let job = Job {
+            backend: &shared,
+            system_prompt: "prompt of fix",
+            prompt_addition: None,
+            formatting: Formatting::Auto,
+            vocabulary: &cfg.vocabulary,
+            rule_name: None,
+        };
+        let (prompt, text) = backend.seen();
+        assert_eq!(prompt, cycle::assemble_system_prompt(&job, None));
         assert_eq!(text, "fixd txt");
+    }
+
+    #[test]
+    fn vocabulary_applies_exactly_as_in_a_hotkey_run() {
+        let backend = Recording::new("<output>ok</output>");
+        let mut cfg = sample();
+        cfg.vocabulary = Vocabulary {
+            keep: vec!["Tauri".into()],
+            replacements: vec![crate::config::Replacement { from: "teh".into(), to: "the".into() }],
+        };
+        let plan = plan_for(&cfg, "fix");
+        run_with(&backend, &plan, "teh app uses Tauri").unwrap();
+        let (prompt, text) = backend.seen();
+        assert_eq!(text, "the app uses Tauri");
+        assert!(prompt.contains("Tauri"), "{prompt}");
+        assert!(prompt.contains(&crate::vocabulary::keep_instruction(&cfg.vocabulary).unwrap()));
+
+        let one_off = resolve(&cfg, None, Some("local"), Some("Shout.")).unwrap();
+        run_with(&backend, &one_off, "teh end").unwrap();
+        assert_eq!(backend.seen().1, "the end", "a one-off prompt gets the vocabulary too");
     }
 
     #[test]
     fn rich_formatting_asks_for_html_and_returns_both_forms() {
         let backend = Recording::new("<output><p>Hello <b>world</b></p></output>");
-        let result = run_on_text(&backend, "Tidy.", Formatting::Rich, "hello world").unwrap();
-        let (prompt, _) = backend.seen.lock().unwrap().clone().unwrap();
-        assert!(prompt.contains(richtext::RICH_INSTRUCTION));
+        let mut cfg = sample();
+        cfg.commands[0].formatting = Formatting::Rich;
+        let result = run_with(&backend, &plan_for(&cfg, "fix"), "hello world").unwrap();
+        assert!(backend.seen().0.contains(crate::richtext::RICH_INSTRUCTION));
         assert_eq!(result.text.as_deref(), Some("Hello world"));
         assert!(result.html.unwrap().contains("<b>world</b>"));
     }
 
     #[test]
-    fn plain_formatting_adds_no_html_instruction() {
-        let backend = Recording::new("<output>ok</output>");
-        run_on_text(&backend, "P.", Formatting::Plain, "x").unwrap();
-        let (prompt, _) = backend.seen.lock().unwrap().clone().unwrap();
-        assert!(!prompt.contains("HTML"));
-    }
-
-    #[test]
     fn a_missing_sentinel_or_empty_answer_is_an_error_not_a_result() {
+        let cfg = sample();
+        let plan = plan_for(&cfg, "fix");
         let backend = Recording::new("no tags here");
-        assert!(matches!(run_on_text(&backend, "P.", Formatting::Auto, "x"), Err(RunError::NoSentinel)));
-        let mut raw = Recording::new("   ");
-        raw.sentinel = false;
-        assert!(matches!(run_on_text(&raw, "P.", Formatting::Auto, "x"), Err(RunError::EmptyResult)));
+        assert!(matches!(run_with(&backend, &plan, "x"), Err(RunError::NoSentinel)));
+        let raw = Recording::raw(Ok("   ".into()), false, true);
+        assert!(matches!(run_with(&raw, &plan, "x"), Err(RunError::EmptyResult)));
     }
 
     #[test]
     fn a_send_only_backend_returns_no_text() {
-        let mut backend = Recording::new("ignored");
-        backend.sentinel = false;
-        backend.pastes = false;
-        let result = run_on_text(&backend, "P.", Formatting::Auto, "x").unwrap();
+        let backend = Recording::raw(Ok("ignored".into()), false, false);
+        let result = run_with(&backend, &plan_for(&sample(), "fix"), "x").unwrap();
         assert_eq!(result.text, None);
     }
 
     #[test]
     fn backend_errors_keep_their_message_and_get_a_stable_code() {
-        let mut backend = Recording::new("");
-        backend.reply = Err(BackendError::Timeout);
-        let err = run_on_text(&backend, "P.", Formatting::Auto, "x").unwrap_err();
+        let backend = Recording::raw(Err(BackendError::Timeout), true, true);
+        let err = run_with(&backend, &plan_for(&sample(), "fix"), "x").unwrap_err();
         assert_eq!(err.code(), "backend-timeout");
         assert_eq!(err.to_string(), "backend timed out");
+    }
+
+    #[test]
+    fn a_backend_that_cannot_be_built_is_a_backend_error() {
+        let plan = plan_for(&sample(), "fix");
+        let err = run_plan_with(&plan, "x", &|_| Err(BackendError::Misconfigured("no key".into()))).unwrap_err();
+        assert_eq!(err.code(), "backend-misconfigured");
     }
 
     #[test]

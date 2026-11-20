@@ -789,6 +789,7 @@ impl Engine for AppEngine {
                 backends: Vec::new(),
                 commands: Vec::new(),
                 settings: Default::default(),
+                vocabulary: Default::default(),
             },
         }
     }
@@ -848,8 +849,10 @@ mod tests {
                 hotkey: "Ctrl+Alt+J".into(),
                 system_prompt: "Fix.".into(),
                 formatting: Formatting::Auto,
+                app_rules: Vec::new(),
             }],
             settings: config::Settings::default(),
+            vocabulary: Default::default(),
         }
     }
 
