@@ -723,11 +723,18 @@ pub fn run() {
 }
 
 pub(crate) fn quit_app(app: &tauri::AppHandle, state: &AppState) {
+    prepare_exit(app, state);
+    app.exit(0)
+}
+
+pub(crate) fn prepare_exit(app: &tauri::AppHandle, state: &AppState) {
     let _ = app.global_shortcut().unregister_all();
+    if state.palette.is_open() {
+        palette::close(app, state, None, false);
+    }
     wait_for_running_cycle(state);
     localapi::shutdown_for_app(app);
     let _ = cursor::restore_if_left_busy(&state.config_dir);
-    app.exit(0)
 }
 
 pub(crate) fn wait_for_running_cycle(state: &AppState) {

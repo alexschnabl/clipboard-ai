@@ -432,6 +432,41 @@ describe('ConfigState commit-and-rollback semantics', () => {
 		});
 	});
 
+	describe('settings patches', () => {
+		it('keeps every field when several changes are saved before the first save finishes', async () => {
+			let resolveFirst!: (value: SaveResult) => void;
+			invokeMock.mockReturnValueOnce(
+				new Promise<SaveResult>((resolve) => {
+					resolveFirst = resolve;
+				})
+			);
+			invokeMock.mockResolvedValue(ok());
+
+			const first = state.updateSettings({ theme: 'dark' });
+			const second = state.updateSettings({ language: 'de' });
+			const third = state.updateSettings({ autostart: true });
+			resolveFirst(ok());
+			await Promise.all([first, second, third]);
+
+			expect(state.config.settings).toEqual({
+				...defaultSettings(),
+				theme: 'dark',
+				language: 'de',
+				autostart: true
+			});
+		});
+
+		it('applies vocabulary updates to the latest list, not a stale copy', async () => {
+			invokeMock.mockResolvedValue(ok());
+
+			const first = state.updateVocabulary((v) => ({ ...v, keep: [...v.keep, 'Tauri'] }));
+			const second = state.updateVocabulary((v) => ({ ...v, keep: [...v.keep, 'Villach'] }));
+			await Promise.all([first, second]);
+
+			expect(state.vocabulary.keep).toEqual(['Tauri', 'Villach']);
+		});
+	});
+
 	describe('overlapping commits', () => {
 		it('an earlier commit failing does not discard a later, already-succeeded change', async () => {
 			let resolveFirst!: (value: SaveResult) => void;

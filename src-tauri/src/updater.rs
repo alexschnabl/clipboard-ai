@@ -84,12 +84,14 @@ async fn run_check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
     let updater = app
         .updater_builder()
         .on_before_exit(move || {
-            let _ = exit_app.global_shortcut().unregister_all();
             if let Some(state) = exit_app.try_state::<crate::AppState>() {
-                crate::wait_for_running_cycle(&state);
-            }
-            if let Some(dir) = &exit_dir {
-                let _ = crate::cursor::restore_if_left_busy(dir);
+                crate::prepare_exit(&exit_app, &state);
+            } else {
+                let _ = exit_app.global_shortcut().unregister_all();
+                crate::localapi::shutdown_for_app(&exit_app);
+                if let Some(dir) = &exit_dir {
+                    let _ = crate::cursor::restore_if_left_busy(dir);
+                }
             }
         })
         .build()
@@ -134,14 +136,13 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     }
     let mut downloaded: u64 = 0;
     let progress_app = app.clone();
-    let finish_app = app.clone();
     update
         .download_and_install(
             move |chunk, total| {
                 downloaded += chunk as u64;
                 let _ = progress_app.emit("update://progress", UpdateProgress { downloaded, total });
             },
-            move || crate::localapi::shutdown_for_app(&finish_app),
+            || {},
         )
         .await
         .map_err(|e| e.to_string())?;

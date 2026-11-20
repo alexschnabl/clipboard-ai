@@ -74,7 +74,7 @@
 
 	async function applySettings(patch: Partial<Settings>): Promise<boolean> {
 		settingsNotice = null;
-		const ok = await configState.updateSettings({ ...configState.config.settings, ...patch });
+		const ok = await configState.updateSettings(patch);
 		if (!ok) settingsNotice = configState.error?.message ?? i18n.t.settings.saveFailedFallback;
 		return ok;
 	}

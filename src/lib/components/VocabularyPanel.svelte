@@ -21,7 +21,7 @@
 
 	const vocabulary = $derived(configState.vocabulary);
 
-	async function commit(next: Vocabulary): Promise<boolean> {
+	async function commit(next: (current: Vocabulary) => Vocabulary): Promise<boolean> {
 		saveError = null;
 		const ok = await configState.updateVocabulary(next);
 		if (!ok) {
@@ -37,15 +37,13 @@
 			newWord = '';
 			return;
 		}
-		const ok = await commit({ ...$state.snapshot(vocabulary), keep });
+		const word = newWord;
+		const ok = await commit((current) => ({ ...current, keep: addKeepWords(current.keep, word) }));
 		if (ok) newWord = '';
 	}
 
 	function removeWord(word: string): void {
-		void commit({
-			...$state.snapshot(vocabulary),
-			keep: vocabulary.keep.filter((w) => w !== word)
-		});
+		void commit((current) => ({ ...current, keep: current.keep.filter((w) => w !== word) }));
 	}
 
 	function onWordKeydown(event: KeyboardEvent): void {
@@ -81,21 +79,21 @@
 			cancelEdit();
 			return;
 		}
-		const replacements = upsertReplacement(
-			vocabulary.replacements,
-			{ from: fromValue, to: toValue },
-			editing === 'new' ? null : editing
-		);
-		const ok = await commit({ ...$state.snapshot(vocabulary), replacements });
+		const pair = { from: fromValue, to: toValue };
+		const index = editing === 'new' ? null : editing;
+		const ok = await commit((current) => ({
+			...current,
+			replacements: upsertReplacement(current.replacements, pair, index)
+		}));
 		if (ok) editing = null;
 	}
 
 	function removeReplacement(index: number): void {
 		editing = null;
-		void commit({
-			...$state.snapshot(vocabulary),
-			replacements: vocabulary.replacements.filter((_, i) => i !== index)
-		});
+		void commit((current) => ({
+			...current,
+			replacements: current.replacements.filter((_, i) => i !== index)
+		}));
 	}
 
 	function onPairKeydown(event: KeyboardEvent): void {

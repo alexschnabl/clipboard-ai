@@ -53,7 +53,7 @@
 		notice = null;
 		pending = true;
 		const next: LocalApiSettings = { enabled: apiSettings.enabled, port: apiSettings.port, ...patch };
-		const ok = await configState.updateSettings({ ...configState.config.settings, localApi: next });
+		const ok = await configState.updateSettings({ localApi: next });
 		pending = false;
 		if (!ok) notice = configState.error?.message ?? i18n.t.settings.saveFailedFallback;
 		await refreshStatus();

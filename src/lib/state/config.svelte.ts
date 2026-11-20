@@ -146,7 +146,7 @@ export class ConfigState {
 	}
 
 	dismissOnboarding(): Promise<boolean> {
-		return this.updateSettings({ ...this.config.settings, onboardingDismissed: true });
+		return this.updateSettings({ onboardingDismissed: true });
 	}
 
 	async deleteBackend(id: string): Promise<{ ok: boolean; usedBy: string[] }> {
@@ -180,9 +180,9 @@ export class ConfigState {
 		});
 	}
 
-	updateSettings(settings: Settings): Promise<boolean> {
+	updateSettings(patch: Partial<Settings>): Promise<boolean> {
 		return this.commit((config) => {
-			config.settings = settings;
+			config.settings = { ...config.settings, ...patch };
 		});
 	}
 
@@ -190,9 +190,10 @@ export class ConfigState {
 		return this.config.vocabulary ?? { keep: [], replacements: [] };
 	}
 
-	updateVocabulary(vocabulary: Vocabulary): Promise<boolean> {
+	updateVocabulary(next: Vocabulary | ((current: Vocabulary) => Vocabulary)): Promise<boolean> {
 		return this.commit((config) => {
-			config.vocabulary = vocabulary;
+			const current = config.vocabulary ?? { keep: [], replacements: [] };
+			config.vocabulary = typeof next === 'function' ? next($state.snapshot(current) as Vocabulary) : next;
 		});
 	}
 

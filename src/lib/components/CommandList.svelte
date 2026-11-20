@@ -73,8 +73,22 @@
 		);
 	}
 
+	function sameHotkey(a: string, b: string): boolean {
+		const norm = (h: string) => h.replace(/\s+/g, '').toLowerCase();
+		return norm(a) === norm(b);
+	}
+
 	function problemsFor(command: CommandConfig): Problem[] {
-		return configState.problems.filter((p) => p.commandId === command.id);
+		const settings = configState.config.settings;
+		const globalKeys: Record<string, string | undefined> = {
+			palette: settings.paletteHotkey,
+			'paste-last': settings.pasteLastEnabled ? settings.pasteLastHotkey : undefined
+		};
+		return configState.problems.filter((p) => {
+			if (p.commandId === command.id) return true;
+			const key = p.commandId ? globalKeys[p.commandId] : undefined;
+			return !!key && !!command.hotkey && sameHotkey(key, command.hotkey);
+		});
 	}
 
 	function problemText(command: CommandConfig, problems: Problem[]): string {

@@ -36,6 +36,9 @@
 	const commandsNeedAttention = $derived(
 		configState.problems.some((p) => p.commandId && !GLOBAL_SHORTCUT_IDS.includes(p.commandId))
 	);
+	const settingsNeedAttention = $derived(
+		configState.problems.some((p) => p.commandId && GLOBAL_SHORTCUT_IDS.includes(p.commandId))
+	);
 
 	const items = $derived([
 		{ id: 'commands' as const, label: i18n.t.nav.commands, icon: CommandIcon },
@@ -63,7 +66,7 @@
 		>
 			<Icon class="size-4 shrink-0" />
 			<span class="truncate">{item.label}</span>
-			{#if item.id === 'commands' && commandsNeedAttention}
+			{#if (item.id === 'commands' && commandsNeedAttention) || (item.id === 'settings' && settingsNeedAttention)}
 				<span
 					class="ml-auto size-[7px] shrink-0 rounded-full bg-destructive"
 					title={i18n.t.nav.needsAttention}
