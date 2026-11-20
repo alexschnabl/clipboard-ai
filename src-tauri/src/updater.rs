@@ -96,7 +96,16 @@ async fn run_check(app: &AppHandle) -> Result<Option<UpdateInfo>, String> {
         })
         .build()
         .map_err(|e| e.to_string())?;
-    let found = updater.check().await.map_err(|e| e.to_string())?;
+    let found = match updater.check().await {
+        Ok(found) => found,
+        Err(tauri_plugin_updater::Error::ReleaseNotFound) => {
+            if let Some(dir) = &dir {
+                crate::status::append_log(dir, "UPDATE no-release-manifest treated-as=up-to-date");
+            }
+            None
+        }
+        Err(e) => return Err(e.to_string()),
+    };
     if let Some(dir) = &dir {
         record_check(dir, now_ms());
     }
