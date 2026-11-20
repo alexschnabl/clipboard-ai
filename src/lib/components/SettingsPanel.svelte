@@ -9,6 +9,7 @@
 	import HotkeyRecorder from './HotkeyRecorder.svelte';
 	import StatusLine from './StatusLine.svelte';
 	import { updateState } from '$lib/state/updates.svelte.js';
+	import DeveloperSettings from './DeveloperSettings.svelte';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import { registry, type LanguageChoice } from '$lib/i18n/registry';
@@ -273,6 +274,8 @@
 				</div>
 			</div>
 		</section>
+
+		<DeveloperSettings />
 
 		<section>
 			<div class="group-title"><span>{i18n.t.settings.groupAbout}</span></div>

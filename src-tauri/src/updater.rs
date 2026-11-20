@@ -134,13 +134,14 @@ pub async fn install_update(app: AppHandle) -> Result<(), String> {
     }
     let mut downloaded: u64 = 0;
     let progress_app = app.clone();
+    let finish_app = app.clone();
     update
         .download_and_install(
             move |chunk, total| {
                 downloaded += chunk as u64;
                 let _ = progress_app.emit("update://progress", UpdateProgress { downloaded, total });
             },
-            || {},
+            move || crate::localapi::shutdown_for_app(&finish_app),
         )
         .await
         .map_err(|e| e.to_string())?;

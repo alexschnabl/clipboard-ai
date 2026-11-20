@@ -25,6 +25,8 @@
     "allow-install-update",
     "allow-try-command",
     "allow-write-prompt",
-    "allow-list-running-apps"
+    "allow-list-running-apps",
+    "allow-local-api-status",
+    "allow-local-api-regenerate-token"
   ]
 }

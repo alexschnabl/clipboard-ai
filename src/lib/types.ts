@@ -55,6 +55,11 @@ export type Theme = 'system' | 'light' | 'dark';
 
 export type Language = 'system' | 'en' | 'de' | 'fr' | 'es' | 'it';
 
+export interface LocalApiSettings {
+	enabled: boolean;
+	port: number | null;
+}
+
 export interface Settings {
 	theme: Theme;
 	language: Language;
@@ -65,6 +70,16 @@ export interface Settings {
 	pasteLastEnabled: boolean;
 	pasteLastHotkey: string;
 	onboardingDismissed?: boolean;
+	localApi?: LocalApiSettings;
+}
+
+export interface LocalApiStatus {
+	enabled: boolean;
+	running: boolean;
+	url: string | null;
+	port: number | null;
+	token: string | null;
+	error: string | null;
 }
 
 export const DEFAULT_SETTINGS: Settings = {

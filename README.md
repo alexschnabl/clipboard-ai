@@ -19,7 +19,7 @@
 
 Clipboard AI sits in the tray. You set up **commands** - each one is a hotkey, a prompt, and a backend - and pressing a command's hotkey over any selected text sends that text to the AI and pastes the result back over your selection. That's the whole app. It ships with one command, "Fix grammar" on `Ctrl+Alt+J`.
 
-What sets it apart from the other hotkey rewriters: it can run on the Claude subscription you already pay for (through the `claude` CLI, no API key), on any HTTP endpoint you own, or fully offline on a local model; it keeps bold, lists, tables, links and inline images through the rewrite; it refuses to paste when the result looks wrong; and it is a 15 MB Rust exe with a 4 MB installer.
+What sets it apart from the other hotkey rewriters: it can run on the Claude subscription you already pay for (through the `claude` CLI, no API key), on any HTTP endpoint you own, or fully offline on a local model; it keeps bold, lists, tables, links and inline images through the rewrite; it refuses to paste when the result looks wrong; and it is a 18 MB Rust exe with a 7 MB installer.
 
 Nothing about the text ever leaves your machine except the request to the backend you chose. Point a command at a local model and it stays fully offline.
 
@@ -30,6 +30,8 @@ Nothing about the text ever leaves your machine except the request to the backen
 - [Backends](#backends)
 - [Formatting](#formatting)
 - [Use it](#use-it)
+- [Command line](#command-line)
+- [Local API](#local-api)
 - [Configuration](#configuration)
 - [Safety and privacy](#safety-and-privacy)
 - [Languages](#languages)
@@ -52,7 +54,7 @@ Built and tested on Windows 11, x64. Windows 10 should work but has not been tri
 
 Once a day the app looks for a new release on GitHub and, if there is one, offers it in a small prompt. Nothing installs until you click "Install and restart". You can also check by hand under Settings, About. Updates are signed, and the app refuses one whose signature doesn't match.
 
-Footprint, measured on the release build: the installer is 4 MB and the exe 15 MB. Idle, the app itself holds about 8 MB of private memory; the WebView2 processes that render the settings window add roughly 160 MB on top while the app runs.
+Footprint, measured on the release build: the installer is 7 MB, the app exe 18 MB and the `clipboard-ai` command line tool 8 MB. Idle, the app itself holds about 8 MB of private memory; the WebView2 processes that render the settings window add roughly 160 MB on top while the app runs.
 
 ## Features
 
@@ -109,6 +111,61 @@ The default flow:
   <img src="assets/settings.png" alt="The settings window on the Commands tab with four commands, each with its hotkey and backend" width="720" />
 </p>
 
+## Command line
+
+The installer puts a `clipboard-ai` command on your Path (new terminals only). It runs your commands on text from stdin and prints the result. It reads the same config as the app, never changes it, and works whether or not the app is running.
+
+```powershell
+Get-Content notes.txt | clipboard-ai run "Fix grammar"
+clipboard-ai run fix-grammar --text "teh quick fox" --json
+clipboard-ai run --prompt "Translate to German" --backend "Local Ollama" --text "Good morning"
+clipboard-ai list
+clipboard-ai history --limit 5
+```
+
+- `run <command>` takes a command name or id. `--backend` swaps the backend, `--prompt` replaces the command's prompt for this run. Without a command, `--prompt` runs on the only backend, or the one you name.
+- Results go to stdout, errors to stderr. `--json` prints one JSON object instead. `--html` prints HTML when the command returned formatted text.
+- Exit codes: `0` success, `1` the backend failed, `2` wrong usage or unusable input, `3` config problem or unknown command.
+- `clipboard-ai --help` and `clipboard-ai help run` show all options. `--config-dir` (or `CLIPBOARD_AI_CONFIG_DIR`) points it at another config folder.
+- Runs from the command line are not added to the history.
+- It runs your commands the way a hotkey does, with your Vocabulary, but no per-app rule applies because there is no target app.
+- API keys come from Windows Credential Manager by backend id, also with `--config-dir`, so a backend with the same id in another config folder gets the same key.
+- Close running `clipboard-ai` commands before an update installs, or the installer cannot replace the file.
+
+Windows PowerShell 5.1 pipes text to programs as ASCII by default, so accented letters arrive as `?`. Run this once per session, or put it in your profile:
+
+```powershell
+$OutputEncoding = [Console]::InputEncoding = [Console]::OutputEncoding = [Text.UTF8Encoding]::new()
+```
+
+If the Path could not be changed (the installer log says so), the command is `clipboard-ai.exe` in the install folder, `%LOCALAPPDATA%\clipboard-ai-app` by default.
+
+## Local API
+
+Off by default. Turn it on under Settings, Developers, Local API. The app then listens on `127.0.0.1` only, on a free port or one you set, and shows the address and a token. Every request needs the token as `Authorization: Bearer <token>`.
+
+| Method | Path | What it does |
+| --- | --- | --- |
+| `GET` | `/v1/health` | Returns `{"ok":true,"version":"..."}` |
+| `GET` | `/v1/commands` | Lists commands and backends, without keys or URLs |
+| `POST` | `/v1/run` | Runs text through a command and returns the result |
+
+```powershell
+$api = Get-Content "$env:APPDATA\com.clipboardai.app\local-api.json" | ConvertFrom-Json
+$body = @{ command = "Fix grammar"; text = "teh quick fox" } | ConvertTo-Json
+Invoke-RestMethod "$($api.url)/v1/run" -Method Post -ContentType "application/json" -Headers @{ Authorization = "Bearer $($api.token)" } -Body $body
+```
+
+The run body takes `text` and either `command` (name or id) or `prompt`, plus an optional `backend`. The answer has `text`, `html` (or `null`), `command`, `backend` and `backendMs`. Errors come back as `{"ok":false,"error":{"code":"...","message":"..."}}` with a matching HTTP status.
+
+- `local-api.json` in the config folder holds the token and the current address while the API runs.
+- Check that the app is running before you send the token. While it is closed, another program could take a fixed port and receive what you send there. The address in `local-api.json` is cleared when the API stops and when the app starts.
+- Backend errors come back as a short message without URLs or response bodies. Run the same command with `clipboard-ai run` to see the full error.
+- Limits: 256 KB request body, 100,000 characters of text, 4 runs at a time.
+- Requests from web pages (anything with an `Origin` or `Sec-Fetch-*` header) and requests not addressed to `127.0.0.1` or `localhost` are refused. There is no CORS.
+- Regenerate the token in Settings if it leaks. The old one stops working at once.
+- Like the CLI, API runs are not added to the history.
+
 ## Configuration
 
 You set everything up in the settings window; you don't need to hand-edit anything. Two things to configure:
@@ -128,7 +185,7 @@ Two things are worth understanding before you rely on this.
 
 **API keys live in Windows Credential Manager**, one entry per backend, named `clipboard-ai:backend:<id>`. You can see them under Control Panel, Credential Manager, Windows Credentials. They are tied to your Windows account and not written to `config.json`. Anything running as you can still read them, so this protects against copied or synced config files, not against malware on your account. Older versions kept keys in `config.json`; the first start of this version moves them over, checks each one reads back correctly, and only then removes it from the file. If Credential Manager refuses, the key stays where it was and the settings window tells you.
 
-**History is stored in plain text** under `%APPDATA%\com.clipboardai.app\`. History keeps the last 100 runs - input and output - so you can copy back a result you lost; clear it any time from the History tab. The log file never contains your text or your keys.
+**History and the local API token are stored in plain text** under `%APPDATA%\com.clipboardai.app\`. History keeps the last 100 runs - input and output - so you can copy back a result you lost; clear it any time from the History tab. The log file never contains your text or your keys.
 
 If you want everything to stay on your machine, use a local backend (Ollama or LM Studio). Then no text is sent anywhere.
 

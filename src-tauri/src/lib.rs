@@ -1,6 +1,7 @@
 mod apps;
 mod backend;
 mod cfhtml;
+pub mod cli;
 mod commands;
 mod config;
 mod cursor;
@@ -10,6 +11,7 @@ mod editor;
 mod hotkeys;
 mod history;
 mod hud;
+mod localapi;
 mod osops;
 mod overlay;
 mod palette;
@@ -20,6 +22,7 @@ pub mod secrets;
 mod sentinel;
 mod settings;
 mod status;
+mod textrun;
 mod tray_anim;
 mod updater;
 mod vocabulary;
@@ -458,6 +461,7 @@ pub fn run() {
 
             app.manage((*state).clone());
             app.manage(updater::PendingUpdate::default());
+            app.manage(localapi::LocalApi::new(config_dir.clone()));
 
             app.handle().plugin(tauri_plugin_autostart::Builder::new().build())?;
             app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
@@ -711,6 +715,8 @@ pub fn run() {
             editor::try_command,
             editor::write_prompt,
             editor::list_running_apps,
+            localapi::local_api_status,
+            localapi::local_api_regenerate_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -719,6 +725,7 @@ pub fn run() {
 pub(crate) fn quit_app(app: &tauri::AppHandle, state: &AppState) {
     let _ = app.global_shortcut().unregister_all();
     wait_for_running_cycle(state);
+    localapi::shutdown_for_app(app);
     let _ = cursor::restore_if_left_busy(&state.config_dir);
     app.exit(0)
 }

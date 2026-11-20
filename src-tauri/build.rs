@@ -20,6 +20,8 @@ fn main() {
             "try_command",
             "write_prompt",
             "list_running_apps",
+            "local_api_status",
+            "local_api_regenerate_token",
         ])),
     )
     .expect("failed to run tauri-build");
