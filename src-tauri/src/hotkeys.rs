@@ -322,6 +322,207 @@ mod register_hotkeys_tests {
     }
 }
 
+pub const PALETTE_PROBLEM_ID: &str = "palette";
+pub const PASTE_LAST_PROBLEM_ID: &str = "paste-last";
+const PALETTE_NAME: &str = "Command palette";
+const PASTE_LAST_NAME: &str = "Paste last result";
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct GlobalShortcuts {
+    pub palette: Option<Shortcut>,
+    pub paste_last: Option<Shortcut>,
+}
+
+fn claim_global(
+    hotkey: &str,
+    id: &str,
+    name: &str,
+    commands: &HashMap<Shortcut, CommandEntry>,
+    taken: &[(Shortcut, &str)],
+    problems: &mut Vec<Problem>,
+) -> Option<Registration> {
+    let trimmed = hotkey.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let shortcut = match trimmed.parse::<Shortcut>() {
+        Ok(s) => s,
+        Err(e) => {
+            problems.push(Problem {
+                command_id: Some(id.to_string()),
+                message: format!("{name}: unparseable hotkey {trimmed:?} ({e})"),
+            });
+            return None;
+        }
+    };
+    let owner = commands
+        .get(&shortcut)
+        .map(|entry| entry.name.as_str())
+        .or_else(|| taken.iter().find(|(s, _)| *s == shortcut).map(|(_, owner)| *owner));
+    if let Some(owner) = owner {
+        problems.push(Problem {
+            command_id: Some(id.to_string()),
+            message: format!(
+                "{name}: hotkey {trimmed:?} is already used by \"{owner}\"; pick another one"
+            ),
+        });
+        return None;
+    }
+    Some(Registration {
+        shortcut,
+        command_id: id.to_string(),
+        command_name: name.to_string(),
+        hotkey: trimmed.to_string(),
+    })
+}
+
+fn build_global_shortcuts(
+    settings: &config::Settings,
+    commands: &HashMap<Shortcut, CommandEntry>,
+) -> (GlobalShortcuts, Vec<Registration>, Vec<Problem>) {
+    let mut problems = Vec::new();
+    let mut registrations = Vec::new();
+    let mut globals = GlobalShortcuts::default();
+
+    if let Some(reg) = claim_global(
+        &settings.palette_hotkey,
+        PALETTE_PROBLEM_ID,
+        PALETTE_NAME,
+        commands,
+        &[],
+        &mut problems,
+    ) {
+        globals.palette = Some(reg.shortcut);
+        registrations.push(reg);
+    }
+
+    if settings.paste_last_enabled {
+        let taken: Vec<(Shortcut, &str)> =
+            globals.palette.iter().map(|s| (*s, PALETTE_NAME)).collect();
+        if let Some(reg) = claim_global(
+            &settings.paste_last_hotkey,
+            PASTE_LAST_PROBLEM_ID,
+            PASTE_LAST_NAME,
+            commands,
+            &taken,
+            &mut problems,
+        ) {
+            globals.paste_last = Some(reg.shortcut);
+            registrations.push(reg);
+        }
+    }
+
+    (globals, registrations, problems)
+}
+
+#[cfg(test)]
+mod global_shortcut_tests {
+    use super::*;
+    use crate::config::{BackendConfig, CommandConfig, Config, Effort, Settings, KIND_CLAUDE_CLI};
+
+    fn commands_with(hotkey: &str) -> HashMap<Shortcut, CommandEntry> {
+        let cfg = Config {
+            version: 2,
+            backends: vec![BackendConfig {
+                id: "b".into(),
+                name: "Backend".into(),
+                kind: KIND_CLAUDE_CLI.into(),
+                base_url: None,
+                model: None,
+                api_key: None,
+                timeout_ms: 120_000,
+                effort: Effort::Low,
+                expects_response: true,
+            }],
+            commands: vec![CommandConfig {
+                id: "fix".into(),
+                name: "Fix grammar".into(),
+                backend_id: "b".into(),
+                hotkey: hotkey.into(),
+                system_prompt: "x".into(),
+                formatting: config::Formatting::Auto,
+            }],
+            settings: Settings::default(),
+        };
+        build_command_map(&cfg).0
+    }
+
+    #[test]
+    fn the_defaults_claim_the_palette_and_leave_paste_again_off() {
+        let (globals, regs, problems) =
+            build_global_shortcuts(&Settings::default(), &commands_with("Ctrl+Alt+J"));
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(globals.palette, Some("Ctrl+Alt+Space".parse().unwrap()));
+        assert_eq!(globals.paste_last, None);
+        assert_eq!(regs.len(), 1);
+        assert_eq!(regs[0].command_id, PALETTE_PROBLEM_ID);
+    }
+
+    #[test]
+    fn paste_again_registers_once_turned_on() {
+        let settings = Settings { paste_last_enabled: true, ..Settings::default() };
+        let (globals, regs, problems) = build_global_shortcuts(&settings, &commands_with("Ctrl+Alt+J"));
+        assert!(problems.is_empty(), "{problems:?}");
+        assert_eq!(globals.paste_last, Some("Ctrl+Alt+V".parse().unwrap()));
+        assert_eq!(regs.len(), 2);
+    }
+
+    #[test]
+    fn a_command_already_on_the_palette_hotkey_keeps_it_and_the_clash_is_reported() {
+        let (globals, regs, problems) =
+            build_global_shortcuts(&Settings::default(), &commands_with("Ctrl+Alt+Space"));
+        assert_eq!(globals.palette, None, "the existing command keeps working as before");
+        assert!(regs.is_empty());
+        assert_eq!(problems.len(), 1);
+        assert_eq!(problems[0].command_id.as_deref(), Some(PALETTE_PROBLEM_ID));
+        assert!(problems[0].message.contains("Fix grammar"), "{}", problems[0].message);
+    }
+
+    #[test]
+    fn a_clash_is_found_even_when_the_spelling_differs() {
+        let (globals, _, problems) =
+            build_global_shortcuts(&Settings::default(), &commands_with("Control+Alt+Space"));
+        assert_eq!(globals.palette, None);
+        assert_eq!(problems.len(), 1);
+    }
+
+    #[test]
+    fn paste_again_on_the_palette_hotkey_is_refused_in_favour_of_the_palette() {
+        let settings = Settings {
+            paste_last_enabled: true,
+            paste_last_hotkey: "Ctrl+Alt+Space".into(),
+            ..Settings::default()
+        };
+        let (globals, _, problems) = build_global_shortcuts(&settings, &commands_with("Ctrl+Alt+J"));
+        assert!(globals.palette.is_some());
+        assert_eq!(globals.paste_last, None);
+        assert_eq!(problems[0].command_id.as_deref(), Some(PASTE_LAST_PROBLEM_ID));
+        assert!(problems[0].message.contains(PALETTE_NAME));
+    }
+
+    #[test]
+    fn an_unparseable_or_empty_palette_hotkey_is_handled_without_panicking() {
+        let settings = Settings { palette_hotkey: "Ctrl+Alt+Nope".into(), ..Settings::default() };
+        let (globals, _, problems) = build_global_shortcuts(&settings, &HashMap::new());
+        assert_eq!(globals.palette, None);
+        assert!(problems[0].message.contains("unparseable"));
+
+        let settings = Settings { palette_hotkey: "  ".into(), ..Settings::default() };
+        let (globals, regs, problems) = build_global_shortcuts(&settings, &HashMap::new());
+        assert_eq!(globals.palette, None);
+        assert!(regs.is_empty() && problems.is_empty(), "an empty hotkey just means no shortcut");
+    }
+
+    #[test]
+    fn a_failed_palette_registration_is_reported_like_any_other_hotkey() {
+        let (_, regs, _) = build_global_shortcuts(&Settings::default(), &HashMap::new());
+        let problems = register_hotkeys_with(&regs, |_| Err("taken by another app"));
+        assert_eq!(problems[0].command_id.as_deref(), Some(PALETTE_PROBLEM_ID));
+        assert!(problems[0].message.contains("Command palette"));
+        assert!(problems[0].message.contains("already in use"));
+    }
+}
+
 pub(crate) fn apply_config(
     app: &tauri::AppHandle,
     state: &AppState,
@@ -340,7 +541,7 @@ pub(crate) fn apply_config(
 
     let (map, build_problems) = build_command_map(&config);
     problems.extend(build_problems);
-    let registrations: Vec<Registration> = map
+    let mut registrations: Vec<Registration> = map
         .iter()
         .map(|(s, e)| Registration {
             shortcut: *s,
@@ -349,10 +550,16 @@ pub(crate) fn apply_config(
             hotkey: e.hotkey.clone(),
         })
         .collect();
+    let (globals, global_registrations, global_problems) =
+        build_global_shortcuts(&config.settings, &map);
+    problems.extend(global_problems);
+    registrations.extend(global_registrations);
 
     *recover_lock(state.commands.lock(), "commands", Some(&state.config_dir)) = map;
+    *recover_lock(state.shortcuts.lock(), "shortcuts", Some(&state.config_dir)) = globals;
     *recover_lock(state.config.lock(), "config", Some(&state.config_dir)) = config;
 
     problems.extend(register_hotkeys(app, &registrations));
+    crate::runner::reregister_escape_if_running(app, state);
     problems
 }

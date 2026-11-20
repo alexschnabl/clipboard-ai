@@ -103,7 +103,18 @@ pub enum Effort {
     Max,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub const DEFAULT_PALETTE_HOTKEY: &str = "Ctrl+Alt+Space";
+pub const DEFAULT_PASTE_LAST_HOTKEY: &str = "Ctrl+Alt+V";
+
+fn default_palette_hotkey() -> String {
+    DEFAULT_PALETTE_HOTKEY.to_string()
+}
+
+fn default_paste_last_hotkey() -> String {
+    DEFAULT_PASTE_LAST_HOTKEY.to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     #[serde(default)]
@@ -112,6 +123,31 @@ pub struct Settings {
     pub language: Language,
     #[serde(default)]
     pub autostart: bool,
+    #[serde(default = "default_true")]
+    pub hud: bool,
+    #[serde(default = "default_true")]
+    pub busy_cursor: bool,
+    #[serde(default = "default_palette_hotkey")]
+    pub palette_hotkey: String,
+    #[serde(default)]
+    pub paste_last_enabled: bool,
+    #[serde(default = "default_paste_last_hotkey")]
+    pub paste_last_hotkey: String,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            theme: Theme::default(),
+            language: Language::default(),
+            autostart: false,
+            hud: true,
+            busy_cursor: true,
+            palette_hotkey: default_palette_hotkey(),
+            paste_last_enabled: false,
+            paste_last_hotkey: default_paste_last_hotkey(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -394,6 +430,51 @@ mod tests {
         assert_eq!(cfg.settings.theme, Theme::System);
         assert_eq!(cfg.settings.language, Language::System);
         assert!(!cfg.settings.autostart);
+    }
+
+    #[test]
+    fn a_config_saved_before_the_overlay_settings_existed_loads_with_their_defaults() {
+        let json = json_with_settings(
+            serde_json::json!({"theme": "dark", "language": "de", "autostart": true}),
+        );
+        let cfg = parse(&json).expect("an older settings object must still parse");
+        assert_eq!(cfg.settings.theme, Theme::Dark);
+        assert!(cfg.settings.autostart);
+        assert!(cfg.settings.hud, "the status capsule is on by default");
+        assert!(cfg.settings.busy_cursor, "the busy pointer stays on by default");
+        assert_eq!(cfg.settings.palette_hotkey, DEFAULT_PALETTE_HOTKEY);
+        assert!(!cfg.settings.paste_last_enabled, "paste-again must not take Ctrl+Alt+V unasked");
+        assert_eq!(cfg.settings.paste_last_hotkey, DEFAULT_PASTE_LAST_HOTKEY);
+    }
+
+    #[test]
+    fn a_config_with_no_settings_key_gets_the_same_overlay_defaults_as_a_fresh_one() {
+        let cfg = parse(valid_json()).unwrap();
+        assert_eq!(cfg.settings, Settings::default());
+    }
+
+    #[test]
+    fn the_overlay_settings_round_trip_with_camel_case_keys() {
+        let mut cfg = default_config();
+        cfg.settings.hud = false;
+        cfg.settings.busy_cursor = false;
+        cfg.settings.palette_hotkey = "Ctrl+Shift+P".into();
+        cfg.settings.paste_last_enabled = true;
+        cfg.settings.paste_last_hotkey = "Ctrl+Shift+V".into();
+        let json = serde_json::to_string(&cfg).unwrap();
+        for key in ["\"hud\":false", "\"busyCursor\":false", "\"paletteHotkey\":\"Ctrl+Shift+P\"",
+            "\"pasteLastEnabled\":true", "\"pasteLastHotkey\":\"Ctrl+Shift+V\""]
+        {
+            assert!(json.contains(key), "missing {key} in {json}");
+        }
+        let back = parse(&json).unwrap();
+        assert_eq!(back.settings, cfg.settings);
+    }
+
+    #[test]
+    fn a_palette_hotkey_equal_to_a_command_hotkey_does_not_make_the_config_unloadable() {
+        let json = json_with_settings(serde_json::json!({"paletteHotkey": "Ctrl+Alt+J"}));
+        assert!(parse(&json).is_ok(), "collisions are reported at registration, never at load");
     }
 
     #[test]

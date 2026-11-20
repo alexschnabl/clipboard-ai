@@ -6,8 +6,12 @@ mod cursor;
 mod cycle;
 mod hotkeys;
 mod history;
+mod hud;
 mod osops;
+mod overlay;
+mod palette;
 mod richtext;
+mod runner;
 mod sentinel;
 mod settings;
 mod status;
@@ -61,6 +65,12 @@ struct AppState {
     config_dir: PathBuf,
     config_load_error: Option<commands::ConfigLoadError>,
     startup_problems: Arc<Mutex<Vec<Problem>>>,
+    shortcuts: Arc<Mutex<hotkeys::GlobalShortcuts>>,
+    escape: Shortcut,
+    cancel: Arc<Mutex<Option<Arc<AtomicBool>>>>,
+    last_result: Arc<Mutex<Option<osops::Clip>>>,
+    hud: hud::Hud,
+    palette: palette::Palette,
 }
 
 fn record_history(
@@ -143,6 +153,47 @@ impl Drop for BusyGuard<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::SeqCst);
     }
+}
+
+fn create_overlay_windows(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let hud = tauri::WebviewWindowBuilder::new(
+        app,
+        hud::WINDOW_LABEL,
+        tauri::WebviewUrl::App("hud".into()),
+    )
+    .title("Clipboard AI status")
+    .inner_size(320.0, 64.0)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .focusable(false)
+    .visible(false)
+    .build()?;
+    if let Ok(raw) = hud.hwnd() {
+        overlay::ensure_overlay_style(raw.0 as isize);
+    }
+
+    tauri::WebviewWindowBuilder::new(
+        app,
+        palette::WINDOW_LABEL,
+        tauri::WebviewUrl::App("palette".into()),
+    )
+    .title("Clipboard AI")
+    .inner_size(472.0, 380.0)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
+    .resizable(false)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .focused(false)
+    .visible(false)
+    .build()?;
+    Ok(())
 }
 
 fn show_settings(app: &tauri::AppHandle) {
@@ -360,6 +411,13 @@ pub fn run() {
             let status_item =
                 MenuItem::with_id(app, "status", "starting…", false, None::<&str>)?;
 
+            create_overlay_windows(app.handle())?;
+            if !overlay::track_foreground() {
+                let line = "STARTUP foreground tracking unavailable; tray paste-again will refuse to paste";
+                eprintln!("{line}");
+                status::append_log(&config_dir, line);
+            }
+
             let state = Arc::new(AppState {
                 config: Arc::new(Mutex::new(config::Config {
                     version: 1,
@@ -375,6 +433,12 @@ pub fn run() {
                 config_dir: config_dir.clone(),
                 config_load_error,
                 startup_problems: Arc::new(Mutex::new(Vec::new())),
+                shortcuts: Arc::new(Mutex::new(hotkeys::GlobalShortcuts::default())),
+                escape: "Escape".parse::<Shortcut>()?,
+                cancel: Arc::new(Mutex::new(None)),
+                last_result: Arc::new(Mutex::new(None)),
+                hud: hud::Hud::new(handle.clone()),
+                palette: palette::Palette::default(),
             });
 
             app.manage((*state).clone());
@@ -385,12 +449,29 @@ pub fn run() {
             app.handle().plugin(
                 tauri_plugin_global_shortcut::Builder::new()
                     .with_handler(move |app, shortcut, event| {
+                        let key = *shortcut;
+                        let state = handler_state.clone();
+                        if key == state.escape {
+                            if event.state() == ShortcutState::Pressed {
+                                runner::request_cancel(&state);
+                            }
+                            return;
+                        }
                         if event.state() != ShortcutState::Released {
                             return;
                         }
-                        let key = *shortcut;
-                        let state = handler_state.clone();
-                        let app = app.clone();
+
+                        let globals =
+                            recover_lock(state.shortcuts.lock(), "shortcuts", Some(&state.config_dir))
+                                .clone();
+                        if globals.palette == Some(key) {
+                            palette::toggle(app, &state);
+                            return;
+                        }
+                        if globals.paste_last == Some(key) {
+                            runner::paste_last(&state, false);
+                            return;
+                        }
 
                         if state.busy.swap(true, Ordering::SeqCst) {
                             let line = "busy; hotkey ignored".to_string();
@@ -400,56 +481,24 @@ pub fn run() {
                             return;
                         }
 
-                        std::thread::spawn(move || {
-                            let _busy_guard = BusyGuard(&state.busy);
-                            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                let entry = recover_lock(
-                                    state.commands.lock(),
-                                    "commands",
-                                    Some(&state.config_dir),
-                                )
-                                .get(&key)
-                                .cloned();
-                                if let Some(CommandEntry {
-                                    id, name, system_prompt, formatting, backend, ..
-                                }) = entry
-                                {
-                                    let indicator = tray_anim::TrayAnimation::begin(
-                                        app.clone(),
-                                        state.config_dir.clone(),
-                                    );
-                                    let cycle_start = state.ops.now_ms();
-                                    let outcome = cycle::run(
-                                        backend.as_ref(),
-                                        &system_prompt,
-                                        formatting,
-                                        state.ops.as_ref(),
-                                    );
-                                    let total_cycle_ms =
-                                        state.ops.now_ms().saturating_sub(cycle_start);
-                                    indicator.finish();
-                                    let line = status::log_line(&outcome, &name, backend.name());
-                                    println!("{line}");
-                                    status::append_log(&state.config_dir, &line);
-
-                                    set_status(&state, status::summary(&outcome, &name));
-
-                                    record_history(
-                                        &state,
-                                        &id,
-                                        &name,
-                                        backend.name(),
-                                        &outcome,
-                                        total_cycle_ms,
-                                    );
-                                }
-                            }));
-                            if let Err(payload) = result {
-                                let message = panic_message(&payload);
-                                let line = format!("PANIC hotkey-thread panicked: {message}");
-                                eprintln!("{line}");
-                                status::append_log(&state.config_dir, &line);
-                                set_status(&state, "internal error \u{2014} see log".to_string());
+                        let app = app.clone();
+                        runner::spawn_guarded(&state, "hotkey-thread", move |state| {
+                            let entry =
+                                recover_lock(state.commands.lock(), "commands", Some(&state.config_dir))
+                                    .get(&key)
+                                    .cloned();
+                            if let Some(CommandEntry {
+                                id, name, system_prompt, formatting, backend, ..
+                            }) = entry
+                            {
+                                let job = runner::Job {
+                                    command_id: id,
+                                    command_name: name,
+                                    backend,
+                                    system_prompt,
+                                    formatting,
+                                };
+                                runner::run_job(&app, state, job, None, None);
                             }
                         });
                     })
@@ -503,6 +552,8 @@ pub fn run() {
             set_status(&state, initial_status);
 
             let settings = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)?;
+            let paste_last =
+                MenuItem::with_id(app, "paste-last", "Paste last result", true, None::<&str>)?;
             let open_config =
                 MenuItem::with_id(app, "open-config", "Open config file", true, None::<&str>)?;
             let reload = MenuItem::with_id(app, "reload", "Reload config", true, None::<&str>)?;
@@ -514,7 +565,7 @@ pub fn run() {
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
 
             let mut items: Vec<&dyn IsMenuItem<_>> =
-                vec![&status_item, &sep_after_status, &settings, &sep_after_settings];
+                vec![&status_item, &sep_after_status, &settings, &paste_last, &sep_after_settings];
             for item in &command_items {
                 items.push(item);
             }
@@ -546,6 +597,7 @@ pub fn run() {
                 .show_menu_on_left_click(false)
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "settings" => show_settings(app),
+                    "paste-last" => runner::paste_last(&menu_state, true),
                     "open-config" => {
                         let _ = std::process::Command::new("cmd")
                             .args(["/C", "start", "", &menu_path.to_string_lossy()])
@@ -589,6 +641,17 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            if let Some(window) = app.get_webview_window(palette::WINDOW_LABEL) {
+                let handle = handle.clone();
+                window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Focused(focused) = event {
+                        if let Some(state) = handle.try_state::<AppState>() {
+                            palette::focus_changed(&handle, &state, *focused);
+                        }
+                    }
+                });
+            }
+
             if let Some(window) = app.get_webview_window("settings") {
                 let handle = handle.clone();
                 window.on_window_event(move |event| {
@@ -610,6 +673,10 @@ pub fn run() {
             commands::get_history,
             commands::clear_history,
             commands::quit_app,
+            commands::hud_measured,
+            commands::palette_measured,
+            commands::palette_run,
+            commands::palette_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

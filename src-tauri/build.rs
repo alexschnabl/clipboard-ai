@@ -8,6 +8,10 @@ fn main() {
             "get_history",
             "clear_history",
             "quit_app",
+            "hud_measured",
+            "palette_measured",
+            "palette_run",
+            "palette_close",
         ])),
     )
     .expect("failed to run tauri-build");
