@@ -7,11 +7,11 @@ use std::time::Duration;
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
-use crate::config::Formatting;
 use crate::cycle::{self, Captured};
 use crate::hud::{HudView, Look, REASON_NO_LAST_RESULT};
 use crate::overlay::{self, Anchor};
-use crate::{backend, recover_lock, status, tray_anim, AppState, BusyGuard};
+use crate::plan::CommandPlan;
+use crate::{recover_lock, status, tray_anim, AppState, BusyGuard};
 
 pub const PALETTE_INSTRUCTION_ID: &str = "palette-instruction";
 
@@ -20,9 +20,7 @@ const TRAY_MENU_SETTLE_MS: u64 = 150;
 pub struct Job {
     pub command_id: String,
     pub command_name: String,
-    pub backend: Arc<dyn backend::Backend>,
-    pub system_prompt: String,
-    pub formatting: Formatting,
+    pub plan: Arc<CommandPlan>,
 }
 
 fn log(state: &AppState, line: &str) {
@@ -75,13 +73,14 @@ pub fn run_job(
 
     if look.enabled {
         let anchor = anchor.unwrap_or_else(overlay::caret_anchor);
+        let app_hint = match &captured {
+            Some(captured) => captured.app.clone(),
+            None => state.ops.process_name(state.ops.foreground_window()),
+        };
+        let backend = job.plan.job_for(app_hint.as_deref()).backend.name().to_string();
         state.hud.begin(
             anchor,
-            HudView::Working {
-                command: job.command_name.clone(),
-                backend: job.backend.name().to_string(),
-                cancellable: escape_registered,
-            },
+            HudView::Working { command: job.command_name.clone(), backend, cancellable: escape_registered },
             look,
         );
     }
@@ -89,36 +88,26 @@ pub fn run_job(
     let indicator =
         tray_anim::TrayAnimation::begin(app.clone(), state.config_dir.clone(), settings.busy_cursor);
     let cycle_start = state.ops.now_ms();
+    let choose = |exe: Option<&str>| job.plan.job_for(exe);
     let outcome = match &captured {
-        None => cycle::run_cancellable(
-            &job.backend,
-            &job.system_prompt,
-            job.formatting,
-            state.ops.as_ref(),
-            &cancel,
-        ),
-        Some(captured) => cycle::run_on_captured(
-            &job.backend,
-            &job.system_prompt,
-            job.formatting,
-            state.ops.as_ref(),
-            captured,
-            &cancel,
-        ),
+        None => cycle::run_cancellable(&choose, state.ops.as_ref(), &cancel),
+        Some(captured) => cycle::run_on_captured(&choose, state.ops.as_ref(), captured, &cancel),
     };
     let total_cycle_ms = state.ops.now_ms().saturating_sub(cycle_start);
     indicator.finish();
 
     cleanup.release();
 
-    let line = status::log_line(&outcome, &job.command_name, job.backend.name());
+    let backend_name =
+        outcome.backend_name.clone().unwrap_or_else(|| job.plan.backend.name().to_string());
+    let line = status::log_line(&outcome, &job.command_name, &backend_name);
     log(state, &line);
     crate::set_status(state, status::summary(&outcome, &job.command_name));
     crate::record_history(
         state,
         &job.command_id,
         &job.command_name,
-        job.backend.name(),
+        &backend_name,
         &outcome,
         total_cycle_ms,
     );

@@ -604,3 +604,47 @@ describe('ConfigState commit-and-rollback semantics', () => {
 		});
 	});
 });
+
+describe('ConfigState vocabulary and app-rule backends', () => {
+	let state: ConfigState;
+
+	beforeEach(() => {
+		invokeMock.mockReset();
+		state = new ConfigState();
+	});
+
+	it('reads an empty vocabulary from an older config without one', () => {
+		state.config = {
+			version: 2,
+			backends: [backend()],
+			commands: [command()],
+			settings: defaultSettings()
+		};
+		expect(state.vocabulary).toEqual({ keep: [], replacements: [] });
+	});
+
+	it('saves a new vocabulary and rolls it back when the save is rejected', async () => {
+		state.config.vocabulary = { keep: ['Tauri'], replacements: [] };
+		invokeMock.mockResolvedValueOnce(ok());
+		expect(await state.updateVocabulary({ keep: ['Tauri', 'Villach'], replacements: [] })).toBe(true);
+		expect(state.vocabulary.keep).toEqual(['Tauri', 'Villach']);
+
+		invokeMock.mockResolvedValueOnce(rejected());
+		expect(await state.updateVocabulary({ keep: [], replacements: [] })).toBe(false);
+		expect(state.vocabulary.keep).toEqual(['Tauri', 'Villach']);
+	});
+
+	it('counts a backend used only by an app rule as in use', async () => {
+		state.config.backends = [backend(), backend({ id: 'b2', name: 'Other' })];
+		state.config.commands = [
+			command({
+				appRules: [
+					{ exe: 'OUTLOOK.EXE', name: 'Outlook', promptAddition: '', backendId: 'b2', formatting: null }
+				]
+			})
+		];
+		const result = await state.deleteBackend('b2');
+		expect(result).toEqual({ ok: false, usedBy: ['Command'] });
+		expect(invokeMock).not.toHaveBeenCalled();
+	});
+});

@@ -25,6 +25,12 @@ pub fn log_line(outcome: &CycleOutcome, prompt_name: &str, backend_name: &str) -
         "ts={ts} {verdict} prompt={prompt_name:?} backend={backend_name:?} reason={} capture_ms={} backend_ms={}",
         outcome.reason, outcome.captured_ms, outcome.backend_ms
     );
+    if let Some(app) = &outcome.app {
+        line.push_str(&format!(" app={app:?}"));
+    }
+    if let Some(rule) = &outcome.rule {
+        line.push_str(&format!(" rule={rule:?}"));
+    }
     if let Some(detail) = &outcome.detail {
         line.push_str(&format!(" detail={detail:?}"));
     }
@@ -81,7 +87,20 @@ mod tests {
             captured_text: None,
             result_text: None,
             result_html: None,
+            backend_name: None,
+            app: None,
+            rule: None,
         }
+    }
+
+    #[test]
+    fn a_log_line_names_the_app_and_the_rule_that_applied() {
+        let mut run = outcome(true, "ok");
+        run.app = Some("OUTLOOK.EXE".into());
+        run.rule = Some("Outlook".into());
+        let line = log_line(&run, "Fix grammar", "Claude");
+        assert!(line.contains(r#"app="OUTLOOK.EXE" rule="Outlook""#), "{line}");
+        assert!(!log_line(&outcome(true, "ok"), "Fix grammar", "Claude").contains("app="));
     }
 
     #[test]

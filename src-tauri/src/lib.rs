@@ -1,21 +1,28 @@
+mod apps;
 mod backend;
 mod cfhtml;
 mod commands;
 mod config;
 mod cursor;
 mod cycle;
+mod health;
+mod editor;
 mod hotkeys;
 mod history;
 mod hud;
 mod osops;
 mod overlay;
 mod palette;
+mod plan;
 mod richtext;
 mod runner;
+pub mod secrets;
 mod sentinel;
 mod settings;
 mod status;
 mod tray_anim;
+mod updater;
+mod vocabulary;
 
 use std::{
     collections::HashMap,
@@ -31,7 +38,7 @@ use serde::Serialize;
 use tauri::{
     menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
@@ -42,9 +49,7 @@ struct CommandEntry {
     id: String,
     name: String,
     hotkey: String,
-    system_prompt: String,
-    formatting: config::Formatting,
-    backend: Arc<dyn backend::Backend>,
+    plan: Arc<plan::CommandPlan>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -242,6 +247,7 @@ fn handle_config_load_failure(
             backends: Vec::new(),
             commands: Vec::new(),
             settings: config::Settings::default(),
+            vocabulary: config::Vocabulary::default(),
         },
         commands::ConfigLoadError { reason: e.to_string(), preserved_path },
     )
@@ -364,8 +370,13 @@ pub fn run() {
 
             let mut config_load_failed = false;
             let mut config_load_error: Option<commands::ConfigLoadError> = None;
+            let mut key_migration_failures = Vec::new();
             let cfg = match config::load_or_create(&path) {
-                Ok(cfg) => cfg,
+                Ok(mut cfg) => {
+                    key_migration_failures =
+                        secrets::migrate_config_file(&path, &mut cfg, &secrets::CredentialManager);
+                    cfg
+                }
                 Err(e) => {
                     config_load_failed = true;
                     let (fallback, load_error) = handle_config_load_failure(&path, &config_dir, e);
@@ -374,7 +385,10 @@ pub fn run() {
                 }
             };
 
-            let mut problems: Vec<Problem> = Vec::new();
+            let mut problems: Vec<Problem> = key_migration_failures
+                .iter()
+                .map(|f| Problem { command_id: None, message: f.message() })
+                .collect();
 
             match cursor::restore_if_left_busy(&config_dir) {
                 Some(Ok(())) => {
@@ -424,6 +438,7 @@ pub fn run() {
                     backends: Vec::new(),
                     commands: Vec::new(),
                     settings: config::Settings::default(),
+                    vocabulary: config::Vocabulary::default(),
                 })),
                 commands: Arc::new(Mutex::new(HashMap::new())),
                 ops,
@@ -442,8 +457,10 @@ pub fn run() {
             });
 
             app.manage((*state).clone());
+            app.manage(updater::PendingUpdate::default());
 
             app.handle().plugin(tauri_plugin_autostart::Builder::new().build())?;
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
 
             let handler_state = state.clone();
             app.handle().plugin(
@@ -487,17 +504,8 @@ pub fn run() {
                                 recover_lock(state.commands.lock(), "commands", Some(&state.config_dir))
                                     .get(&key)
                                     .cloned();
-                            if let Some(CommandEntry {
-                                id, name, system_prompt, formatting, backend, ..
-                            }) = entry
-                            {
-                                let job = runner::Job {
-                                    command_id: id,
-                                    command_name: name,
-                                    backend,
-                                    system_prompt,
-                                    formatting,
-                                };
+                            if let Some(CommandEntry { id, name, plan, .. }) = entry {
+                                let job = runner::Job { command_id: id, command_name: name, plan };
                                 runner::run_job(&app, state, job, None, None);
                             }
                         });
@@ -610,8 +618,24 @@ pub fn run() {
                     }
                     "reload" => {
                         let line = match config::load_or_create(&menu_path) {
-                            Ok(cfg) => {
-                                let problems = apply_config(app, &menu_state, cfg);
+                            Ok(mut cfg) => {
+                                let failures = secrets::migrate_config_file(
+                                    &menu_path,
+                                    &mut cfg,
+                                    &secrets::CredentialManager,
+                                );
+                                let mut problems = apply_config(app, &menu_state, cfg);
+                                problems.extend(
+                                    failures
+                                        .iter()
+                                        .map(|f| Problem { command_id: None, message: f.message() }),
+                                );
+                                *recover_lock(
+                                    menu_state.startup_problems.lock(),
+                                    "startup_problems",
+                                    Some(&menu_state.config_dir),
+                                ) = problems.clone();
+                                let _ = app.emit("config://reloaded", ());
                                 for problem in &problems {
                                     let line = format!("RELOAD problem: {}", problem.message);
                                     eprintln!("{line}");
@@ -663,6 +687,8 @@ pub fn run() {
                 });
             }
 
+            updater::spawn_daily_check(handle.clone());
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -677,6 +703,14 @@ pub fn run() {
             commands::palette_measured,
             commands::palette_run,
             commands::palette_close,
+            commands::get_api_key,
+            commands::check_backend,
+            updater::check_for_update,
+            updater::get_available_update,
+            updater::install_update,
+            editor::try_command,
+            editor::write_prompt,
+            editor::list_running_apps,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -684,7 +718,14 @@ pub fn run() {
 
 pub(crate) fn quit_app(app: &tauri::AppHandle, state: &AppState) {
     let _ = app.global_shortcut().unregister_all();
+    wait_for_running_cycle(state);
+    let _ = cursor::restore_if_left_busy(&state.config_dir);
+    app.exit(0)
+}
+
+pub(crate) fn wait_for_running_cycle(state: &AppState) {
     if state.busy.load(Ordering::SeqCst) {
+        runner::request_cancel(state);
         let start = Instant::now();
         while state.busy.load(Ordering::SeqCst) && start.elapsed() < QUIT_CYCLE_WAIT {
             std::thread::sleep(Duration::from_millis(20));
@@ -695,6 +736,4 @@ pub(crate) fn quit_app(app: &tauri::AppHandle, state: &AppState) {
             status::append_log(&state.config_dir, &line);
         }
     }
-    let _ = cursor::restore_if_left_busy(&state.config_dir);
-    app.exit(0)
 }

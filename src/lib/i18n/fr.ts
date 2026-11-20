@@ -5,9 +5,11 @@ export const fr: typeof en = {
 		commands: 'Commandes',
 		backends: 'Backends',
 		history: 'Historique',
+		vocabulary: 'Vocabulaire',
 		settings: 'Paramètres',
 		working: 'En cours…',
 		version: (v: string) => `Version ${v}`,
+		needsAttention: 'Demande votre attention',
 		quit: 'Quitter Clipboard AI'
 	},
 
@@ -50,6 +52,32 @@ export const fr: typeof en = {
 		deleteTitle: (name: string) => `Supprimer « ${name} » ?`,
 		deleteDescription:
 			'Cette action supprime définitivement la commande et son raccourci. Elle est irréversible.',
+		problems: {
+			hotkeyTaken: 'Une autre application utilise déjà ce raccourci. Choisissez-en un autre.',
+			hotkeyClash: (other: string) => `Même raccourci que « ${other} », seul celui-là s’exécute.`,
+			hotkeyInvalid: 'Ce raccourci n’est pas reconnu. Enregistrez-le à nouveau.',
+			backendMissing: 'Son backend n’existe plus. Choisissez-en un autre.'
+		},
+		onboarding: {
+			title: 'Premiers pas',
+			intro: 'Clipboard AI a besoin d’un backend qui répond. Ensuite, sélectionnez du texte n’importe où et appuyez sur un raccourci.',
+			hide: 'Masquer',
+			hideAria: 'Masquer ce guide définitivement',
+			step1Title: 'Configurer un backend',
+			step1Text:
+				'Un modèle local via Ollama, votre abonnement Claude via la CLI claude, ou une clé API.',
+			checkBackends: 'Vérifier les backends',
+			openBackends: 'Ouvrir Backends',
+			checking: 'Vérification des backends…',
+			works: (name: string) => `${name} fonctionne.`,
+			noneWorking: 'Aucun de vos backends n’a encore répondu.',
+			step2Title: (name: string) => `Essayer « ${name} »`,
+			step2Text: 'Sélectionnez une phrase dans n’importe quelle application et appuyez sur',
+			step2NoCommand: 'Ajoutez une commande avec un raccourci et un prompt.',
+			backendSilent: (backend: string) => `Son backend, ${backend}, n’a pas répondu.`,
+			useBackend: (name: string) => `Utiliser ${name}`,
+			step2Done: 'Ça a marché. Tout est prêt.'
+		},
 		form: {
 			addTitle: 'Ajouter une commande',
 			editTitle: 'Modifier la commande',
@@ -82,6 +110,99 @@ export const fr: typeof en = {
 			addSubmit: 'Ajouter la commande',
 			saveSubmit: 'Enregistrer les modifications',
 			deleteSubmit: 'Supprimer la commande'
+		},
+		tryIt: {
+			title: 'Essayer',
+			hint: 'Rien n’est collé',
+			inputLabel: 'Votre texte',
+			inputPlaceholder: 'Tapez ou collez un exemple, comme le texte que vous sélectionneriez.',
+			outputLabel: 'Ce qui serait collé',
+			run: 'Lancer',
+			shortcutOr: 'ou',
+			stop: 'Arrêter',
+			asking: (backend: string) => `${backend} répond…`,
+			idle: 'Lancez un exemple pour voir le résultat ici. L’exemple est envoyé en texte brut.',
+			stale: 'Modifié depuis cet essai',
+			noChanges: 'Aucun changement. Une vraie exécution recollerait le même texte.',
+			appLabel: 'Comme dans',
+			appAnywhere: 'toute autre app',
+			defaultModel: 'modèle par défaut',
+			ruleApplied: (app: string) => `règle pour ${app}`,
+			sendOnly:
+				'Ce backend envoie seulement le texte et ne colle rien en retour, il n’y a donc rien à prévisualiser. L’onglet Historique montre chaque exécution.',
+			httpNote: 'Lancer envoie l’exemple au point de terminaison, comme une vraie exécution.',
+			errors: {
+				timeout:
+					'Le backend n’a pas répondu dans son délai. Un modèle lent ou à froid peut demander un délai plus long.',
+				unreachable:
+					'Impossible de joindre le backend. Vérifiez qu’il fonctionne et que son adresse est correcte.',
+				misconfigured: 'Le backend n’est pas entièrement configuré.',
+				badResponse: 'Le backend a répondu par une erreur.',
+				noSentinel:
+					'Le modèle a répondu, mais pas sous la forme attendue. Réessayez ou simplifiez le prompt.',
+				emptyResult: 'Le modèle n’a rien renvoyé.',
+				nothingToPreview: 'Ce backend ne colle rien en retour, il n’y a donc rien à prévisualiser.',
+				unknownBackend: 'Choisissez d’abord un backend.',
+				emptyInput: 'Tapez d’abord un exemple.',
+				notAnAiBackend: 'Ce backend ne peut pas écrire de prompts. Choisissez un backend d’IA.',
+				internal: 'Un problème est survenu dans l’app.'
+			}
+		},
+		writer: {
+			openClaude: 'Écrire avec Claude',
+			openOther: 'Écrire avec l’IA',
+			title: 'Écrire le prompt pour moi',
+			description:
+				'Dites simplement ce que la commande doit faire. Le résultat remplace le prompt, et vous pouvez le modifier ou l’annuler.',
+			label: 'Que doit faire la commande ?',
+			placeholder: 'Rendre mes e-mails plus chaleureux, mais les garder courts.',
+			reviseHint:
+				'Votre prompt actuel est envoyé aussi, vous pouvez donc demander une modification, comme « rends-le plus court ».',
+			backendLabel: 'Écrit par',
+			submit: 'Écrire le prompt',
+			working: 'Écriture…',
+			done: (backend: string) => `Écrit par ${backend}.`,
+			undo: 'Annuler',
+			errorTitle: 'Impossible d’écrire le prompt'
+		},
+		rules: {
+			title: 'Dans certaines apps',
+			hint: 'Utilisé à la place là-bas',
+			add: 'Ajouter une règle pour une app',
+			adds: (text: string) => `Ajoute : ${text}`,
+			uses: (backend: string) => `Utilise ${backend}`,
+			nothing: 'Ne change encore rien',
+			savedWithCommand: 'Les règles sont enregistrées avec la commande.',
+			addTitle: 'Ajouter une règle pour une app',
+			editTitle: (app: string) => `Règle pour ${app}`,
+			description: 'Quand vous lancez cette commande dans cette app, ces réglages sont utilisés à la place.',
+			appLabel: 'App',
+			search: 'Rechercher dans les apps ouvertes',
+			loading: 'Recherche des apps ouvertes…',
+			none: 'Aucune app ouverte trouvée. Saisissez plutôt le nom du programme.',
+			noMatch: 'Aucune app ouverte ne correspond.',
+			manual: 'Saisir le nom du programme',
+			pickFromList: 'Choisir parmi les apps ouvertes',
+			refresh: 'Actualiser',
+			change: 'Changer',
+			exeLabel: 'Fichier du programme',
+			exePlaceholder: 'OUTLOOK.EXE',
+			exeHint: 'Le nom du .exe, tel que le Gestionnaire des tâches l’affiche sous Détails.',
+			nameLabel: 'Affiché comme',
+			namePlaceholder: 'Outlook',
+			promptLabel: 'Ajouter au prompt',
+			promptPlaceholder: 'Reste formel et vouvoie le lecteur.',
+			promptHint: 'Ajouté après le prompt de la commande, dans cette app uniquement.',
+			backendLabel: 'Backend',
+			formattingLabel: 'Mise en forme',
+			same: 'Comme la commande',
+			duplicate: 'Cette commande a déjà une règle pour cette app.',
+			empty: 'Changez au moins une chose pour cette app.',
+			pickApp: 'Choisissez d’abord une app.',
+			submitAdd: 'Ajouter la règle',
+			submitSave: 'Enregistrer la règle',
+			delete: 'Supprimer la règle',
+			editAria: (app: string) => `Modifier la règle pour ${app}`
 		}
 	},
 
@@ -102,9 +223,12 @@ export const fr: typeof en = {
 		deleteDescription: 'Cette action supprime définitivement le backend. Elle est irréversible.',
 		blockedDeleteTitle: (name: string) => `Impossible de supprimer « ${name} »`,
 		blockedDeleteDescription: (usedBy: string) =>
-			`Encore utilisé par : ${usedBy}. Faites d’abord pointer ces commandes vers un autre backend, puis supprimez-le.`,
+			`Encore utilisé par : ${usedBy}. Faites d’abord pointer ces commandes et leurs règles par app vers un autre backend, puis supprimez-le.`,
 		usedBy: (names: string) => `Utilisé par ${names}`,
 		unused: 'Utilisé par aucune commande',
+		check: 'Vérifier',
+		checkAll: 'Tout vérifier',
+		checkAria: (name: string) => `Vérifier ${name}`,
 		form: {
 			addTitle: 'Ajouter un backend',
 			editTitle: 'Modifier le backend',
@@ -138,6 +262,14 @@ export const fr: typeof en = {
 			apiKeyOptional: '(facultatif)',
 			showApiKey: 'Afficher la clé API',
 			hideApiKey: 'Masquer la clé API',
+			apiKeyStoredPlaceholder: 'Enregistrée dans le Gestionnaire d’identification Windows',
+			apiKeyHint: 'Conservée dans le Gestionnaire d’identification Windows, pas dans config.json.',
+			apiKeyInline:
+				'Toujours dans config.json, car le Gestionnaire d’identification Windows l’a refusée. L’enregistrement réessaie.',
+			apiKeyRemove: 'Supprimer la clé',
+			apiKeyWillBeRemoved: 'La clé sera supprimée à l’enregistrement.',
+			apiKeyUndo: 'Annuler',
+			apiKeyRevealFailed: 'Impossible de lire la clé dans le Gestionnaire d’identification Windows.',
 			timeoutLabel: 'Délai (ms)',
 			timeoutHint: (defaultMs: string) =>
 				`Un modèle local à froid peut nécessiter environ 16 000 ms pour sa première requête de la journée — la valeur par défaut de ${defaultMs} ms évite alors un dépassement de délai injustifié.`,
@@ -148,6 +280,40 @@ export const fr: typeof en = {
 			saveSubmit: 'Enregistrer les modifications',
 			deleteSubmit: 'Supprimer le backend'
 		}
+	},
+
+	health: {
+		checking: 'Vérification…',
+		notChecked: 'Pas encore vérifié',
+		checkFailed: 'La vérification elle-même a échoué',
+		ok: (time: string) => `Réponse en ${time}`,
+		cold: (first: string, warm: string) =>
+			`Le modèle était froid. Première réponse en ${first}, la suivante en ${warm}`,
+		slow: (time: string) => `Fonctionne, mais lentement. ${time}`,
+		reachable: 'Joignable. Rien ne lui a été envoyé',
+		cliReady: (version: string) => `Connecté, CLI ${version}`,
+		cliSignedOut: 'Non connecté. Lancez claude dans un terminal pour vous connecter',
+		cliUnknownAuth: (version: string) => `CLI ${version} trouvée, connexion non confirmée`,
+		cliMissing: 'CLI Claude introuvable. Installez-la et connectez-vous',
+		keyMissing: 'Aucune clé API définie',
+		keyRejected: 'Clé refusée',
+		keyUnreadable: 'Impossible de lire la clé API',
+		modelNotFound: 'Modèle ou URL introuvable',
+		notReachable: 'Injoignable',
+		timeout: (secs: number) => `Pas de réponse en ${secs} s`,
+		needsUrl: 'Aucune URL définie',
+		needsModel: 'Aucun modèle défini',
+		misconfigured: 'Configuration incomplète',
+		badResponse: 'Réponse inattendue'
+	},
+
+	update: {
+		promptTitle: (version: string) => `Clipboard AI ${version} est disponible`,
+		promptText: 'Installez-la maintenant, ou plus tard depuis les paramètres.',
+		install: 'Installer et redémarrer',
+		later: 'Plus tard',
+		downloading: 'Téléchargement…',
+		downloadingPercent: (percent: number) => `Téléchargement… ${percent} %`
 	},
 
 	hotkeyRecorder: {
@@ -245,10 +411,43 @@ export const fr: typeof en = {
 		listLabel: 'Commandes et instructions'
 	},
 
+	vocabulary: {
+		title: 'Vocabulaire',
+		keepTitle: 'Mots que chaque commande garde tels quels',
+		keepHint: 'Noms, produits, lieux',
+		keepPlaceholder: 'Ajouter un mot ou un nom',
+		keepAdd: 'Ajouter',
+		keepRemove: (word: string) => `Retirer ${word}`,
+		keepEmpty: 'Aucun mot pour l’instant. Ajoutez les noms que le modèle a tendance à « corriger ».',
+		replaceTitle: 'Toujours remplacer',
+		replaceHint: 'Avant que le texte n’atteigne le modèle',
+		replaceFrom: 'Remplacer',
+		replaceTo: 'Par',
+		replaceFromPlaceholder: 'sus tech',
+		replaceToPlaceholder: 'Sus-Tech',
+		replaceAdd: 'Ajouter un remplacement',
+		replaceSave: 'Enregistrer',
+		replaceDeleted: 'supprimé',
+		replaceEditAria: (from: string) => `Modifier le remplacement de ${from}`,
+		replaceRemove: (from: string) => `Retirer le remplacement de ${from}`,
+		note: 'La liste de mots est ajoutée aux instructions de chaque commande, car un modèle qui « corrige » un nom qu’il ne connaît pas est le mauvais résultat le plus courant. Les remplacements portent sur des mots entiers, quelle que soit la casse, et modifient le texte sélectionné avant qu’un backend ne le voie.',
+		saveErrorTitle: 'Impossible d’enregistrer cette modification',
+		saveFailedFallback: 'Impossible d’enregistrer la modification.'
+	},
+
 	settings: {
 		title: 'Paramètres',
 		groupAppearance: 'Apparence',
 		groupStartup: 'Démarrage',
+		groupAbout: 'À propos',
+		versionLabel: (version: string) => `Clipboard AI ${version}`,
+		updateDescription: 'Vérifie GitHub une fois par jour. Rien ne s’installe sans votre clic.',
+		updateCheck: 'Rechercher des mises à jour',
+		updateChecking: 'Vérification…',
+		updateUpToDate: 'Vous avez la dernière version.',
+		updateAvailable: (version: string) => `La version ${version} est disponible.`,
+		updateInstallFailed: 'Impossible d’installer la mise à jour. Réessayez plus tard.',
+		updateCheckFailed: 'Impossible de rechercher des mises à jour. Réessayez plus tard.',
 		themeLabel: 'Thème',
 		themeDescription: 'S’applique à cette fenêtre. Suit Windows par défaut.',
 		themeSystem: 'Système',

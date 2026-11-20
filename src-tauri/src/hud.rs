@@ -241,6 +241,9 @@ mod tests {
             captured_text: Some("Their going to ship it on friday.".into()),
             result_text: Some("They're going to ship it on Friday.".into()),
             result_html: None,
+            backend_name: None,
+            app: None,
+            rule: None,
         }
     }
 

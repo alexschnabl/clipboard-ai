@@ -171,6 +171,24 @@ pub fn shared_http() -> Arc<dyn HttpClient> {
 use crate::config::{BackendConfig, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_HTTP, KIND_OPENAI};
 
 pub fn build(config: &BackendConfig) -> Result<Arc<dyn Backend>, BackendError> {
+    build_with(config, &crate::secrets::CredentialManager)
+}
+
+pub fn build_with(
+    config: &BackendConfig,
+    store: &dyn crate::secrets::SecretStore,
+) -> Result<Arc<dyn Backend>, BackendError> {
+    let mut resolved;
+    let config = if crate::secrets::uses_api_key(&config.kind) {
+        resolved = config.clone();
+        resolved.api_key =
+            crate::secrets::resolve_with(store, &config.id, config.api_key.as_deref()).map_err(
+                |e| BackendError::Misconfigured(format!("could not read the API key: {e}")),
+            )?;
+        &resolved
+    } else {
+        config
+    };
     match config.kind.as_str() {
         KIND_OPENAI => Ok(Arc::new(openai::OpenAiCompatible::new(config, shared_http()))),
         KIND_ANTHROPIC => Ok(Arc::new(anthropic::AnthropicApi::new(config, shared_http()))),
@@ -205,7 +223,8 @@ mod build_tests {
     #[test]
     fn builds_the_matching_backend_for_every_shipped_kind() {
         for kind in [KIND_OPENAI, KIND_ANTHROPIC, KIND_CLAUDE_CLI, KIND_HTTP] {
-            let backend = build(&cfg(kind)).unwrap_or_else(|e| panic!("{kind}: {e}"));
+            let backend = build_with(&cfg(kind), &crate::secrets::fake::FakeStore::default())
+                .unwrap_or_else(|e| panic!("{kind}: {e}"));
             assert_eq!(backend.name(), "B", "kind: {kind}");
         }
     }
@@ -213,6 +232,19 @@ mod build_tests {
     #[test]
     fn an_unknown_kind_is_misconfigured() {
         assert!(matches!(build(&cfg("telepathy")), Err(BackendError::Misconfigured(_))));
+    }
+
+    #[test]
+    fn a_keyed_backend_picks_up_its_key_from_the_store() {
+        let store = crate::secrets::fake::FakeStore::default();
+        store.put(&crate::secrets::target_for("b"), "sk-from-store");
+        assert!(build_with(&cfg(KIND_ANTHROPIC), &store).is_ok());
+        let failing = crate::secrets::fake::FakeStore { fail_reads: true, ..Default::default() };
+        match build_with(&cfg(KIND_ANTHROPIC), &failing) {
+            Err(BackendError::Misconfigured(msg)) => assert!(msg.contains("API key"), "{msg}"),
+            other => panic!("expected Misconfigured, got {:?}", other.map(|_| ())),
+        }
+        assert!(build_with(&cfg(KIND_CLAUDE_CLI), &failing).is_ok(), "the CLI needs no key");
     }
 }
 

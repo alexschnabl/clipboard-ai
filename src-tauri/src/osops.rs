@@ -41,6 +41,9 @@ pub trait OsOps: Send + Sync {
     fn clear_clipboard(&self) -> Result<(), OsError>;
     fn modifiers_down(&self) -> bool;
     fn foreground_window(&self) -> isize;
+    fn process_name(&self, _window: isize) -> Option<String> {
+        None
+    }
     fn send_copy(&self) -> Result<(), OsError>;
     fn send_paste(&self) -> Result<(), OsError>;
     fn sleep_ms(&self, ms: u64);
@@ -173,6 +176,10 @@ impl OsOps for WindowsOps {
 
     fn foreground_window(&self) -> isize {
         unsafe { GetForegroundWindow().0 as isize }
+    }
+
+    fn process_name(&self, window: isize) -> Option<String> {
+        crate::apps::exe_for_window(window)
     }
 
     fn send_copy(&self) -> Result<(), OsError> {
@@ -324,10 +331,17 @@ mod tests {
     #[test]
     fn a_cycle_run_against_null_ops_aborts_immediately_without_touching_anything() {
         let ops = NullOps::new();
+        let vocabulary = crate::config::Vocabulary::default();
+        let backend: std::sync::Arc<dyn crate::backend::Backend> = std::sync::Arc::new(PanicIfCalledBackend);
         let outcome = crate::cycle::run(
-            &PanicIfCalledBackend,
-            "Fix.",
-            crate::config::Formatting::Auto,
+            &|_| crate::cycle::Job {
+                backend: &backend,
+                system_prompt: "Fix.",
+                prompt_addition: None,
+                formatting: crate::config::Formatting::Auto,
+                vocabulary: &vocabulary,
+                rule_name: None,
+            },
             &ops,
         );
         assert!(!outcome.pasted);

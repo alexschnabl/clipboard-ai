@@ -23,6 +23,14 @@ export interface BackendConfig {
 
 export type Formatting = 'auto' | 'rich' | 'plain';
 
+export interface AppRule {
+	exe: string;
+	name: string;
+	promptAddition: string;
+	backendId: string | null;
+	formatting: Formatting | null;
+}
+
 export interface CommandConfig {
 	id: string;
 	name: string;
@@ -30,6 +38,17 @@ export interface CommandConfig {
 	hotkey: string;
 	systemPrompt: string;
 	formatting: Formatting;
+	appRules?: AppRule[];
+}
+
+export interface Replacement {
+	from: string;
+	to: string;
+}
+
+export interface Vocabulary {
+	keep: string[];
+	replacements: Replacement[];
 }
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -45,6 +64,7 @@ export interface Settings {
 	paletteHotkey: string;
 	pasteLastEnabled: boolean;
 	pasteLastHotkey: string;
+	onboardingDismissed?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -102,6 +122,7 @@ export interface Config {
 	backends: BackendConfig[];
 	commands: CommandConfig[];
 	settings: Settings;
+	vocabulary?: Vocabulary;
 }
 
 export interface Problem {
@@ -113,7 +134,12 @@ export interface SaveResult {
 	ok: boolean;
 	error: string | null;
 	problems: Problem[];
+	storedKeys?: string[];
+	inlineKeys?: string[];
+	isDefaultSetup?: boolean;
 }
+
+export type KeyChanges = Record<string, string | null>;
 
 export interface ConfigLoadError {
 	reason: string;
@@ -124,6 +150,37 @@ export interface GetConfigResult {
 	config: Config;
 	loadError: ConfigLoadError | null;
 	startupProblems: Problem[];
+	storedKeys?: string[];
+	inlineKeys?: string[];
+	isDefaultSetup?: boolean;
+}
+
+export type Health =
+	| { status: 'ok'; ms: number }
+	| { status: 'cold'; firstMs: number; warmMs: number }
+	| { status: 'slow'; ms: number }
+	| { status: 'reachable'; ms: number }
+	| { status: 'cliReady'; version: string }
+	| { status: 'cliSignedOut'; version: string }
+	| { status: 'cliUnknownAuth'; version: string }
+	| { status: 'cliMissing' }
+	| { status: 'keyMissing' }
+	| { status: 'keyRejected' }
+	| { status: 'modelNotFound' }
+	| { status: 'notReachable'; detail: string }
+	| { status: 'timeout'; secs: number }
+	| { status: 'misconfigured'; detail: string }
+	| { status: 'badResponse'; detail: string };
+
+export interface UpdateInfo {
+	version: string;
+	currentVersion: string;
+	notes: string | null;
+}
+
+export interface UpdateProgress {
+	downloaded: number;
+	total: number | null;
 }
 
 export type HistoryOutcome =
@@ -141,4 +198,30 @@ export interface HistoryEntry {
 	totalCycleMs: number | null;
 	inputText: string | null;
 	resultText: string | null;
+}
+
+export interface TryResult {
+	text: string;
+	html: string | null;
+	backendMs: number;
+	backendName: string;
+	rule: string | null;
+	warnings: string[];
+}
+
+export interface EditorError {
+	reason: string;
+	detail: string | null;
+}
+
+export interface AppIcon {
+	size: number;
+	rgba: string;
+}
+
+export interface RunningApp {
+	exe: string;
+	name: string;
+	title: string;
+	icon: AppIcon | null;
 }

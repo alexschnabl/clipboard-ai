@@ -5,9 +5,9 @@ use std::sync::{
 use std::time::Duration;
 
 use crate::backend::{Backend, BackendError};
-use crate::config::Formatting;
+use crate::config::{Formatting, Vocabulary};
 use crate::osops::{Clip, OsOps};
-use crate::{richtext, sentinel};
+use crate::{richtext, sentinel, vocabulary};
 
 const CAPTURE_TIMEOUT_MS: u64 = 1000;
 const CAPTURE_POLL_MS: u64 = 20;
@@ -40,6 +40,9 @@ pub struct CycleOutcome {
     pub captured_text: Option<String>,
     pub result_text: Option<String>,
     pub result_html: Option<String>,
+    pub backend_name: Option<String>,
+    pub app: Option<String>,
+    pub rule: Option<String>,
 }
 
 impl CycleOutcome {
@@ -51,16 +54,130 @@ impl CycleOutcome {
             .as_ref()
             .map(|text| Clip { text: text.clone(), html: self.result_html.clone() })
     }
+
+    fn stamp(mut self, job: &Job, app: Option<&str>) -> Self {
+        self.backend_name = Some(job.backend.name().to_string());
+        self.app = app.map(str::to_string);
+        self.rule = job.rule_name.map(str::to_string);
+        self
+    }
+}
+
+pub struct Job<'a> {
+    pub backend: &'a Arc<dyn Backend>,
+    pub system_prompt: &'a str,
+    pub prompt_addition: Option<&'a str>,
+    pub formatting: Formatting,
+    pub vocabulary: &'a Vocabulary,
+    pub rule_name: Option<&'a str>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Transformed {
+    Sent,
+    Result(Clip),
+}
+
+#[derive(Debug, Clone)]
+pub struct Failure {
+    pub reason: &'static str,
+    pub detail: Option<String>,
+    pub backend_error: Option<BackendError>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Transform {
+    pub result: Result<Transformed, Failure>,
+    pub backend_ms: u64,
 }
 
 #[derive(Debug, Clone)]
 pub struct Captured {
     pub clip: Clip,
     pub window: isize,
+    pub app: Option<String>,
     pub captured_ms: u64,
 }
 
-type Call<'a> = &'a dyn Fn(&str, &str) -> Option<Result<String, BackendError>>;
+type Call<'c> = &'c dyn Fn(&Job, &str, &str) -> Option<Result<String, BackendError>>;
+type Choose<'c, 'a> = &'c dyn Fn(Option<&str>) -> Job<'a>;
+
+fn direct_call(job: &Job, prompt: &str, text: &str) -> Option<Result<String, BackendError>> {
+    Some(job.backend.transform(prompt, text))
+}
+
+pub fn assemble_system_prompt(job: &Job, instruction: Option<&str>) -> String {
+    let keep = vocabulary::keep_instruction(job.vocabulary);
+    let parts = [
+        Some(job.system_prompt.trim()),
+        job.prompt_addition.map(str::trim),
+        keep.as_deref(),
+        instruction,
+    ];
+    let prompt = parts
+        .into_iter()
+        .flatten()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if job.backend.uses_sentinel() {
+        sentinel::wrap_system_prompt(&prompt)
+    } else {
+        prompt
+    }
+}
+
+pub fn transform(job: &Job, input: &Clip, clock: &dyn Fn() -> u64) -> Transform {
+    transform_with(job, input, clock, &direct_call)
+}
+
+fn transform_with(job: &Job, input: &Clip, clock: &dyn Fn() -> u64, call: Call<'_>) -> Transform {
+    let backend = job.backend;
+    let prepared = richtext::prepare(input, job.formatting, backend.supports_rich_text());
+    let text = vocabulary::apply_replacements(
+        &prepared.text,
+        &job.vocabulary.replacements,
+        prepared.text_is_html,
+    );
+    let prompt = assemble_system_prompt(job, prepared.instruction);
+
+    let start = clock();
+    let raw = call(job, &prompt, &text);
+    let backend_ms = clock().saturating_sub(start);
+    let fail = |reason: &'static str, backend_error: Option<BackendError>| Transform {
+        result: Err(Failure {
+            reason,
+            detail: backend_error.as_ref().map(|e| e.to_string()),
+            backend_error,
+        }),
+        backend_ms,
+    };
+
+    let raw = match raw {
+        None => return fail(REASON_CANCELLED, None),
+        Some(Ok(text)) => text,
+        Some(Err(e)) => return fail("backend-error", Some(e)),
+    };
+    if !backend.pastes_result() {
+        return Transform { result: Ok(Transformed::Sent), backend_ms };
+    }
+    let extracted = if backend.uses_sentinel() {
+        match sentinel::extract(&raw) {
+            Some(text) => text,
+            None => return fail("no-sentinel", None),
+        }
+    } else {
+        raw.trim().to_string()
+    };
+    if extracted.trim().is_empty() {
+        return fail("empty-result", None);
+    }
+    let result = richtext::finish(&extracted, &prepared);
+    if result.text.trim().is_empty() {
+        return fail("empty-result", None);
+    }
+    Transform { result: Ok(Transformed::Result(result)), backend_ms }
+}
 
 fn abort(reason: &'static str, captured_ms: u64, backend_ms: u64) -> CycleOutcome {
     CycleOutcome {
@@ -72,16 +189,10 @@ fn abort(reason: &'static str, captured_ms: u64, backend_ms: u64) -> CycleOutcom
         captured_text: None,
         result_text: None,
         result_html: None,
+        backend_name: None,
+        app: None,
+        rule: None,
     }
-}
-
-fn abort_detail(
-    reason: &'static str,
-    detail: String,
-    captured_ms: u64,
-    backend_ms: u64,
-) -> CycleOutcome {
-    CycleOutcome { detail: Some(detail), ..abort(reason, captured_ms, backend_ms) }
 }
 
 fn is_cancelled(cancel: &AtomicBool) -> bool {
@@ -139,81 +250,76 @@ impl Drop for ClipboardGuard<'_> {
 }
 
 #[cfg(test)]
-pub fn run(
-    backend: &dyn Backend,
-    system_prompt: &str,
-    formatting: Formatting,
-    ops: &dyn OsOps,
-) -> CycleOutcome {
-    let call = |prompt: &str, text: &str| Some(backend.transform(prompt, text));
-    run_with(backend, &call, system_prompt, formatting, ops, &NOT_CANCELLED)
+pub fn run<'a>(choose: Choose<'_, 'a>, ops: &dyn OsOps) -> CycleOutcome {
+    run_with(choose, &direct_call, ops, &NOT_CANCELLED)
 }
 
-pub fn run_cancellable(
-    backend: &Arc<dyn Backend>,
-    system_prompt: &str,
-    formatting: Formatting,
+pub fn run_cancellable<'a>(
+    choose: Choose<'_, 'a>,
     ops: &dyn OsOps,
     cancel: &AtomicBool,
 ) -> CycleOutcome {
-    let call = |prompt: &str, text: &str| call_cancellable(backend, prompt, text, cancel);
-    run_with(backend.as_ref(), &call, system_prompt, formatting, ops, cancel)
+    let call =
+        |job: &Job, prompt: &str, text: &str| call_cancellable(job.backend, prompt, text, cancel);
+    run_with(choose, &call, ops, cancel)
 }
 
-fn run_with(
-    backend: &dyn Backend,
+fn run_with<'a>(
+    choose: Choose<'_, 'a>,
     call: Call<'_>,
-    system_prompt: &str,
-    formatting: Formatting,
     ops: &dyn OsOps,
     cancel: &AtomicBool,
 ) -> CycleOutcome {
     let _guard = ClipboardGuard::new(ops);
-    match capture(ops, cancel) {
+    let (window, app) = match target(ops, cancel) {
+        Ok(target) => target,
+        Err(outcome) => return outcome,
+    };
+    let job = choose(app.as_deref());
+    let outcome = match copy_selection(ops, window, app.clone()) {
         Err(outcome) => outcome,
         Ok(captured) => {
-            let mut outcome =
-                transform_and_paste(backend, call, system_prompt, formatting, ops, &captured, cancel);
+            let mut outcome = transform_and_paste(&job, call, ops, &captured, cancel);
             outcome.captured_text = Some(captured.clip.text);
             outcome
         }
-    }
+    };
+    outcome.stamp(&job, app.as_deref())
 }
 
 pub fn capture_selection(ops: &dyn OsOps) -> Result<Captured, CycleOutcome> {
     let _guard = ClipboardGuard::new(ops);
-    capture(ops, &NOT_CANCELLED)
+    let (window, app) = target(ops, &NOT_CANCELLED)?;
+    copy_selection(ops, window, app)
 }
 
-pub fn run_on_captured(
-    backend: &Arc<dyn Backend>,
-    system_prompt: &str,
-    formatting: Formatting,
+pub fn run_on_captured<'a>(
+    choose: Choose<'_, 'a>,
     ops: &dyn OsOps,
     captured: &Captured,
     cancel: &AtomicBool,
 ) -> CycleOutcome {
-    let call = |prompt: &str, text: &str| call_cancellable(backend, prompt, text, cancel);
-    run_on_captured_with(backend.as_ref(), &call, system_prompt, formatting, ops, captured, cancel)
+    let call =
+        |job: &Job, prompt: &str, text: &str| call_cancellable(job.backend, prompt, text, cancel);
+    run_on_captured_with(choose, &call, ops, captured, cancel)
 }
 
-fn run_on_captured_with(
-    backend: &dyn Backend,
+fn run_on_captured_with<'a>(
+    choose: Choose<'_, 'a>,
     call: Call<'_>,
-    system_prompt: &str,
-    formatting: Formatting,
     ops: &dyn OsOps,
     captured: &Captured,
     cancel: &AtomicBool,
 ) -> CycleOutcome {
     let _guard = ClipboardGuard::new(ops);
+    let job = choose(captured.app.as_deref());
     let mut outcome = if captured.window == 0 || ops.foreground_window() != captured.window {
         abort(REASON_FOCUS_RESTORE_FAILED, captured.captured_ms, 0)
     } else {
-        transform_and_paste(backend, call, system_prompt, formatting, ops, captured, cancel)
+        transform_and_paste(&job, call, ops, captured, cancel)
     };
     outcome.captured_text = Some(captured.clip.text.clone());
-    outcome
+    outcome.stamp(&job, captured.app.as_deref())
 }
 
 pub fn paste_clip(ops: &dyn OsOps, clip: &Clip, expected_window: Option<isize>) -> CycleOutcome {
@@ -273,19 +379,25 @@ fn call_cancellable(
     }
 }
 
-fn capture(ops: &dyn OsOps, cancel: &AtomicBool) -> Result<Captured, CycleOutcome> {
+fn target(ops: &dyn OsOps, cancel: &AtomicBool) -> Result<(isize, Option<String>), CycleOutcome> {
     if !wait_for_modifier_release(ops) {
         return Err(abort("modifiers-stuck", 0, 0));
     }
     if is_cancelled(cancel) {
         return Err(abort(REASON_CANCELLED, 0, 0));
     }
-
     let window = ops.foreground_window();
     if window == 0 {
         return Err(abort("focus-changed", 0, 0));
     }
+    Ok((window, ops.process_name(window)))
+}
 
+fn copy_selection(
+    ops: &dyn OsOps,
+    window: isize,
+    app: Option<String>,
+) -> Result<Captured, CycleOutcome> {
     if ops.clear_clipboard().is_err() {
         return Err(abort("capture-timeout", 0, 0));
     }
@@ -299,66 +411,31 @@ fn capture(ops: &dyn OsOps, cancel: &AtomicBool) -> Result<Captured, CycleOutcom
         None => return Err(abort("capture-timeout", 0, 0)),
     };
     let captured_ms = ops.now_ms().saturating_sub(capture_start);
-    Ok(Captured { clip, window, captured_ms })
+    Ok(Captured { clip, window, app, captured_ms })
 }
 
 fn transform_and_paste(
-    backend: &dyn Backend,
+    job: &Job,
     call: Call<'_>,
-    system_prompt: &str,
-    formatting: Formatting,
     ops: &dyn OsOps,
     captured: &Captured,
     cancel: &AtomicBool,
 ) -> CycleOutcome {
     let captured_ms = captured.captured_ms;
-    let prepared = richtext::prepare(&captured.clip, formatting, backend.supports_rich_text());
-    let mut prompt = system_prompt.to_string();
-    if let Some(instruction) = prepared.instruction {
-        prompt.push_str("\n\n");
-        prompt.push_str(instruction);
-    }
-    let prompt = if backend.uses_sentinel() {
-        sentinel::wrap_system_prompt(&prompt)
-    } else {
-        prompt
-    };
     if is_cancelled(cancel) {
         return abort(REASON_CANCELLED, captured_ms, 0);
     }
-    let backend_start = ops.now_ms();
-    let raw = match call(&prompt, &prepared.text) {
-        None => {
-            let backend_ms = ops.now_ms().saturating_sub(backend_start);
-            return abort(REASON_CANCELLED, captured_ms, backend_ms);
+    let Transform { result, backend_ms } =
+        transform_with(job, &captured.clip, &|| ops.now_ms(), call);
+    let result = match result {
+        Ok(Transformed::Sent) => {
+            return CycleOutcome { pasted: true, ..abort("sent", captured_ms, backend_ms) };
         }
-        Some(Ok(text)) => text,
-        Some(Err(e)) => {
-            let backend_ms = ops.now_ms().saturating_sub(backend_start);
-            return abort_detail("backend-error", e.to_string(), captured_ms, backend_ms);
+        Ok(Transformed::Result(clip)) => clip,
+        Err(Failure { reason, detail, .. }) => {
+            return CycleOutcome { detail, ..abort(reason, captured_ms, backend_ms) };
         }
     };
-    let backend_ms = ops.now_ms().saturating_sub(backend_start);
-
-    if !backend.pastes_result() {
-        return CycleOutcome { pasted: true, ..abort("sent", captured_ms, backend_ms) };
-    }
-
-    let extracted = if backend.uses_sentinel() {
-        match sentinel::extract(&raw) {
-            Some(text) => text,
-            None => return abort("no-sentinel", captured_ms, backend_ms),
-        }
-    } else {
-        raw.trim().to_string()
-    };
-    if extracted.trim().is_empty() {
-        return abort("empty-result", captured_ms, backend_ms);
-    }
-    let result = richtext::finish(&extracted, &prepared);
-    if result.text.trim().is_empty() {
-        return abort("empty-result", captured_ms, backend_ms);
-    }
 
     if is_cancelled(cancel) {
         return abort(REASON_CANCELLED, captured_ms, backend_ms);
@@ -399,6 +476,92 @@ mod tests {
     use crate::backend::{Backend, BackendError};
     use crate::osops::{OsError, OsOps};
 
+    struct Mirror {
+        name: String,
+        sentinel: bool,
+        pastes: bool,
+        rich: bool,
+    }
+    impl Backend for Mirror {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn transform(&self, _s: &str, _t: &str) -> Result<String, BackendError> {
+            unreachable!("calls go to the borrowed backend")
+        }
+        fn uses_sentinel(&self) -> bool {
+            self.sentinel
+        }
+        fn pastes_result(&self) -> bool {
+            self.pastes
+        }
+        fn supports_rich_text(&self) -> bool {
+            self.rich
+        }
+    }
+
+    fn mirror(backend: &dyn Backend) -> Arc<dyn Backend> {
+        Arc::new(Mirror {
+            name: backend.name().to_string(),
+            sentinel: backend.uses_sentinel(),
+            pastes: backend.pastes_result(),
+            rich: backend.supports_rich_text(),
+        })
+    }
+
+    fn arc(backend: impl Backend + 'static) -> Arc<dyn Backend> {
+        Arc::new(backend)
+    }
+
+    fn job<'a>(
+        backend: &'a Arc<dyn Backend>,
+        prompt: &'a str,
+        formatting: Formatting,
+        vocabulary: &'a Vocabulary,
+    ) -> Job<'a> {
+        Job { backend, system_prompt: prompt, prompt_addition: None, formatting, vocabulary, rule_name: None }
+    }
+
+    fn run_through(
+        backend: &dyn Backend,
+        prompt: &str,
+        formatting: Formatting,
+        ops: &dyn OsOps,
+        cancel: &AtomicBool,
+    ) -> CycleOutcome {
+        let shared = mirror(backend);
+        let vocabulary = Vocabulary::default();
+        let call = |_: &Job, p: &str, t: &str| Some(backend.transform(p, t));
+        run_with(&|_| job(&shared, prompt, formatting, &vocabulary), &call, ops, cancel)
+    }
+
+    fn run(backend: &dyn Backend, prompt: &str, formatting: Formatting, ops: &dyn OsOps) -> CycleOutcome {
+        run_through(backend, prompt, formatting, ops, &NOT_CANCELLED)
+    }
+
+    fn run_cancellable(backend: Arc<dyn Backend>, ops: &dyn OsOps, cancel: &AtomicBool) -> CycleOutcome {
+        let vocabulary = Vocabulary::default();
+        super::run_cancellable(&|_| job(&backend, "Fix.", Formatting::Auto, &vocabulary), ops, cancel)
+    }
+
+    fn on_captured(
+        backend: &dyn Backend,
+        ops: &dyn OsOps,
+        captured: &Captured,
+        cancel: &AtomicBool,
+    ) -> CycleOutcome {
+        let shared = mirror(backend);
+        let vocabulary = Vocabulary::default();
+        let call = |_: &Job, p: &str, t: &str| Some(backend.transform(p, t));
+        run_on_captured_with(
+            &|_| job(&shared, "Fix.", Formatting::Auto, &vocabulary),
+            &call,
+            ops,
+            captured,
+            cancel,
+        )
+    }
+
     #[derive(Default)]
     struct FakeOps {
         clipboard: Mutex<Clip>,
@@ -416,6 +579,7 @@ mod tests {
         paste_should_fail: Mutex<bool>,
         write_should_fail_once: Mutex<bool>,
         rich_write_should_fail: Mutex<bool>,
+        exe: Mutex<Option<String>>,
     }
 
     impl FakeOps {
@@ -468,6 +632,9 @@ mod tests {
         }
         fn foreground_window(&self) -> isize {
             *self.focus.lock().unwrap()
+        }
+        fn process_name(&self, _window: isize) -> Option<String> {
+            self.exe.lock().unwrap().clone()
         }
         fn send_copy(&self) -> Result<(), OsError> {
             self.log("copy");
@@ -1029,8 +1196,107 @@ mod tests {
         assert!(restored.html.is_none());
     }
 
-    fn arc(backend: impl Backend + 'static) -> Arc<dyn Backend> {
-        Arc::new(backend)
+    struct Seeing {
+        seen: Mutex<Vec<(String, String)>>,
+        answer: String,
+    }
+    impl Backend for Seeing {
+        fn name(&self) -> &str {
+            "seeing"
+        }
+        fn transform(&self, system: &str, text: &str) -> Result<String, BackendError> {
+            self.seen.lock().unwrap().push((system.to_string(), text.to_string()));
+            Ok(self.answer.clone())
+        }
+    }
+
+    #[test]
+    fn the_app_at_capture_time_picks_the_job_and_is_reported() {
+        let ops = FakeOps::new("ORIGINAL", Some("hi"));
+        *ops.exe.lock().unwrap() = Some("OUTLOOK.EXE".into());
+        let rule_backend = arc(StubBackend::ok("<output>Dear Sarah</output>"));
+        let default_backend = arc(StubBackend::failing());
+        let vocabulary = Vocabulary::default();
+        let asked = Mutex::new(Vec::new());
+        let outcome = super::run(
+            &|exe| {
+                asked.lock().unwrap().push(exe.map(str::to_string));
+                let in_outlook = exe == Some("OUTLOOK.EXE");
+                Job {
+                    backend: if in_outlook { &rule_backend } else { &default_backend },
+                    system_prompt: "Fix.",
+                    prompt_addition: in_outlook.then_some("Formal."),
+                    formatting: Formatting::Auto,
+                    vocabulary: &vocabulary,
+                    rule_name: in_outlook.then_some("Outlook"),
+                }
+            },
+            &ops,
+        );
+        assert!(outcome.pasted, "{outcome:?}");
+        assert_eq!(ops.pasted_content.lock().unwrap().as_deref(), Some("Dear Sarah"));
+        assert_eq!(asked.lock().unwrap().clone(), vec![Some("OUTLOOK.EXE".to_string())]);
+        assert_eq!(outcome.app.as_deref(), Some("OUTLOOK.EXE"));
+        assert_eq!(outcome.rule.as_deref(), Some("Outlook"));
+        assert_eq!(outcome.backend_name.as_deref(), Some("stub"));
+    }
+
+    #[test]
+    fn replacements_reach_the_backend_and_keep_words_reach_the_prompt() {
+        let ops = FakeOps::new("ORIGINAL", Some("teh report"));
+        let backend = Arc::new(Seeing { seen: Mutex::new(Vec::new()), answer: "<output>The report.</output>".into() });
+        let shared: Arc<dyn Backend> = backend.clone();
+        let vocabulary = Vocabulary {
+            keep: vec!["Sus-Tech".into()],
+            replacements: vec![crate::config::Replacement { from: "teh".into(), to: "the".into() }],
+        };
+        let outcome = super::run(
+            &|_| Job {
+                backend: &shared,
+                system_prompt: "Fix.",
+                prompt_addition: Some("Formal."),
+                formatting: Formatting::Auto,
+                vocabulary: &vocabulary,
+                rule_name: None,
+            },
+            &ops,
+        );
+        assert!(outcome.pasted);
+        assert_eq!(outcome.captured_text.as_deref(), Some("teh report"), "history keeps the real selection");
+        let (system, text) = backend.seen.lock().unwrap()[0].clone();
+        assert_eq!(text, "the report");
+        assert!(system.starts_with("Fix.\n\nFormal.\n\nWrite these words"), "{system}");
+        assert!(system.contains("\n- Sus-Tech\n"), "{system}");
+    }
+
+    #[test]
+    fn replacements_in_rich_text_change_words_but_never_the_markup() {
+        let ops = FakeOps::new("ORIGINAL", Some("teh plan"));
+        *ops.capture_html.lock().unwrap() = Some("<p><b>teh</b> plan</p>".into());
+        let backend = Arc::new(Seeing { seen: Mutex::new(Vec::new()), answer: "<output><p><b>the</b> plan</p></output>".into() });
+        let shared: Arc<dyn Backend> = backend.clone();
+        let vocabulary = Vocabulary {
+            keep: vec![],
+            replacements: vec![
+                crate::config::Replacement { from: "teh".into(), to: "the".into() },
+                crate::config::Replacement { from: "b".into(), to: "strong".into() },
+            ],
+        };
+        let outcome = super::run(
+            &|_| Job {
+                backend: &shared,
+                system_prompt: "Fix.",
+                prompt_addition: None,
+                formatting: Formatting::Auto,
+                vocabulary: &vocabulary,
+                rule_name: None,
+            },
+            &ops,
+        );
+        assert!(outcome.pasted);
+        let (_, text) = backend.seen.lock().unwrap()[0].clone();
+        assert_eq!(text, "<p><b>the</b> plan</p>");
+        assert_eq!(ops.pasted_html.lock().unwrap().as_deref(), Some("<p><b>the</b> plan</p>"));
     }
 
     struct Slow {
@@ -1049,13 +1315,7 @@ mod tests {
     fn the_cancellable_run_behaves_like_run_when_nobody_cancels() {
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         let cancel = AtomicBool::new(false);
-        let outcome = run_cancellable(
-            &arc(StubBackend::ok("<output>Corrected.</output>")),
-            "Fix.",
-            Formatting::Auto,
-            &ops,
-            &cancel,
-        );
+        let outcome = run_cancellable(arc(StubBackend::ok("<output>Corrected.</output>")), &ops, &cancel);
         assert!(outcome.pasted, "aborted with {}", outcome.reason);
         assert_eq!(ops.pasted_content.lock().unwrap().as_deref(), Some("Corrected."));
         assert_eq!(ops.clipboard.lock().unwrap().text, "ORIGINAL");
@@ -1065,8 +1325,7 @@ mod tests {
     fn a_cancel_before_the_run_starts_touches_nothing() {
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         let cancel = AtomicBool::new(true);
-        let outcome =
-            run_cancellable(&arc(StubBackend::ok("<output>x</output>")), "Fix.", Formatting::Auto, &ops, &cancel);
+        let outcome = run_cancellable(arc(StubBackend::ok("<output>x</output>")), &ops, &cancel);
         assert!(!outcome.pasted);
         assert_eq!(outcome.reason, REASON_CANCELLED);
         assert!(!ops.calls().contains(&"clear".to_string()));
@@ -1084,13 +1343,8 @@ mod tests {
             setter.store(true, Ordering::SeqCst);
         });
         let started = std::time::Instant::now();
-        let outcome = run_cancellable(
-            &arc(Slow { delay_ms: 5_000, result: "<output>late</output>".into() }),
-            "Fix.",
-            Formatting::Auto,
-            &ops,
-            &cancel,
-        );
+        let outcome =
+            run_cancellable(arc(Slow { delay_ms: 5_000, result: "<output>late</output>".into() }), &ops, &cancel);
         assert!(
             started.elapsed() < std::time::Duration::from_millis(2_000),
             "the run must not wait for the backend once cancelled, took {:?}",
@@ -1117,8 +1371,7 @@ mod tests {
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         let cancel = Arc::new(AtomicBool::new(false));
         let backend = CancelsWhileAnswering(cancel.clone());
-        let call = |p: &str, t: &str| Some(backend.transform(p, t));
-        let outcome = run_with(&backend, &call, "Fix.", Formatting::Auto, &ops, &cancel);
+        let outcome = run_through(&backend, "Fix.", Formatting::Auto, &ops, &cancel);
         assert_eq!(outcome.reason, REASON_CANCELLED);
         assert!(ops.pasted_content.lock().unwrap().is_none());
         assert_eq!(ops.clipboard.lock().unwrap().text, "ORIGINAL");
@@ -1136,7 +1389,7 @@ mod tests {
         let ops = FakeOps::new("ORIGINAL", Some("corected"));
         let cancel = AtomicBool::new(false);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            run_cancellable(&arc(Panicking), "Fix.", Formatting::Auto, &ops, &cancel)
+            run_cancellable(arc(Panicking), &ops, &cancel)
         }));
         assert!(result.is_err());
         assert_eq!(ops.clipboard.lock().unwrap().text, "ORIGINAL");
@@ -1170,6 +1423,7 @@ mod tests {
         Captured {
             clip: Clip { text: "corected".into(), html: None },
             window,
+            app: None,
             captured_ms: 7,
         }
     }
@@ -1179,9 +1433,7 @@ mod tests {
         let ops = FakeOps::new("ORIGINAL", None);
         let cancel = AtomicBool::new(false);
         let backend = StubBackend::ok("<output>Corrected.</output>");
-        let call = |p: &str, t: &str| Some(backend.transform(p, t));
-        let outcome =
-            run_on_captured_with(&backend, &call, "Fix.", Formatting::Auto, &ops, &captured(1), &cancel);
+        let outcome = on_captured(&backend, &ops, &captured(1), &cancel);
         assert!(outcome.pasted, "aborted with {}", outcome.reason);
         assert_eq!(outcome.captured_text.as_deref(), Some("corected"));
         assert_eq!(ops.pasted_content.lock().unwrap().as_deref(), Some("Corrected."));
@@ -1204,9 +1456,7 @@ mod tests {
         let ops = FakeOps::new("ORIGINAL", None);
         *ops.focus.lock().unwrap() = 42;
         let cancel = AtomicBool::new(false);
-        let call = |p: &str, t: &str| Some(MustNotRun.transform(p, t));
-        let outcome =
-            run_on_captured_with(&MustNotRun, &call, "Fix.", Formatting::Auto, &ops, &captured(1), &cancel);
+        let outcome = on_captured(&MustNotRun, &ops, &captured(1), &cancel);
         assert!(!outcome.pasted);
         assert_eq!(outcome.reason, REASON_FOCUS_RESTORE_FAILED);
         assert_eq!(outcome.captured_text.as_deref(), Some("corected"));
@@ -1226,9 +1476,7 @@ mod tests {
         let ops = FakeOps::new("ORIGINAL", None);
         let cancel = AtomicBool::new(false);
         let backend = SwitchesAway(&ops);
-        let call = |p: &str, t: &str| Some(backend.transform(p, t));
-        let outcome =
-            run_on_captured_with(&backend, &call, "Fix.", Formatting::Auto, &ops, &captured(1), &cancel);
+        let outcome = on_captured(&backend, &ops, &captured(1), &cancel);
         assert_eq!(outcome.reason, "focus-changed");
         assert!(ops.pasted_content.lock().unwrap().is_none());
         assert_eq!(ops.clipboard.lock().unwrap().text, "ORIGINAL");
@@ -1240,9 +1488,7 @@ mod tests {
         *ops.focus.lock().unwrap() = 0;
         let cancel = AtomicBool::new(false);
         let backend = StubBackend::ok("<output>x</output>");
-        let call = |p: &str, t: &str| Some(backend.transform(p, t));
-        let outcome =
-            run_on_captured_with(&backend, &call, "Fix.", Formatting::Auto, &ops, &captured(0), &cancel);
+        let outcome = on_captured(&backend, &ops, &captured(0), &cancel);
         assert_eq!(outcome.reason, REASON_FOCUS_RESTORE_FAILED);
     }
 
@@ -1310,5 +1556,63 @@ mod tests {
         *ops.focus.lock().unwrap() = 0;
         let outcome = paste_clip(&ops, &clip, None);
         assert_eq!(outcome.reason, "focus-changed", "no foreground window means nowhere to paste");
+    }
+
+    #[test]
+    fn a_palette_run_uses_the_rule_of_the_app_captured_before_the_palette_opened() {
+        let ops = FakeOps::new("ORIGINAL", None);
+        let default_backend = arc(StubBackend::failing());
+        let rule_backend = arc(StubBackend::ok("<output>Dear Sarah</output>"));
+        let vocabulary = Vocabulary::default();
+        let asked = Mutex::new(Vec::new());
+        let cancel = AtomicBool::new(false);
+        let mut target = captured(1);
+        target.app = Some("OUTLOOK.EXE".into());
+        let outcome = super::run_on_captured(
+            &|exe| {
+                asked.lock().unwrap().push(exe.map(str::to_string));
+                let in_outlook = exe == Some("OUTLOOK.EXE");
+                Job {
+                    backend: if in_outlook { &rule_backend } else { &default_backend },
+                    system_prompt: "Fix.",
+                    prompt_addition: in_outlook.then_some("Formal."),
+                    formatting: Formatting::Auto,
+                    vocabulary: &vocabulary,
+                    rule_name: in_outlook.then_some("Outlook"),
+                }
+            },
+            &ops,
+            &target,
+            &cancel,
+        );
+        assert!(outcome.pasted, "{outcome:?}");
+        assert_eq!(asked.lock().unwrap().clone(), vec![Some("OUTLOOK.EXE".to_string())]);
+        assert_eq!(outcome.app.as_deref(), Some("OUTLOOK.EXE"));
+        assert_eq!(outcome.rule.as_deref(), Some("Outlook"));
+        assert_eq!(ops.pasted_content.lock().unwrap().as_deref(), Some("Dear Sarah"));
+    }
+
+    #[test]
+    fn capture_selection_remembers_the_app_for_the_rule_lookup() {
+        let ops = FakeOps::new("ORIGINAL", Some("selected"));
+        *ops.exe.lock().unwrap() = Some("WINWORD.EXE".into());
+        let captured = capture_selection(&ops).unwrap();
+        assert_eq!(captured.app.as_deref(), Some("WINWORD.EXE"));
+    }
+
+    #[test]
+    fn a_cancelled_run_still_reports_the_backend_and_rule_it_would_have_used() {
+        let ops = FakeOps::new("ORIGINAL", Some("corected"));
+        let cancel = Arc::new(AtomicBool::new(false));
+        let setter = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            setter.store(true, Ordering::SeqCst);
+        });
+        let outcome =
+            run_cancellable(arc(Slow { delay_ms: 5_000, result: "<output>late</output>".into() }), &ops, &cancel);
+        assert_eq!(outcome.reason, REASON_CANCELLED);
+        assert_eq!(outcome.backend_name.as_deref(), Some("slow"));
+        assert!(outcome.detail.is_none(), "a cancel is not an error");
     }
 }

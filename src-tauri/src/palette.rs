@@ -14,6 +14,7 @@ use crate::cycle::{self, Captured};
 use crate::hud::{HudView, Look, REASON_PALETTE_FOCUS_FAILED};
 use crate::overlay::{self, Anchor};
 use crate::runner::{self, Job, PALETTE_INSTRUCTION_ID};
+use crate::plan::{self, CommandPlan};
 use crate::{backend, recover_lock, status, AppState};
 
 pub const WINDOW_LABEL: &str = "palette";
@@ -129,16 +130,19 @@ pub fn instruction_name(text: &str) -> String {
     cut
 }
 
-#[derive(Debug, Clone)]
 pub struct ResolvedChoice {
     pub command_id: String,
     pub command_name: String,
-    pub backend: config::BackendConfig,
-    pub system_prompt: String,
-    pub formatting: Formatting,
+    pub plan: CommandPlan,
+    pub warnings: Vec<String>,
 }
 
-pub fn resolve_choice(cfg: &Config, choice: &PaletteChoice) -> Result<ResolvedChoice, String> {
+pub fn resolve_choice(
+    cfg: &Config,
+    choice: &PaletteChoice,
+    builder: plan::BackendBuilder,
+) -> Result<ResolvedChoice, String> {
+    let vocabulary = Arc::new(cfg.vocabulary.clone());
     match choice {
         PaletteChoice::Command { command_id } => {
             let command = cfg
@@ -146,15 +150,13 @@ pub fn resolve_choice(cfg: &Config, choice: &PaletteChoice) -> Result<ResolvedCh
                 .iter()
                 .find(|c| c.id == *command_id)
                 .ok_or_else(|| format!("command {command_id} no longer exists"))?;
-            let backend = cfg
-                .backend(&command.backend_id)
-                .ok_or_else(|| format!("{}: unknown backend", command.name))?;
+            let (plan, warnings) = plan::build(command, cfg, vocabulary, builder)
+                .map_err(|e| format!("{}: {e}", command.name))?;
             Ok(ResolvedChoice {
                 command_id: command.id.clone(),
                 command_name: command.name.clone(),
-                backend: backend.clone(),
-                system_prompt: command.system_prompt.clone(),
-                formatting: command.formatting,
+                plan,
+                warnings,
             })
         }
         PaletteChoice::Instruction { text, backend_id } => {
@@ -166,12 +168,18 @@ pub fn resolve_choice(cfg: &Config, choice: &PaletteChoice) -> Result<ResolvedCh
                 .backend(backend_id)
                 .filter(|b| b.kind != config::KIND_HTTP)
                 .ok_or_else(|| format!("backend {backend_id} cannot take an instruction"))?;
+            let built = builder(backend).map_err(|e| e.to_string())?;
             Ok(ResolvedChoice {
                 command_id: PALETTE_INSTRUCTION_ID.to_string(),
                 command_name: instruction_name(text),
-                backend: backend.clone(),
-                system_prompt: text.to_string(),
-                formatting: Formatting::Auto,
+                plan: CommandPlan {
+                    system_prompt: text.to_string(),
+                    formatting: Formatting::Auto,
+                    backend: built,
+                    rules: Vec::new(),
+                    vocabulary,
+                },
+                warnings: Vec::new(),
             })
         }
     }
@@ -429,14 +437,13 @@ pub fn close(app: &AppHandle, state: &AppState, id: Option<u64>, restore_focus: 
 pub fn run(app: &AppHandle, state: &AppState, id: u64, choice: PaletteChoice) {
     let Some(session) = state.palette.take(Some(id)) else { return };
     let cfg = recover_lock(state.config.lock(), "config", Some(&state.config_dir)).clone();
-    let resolved = resolve_choice(&cfg, &choice)
-        .and_then(|r| backend::build(&r.backend).map(|b| (r, b)).map_err(|e| e.to_string()));
+    let resolved = resolve_choice(&cfg, &choice, &backend::build);
     let app = app.clone();
     runner::spawn_guarded(state, "palette run", move |state| {
         let restored = state.ops.activate_window(session.captured.window);
         hide_window(&app);
-        let (resolved, built) = match resolved {
-            Ok(pair) => pair,
+        let resolved = match resolved {
+            Ok(resolved) => resolved,
             Err(e) => {
                 log(state, &format!("PALETTE run refused: {e}"));
                 let outcome = cycle::CycleOutcome {
@@ -448,6 +455,9 @@ pub fn run(app: &AppHandle, state: &AppState, id: u64, choice: PaletteChoice) {
                     captured_text: Some(session.captured.clip.text.clone()),
                     result_text: None,
                     result_html: None,
+                    backend_name: None,
+                    app: session.captured.app.clone(),
+                    rule: None,
                 };
                 let (id, name) = match &choice {
                     PaletteChoice::Command { command_id } => (command_id.clone(), command_id.clone()),
@@ -466,15 +476,16 @@ pub fn run(app: &AppHandle, state: &AppState, id: u64, choice: PaletteChoice) {
         if let PaletteChoice::Instruction { backend_id, .. } = &choice {
             save_remembered(&state.config_dir, backend_id);
         }
+        for warning in &resolved.warnings {
+            log(state, &format!("PALETTE {}: {warning}", resolved.command_name));
+        }
         if !restored {
             log(state, "PALETTE could not bring the target window back; the run will abort");
         }
         let job = Job {
             command_id: resolved.command_id,
             command_name: resolved.command_name,
-            backend: built,
-            system_prompt: resolved.system_prompt,
-            formatting: resolved.formatting,
+            plan: Arc::new(resolved.plan),
         };
         runner::run_job(&app, state, job, Some(session.captured), Some(session.anchor));
     });
@@ -483,6 +494,25 @@ pub fn run(app: &AppHandle, state: &AppState, id: u64, choice: PaletteChoice) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend::{Backend, BackendError};
+
+    struct Named(String);
+    impl Backend for Named {
+        fn name(&self) -> &str {
+            &self.0
+        }
+        fn transform(&self, _s: &str, _t: &str) -> Result<String, BackendError> {
+            Ok(String::new())
+        }
+    }
+
+    fn builder(cfg: &config::BackendConfig) -> Result<Arc<dyn Backend>, BackendError> {
+        Ok(Arc::new(Named(cfg.id.clone())))
+    }
+
+    fn resolve(cfg: &Config, choice: &PaletteChoice) -> Result<ResolvedChoice, String> {
+        resolve_choice(cfg, choice, &builder)
+    }
 
     fn cfg() -> Config {
         let mut cfg = config::default_config();
@@ -530,35 +560,35 @@ mod tests {
 
     #[test]
     fn picking_a_command_runs_it_exactly_as_configured() {
-        let resolved =
-            resolve_choice(&cfg(), &PaletteChoice::Command { command_id: "fix-grammar".into() }).unwrap();
+        let resolved = resolve(&cfg(), &PaletteChoice::Command { command_id: "fix-grammar".into() })
+            .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(resolved.command_id, "fix-grammar");
-        assert_eq!(resolved.system_prompt, "Fix grammar and spelling.");
-        assert_eq!(resolved.backend.id, "ollama-local");
+        assert_eq!(resolved.plan.system_prompt, "Fix grammar and spelling.");
+        assert_eq!(resolved.plan.backend.name(), "ollama-local");
     }
 
     #[test]
     fn a_free_text_instruction_becomes_a_temporary_command_with_that_prompt() {
-        let resolved = resolve_choice(
+        let resolved = resolve(
             &cfg(),
             &PaletteChoice::Instruction { text: "  make it   friendlier ".into(), backend_id: "claude-sub".into() },
         )
-        .unwrap();
+        .unwrap_or_else(|e| panic!("{e}"));
         assert_eq!(resolved.command_id, PALETTE_INSTRUCTION_ID);
         assert_eq!(resolved.command_name, "make it friendlier");
-        assert_eq!(resolved.system_prompt, "make it   friendlier");
-        assert_eq!(resolved.backend.id, "claude-sub");
-        assert_eq!(resolved.formatting, Formatting::Auto);
+        assert_eq!(resolved.plan.system_prompt, "make it   friendlier");
+        assert_eq!(resolved.plan.backend.name(), "claude-sub");
+        assert_eq!(resolved.plan.formatting, Formatting::Auto);
     }
 
     #[test]
     fn instructions_are_refused_for_empty_text_unknown_or_http_backends() {
         let empty = PaletteChoice::Instruction { text: "  ".into(), backend_id: "claude-sub".into() };
-        assert!(resolve_choice(&cfg(), &empty).is_err());
+        assert!(resolve(&cfg(), &empty).is_err());
         let http = PaletteChoice::Instruction { text: "x".into(), backend_id: "hook".into() };
-        assert!(resolve_choice(&cfg(), &http).is_err());
+        assert!(resolve(&cfg(), &http).is_err());
         let gone = PaletteChoice::Command { command_id: "deleted".into() };
-        assert!(resolve_choice(&cfg(), &gone).is_err());
+        assert!(resolve(&cfg(), &gone).is_err());
     }
 
     #[test]
@@ -605,6 +635,7 @@ mod tests {
             captured: Captured {
                 clip: crate::osops::Clip { text: "x".into(), html: None },
                 window: 9,
+                app: None,
                 captured_ms: 0,
             },
             anchor: Anchor {
