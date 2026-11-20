@@ -124,3 +124,18 @@ export function toEditorError(e: unknown): EditorError {
 }
 
 export const trySamples = new Map<string, string>();
+
+export function inertHtml(html: string): string {
+	if (typeof DOMParser === 'undefined') return '';
+	const doc = new DOMParser().parseFromString(`<!doctype html><body>${html}</body>`, 'text/html');
+	for (const element of Array.from(doc.body.querySelectorAll('*'))) {
+		for (const attribute of Array.from(element.attributes)) {
+			const name = attribute.name.toLowerCase();
+			if (name === 'class' || name === 'id' || name === 'target' || name.startsWith('on')) {
+				element.removeAttribute(attribute.name);
+			}
+		}
+		if (element.tagName === 'A') element.removeAttribute('href');
+	}
+	return doc.body.innerHTML;
+}

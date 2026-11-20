@@ -15,6 +15,7 @@
 		canPreview,
 		editorErrorKey,
 		normalizeExe,
+		inertHtml,
 		toEditorError,
 		trySamples,
 		tryInputsKey
@@ -59,6 +60,13 @@
 	const backend = $derived(configState.config.backends.find((b) => b.id === effectiveBackendId));
 	const previewable = $derived(canPreview(backend));
 	const isHttp = $derived(backend?.kind === 'http');
+	const commandSendOnly = $derived.by(() => {
+		const own = configState.config.backends.find((b) => b.id === draft.backendId);
+		if (!own || canPreview(own)) return false;
+		return !rules.some((r) =>
+			canPreview(configState.config.backends.find((b) => b.id === r.backendId))
+		);
+	});
 
 	const currentKey = $derived(
 		tryInputsKey([
@@ -71,7 +79,9 @@
 			configState.vocabulary
 		])
 	);
-	const stale = $derived(outcome !== null && !running && outcome.key !== currentKey);
+	const stale = $derived(
+		outcome !== null && !running && previewable && outcome.key !== currentKey
+	);
 	const canRun = $derived(previewable && text.trim().length > 0 && draft.backendId.length > 0);
 
 	const diff = $derived.by(() => {
@@ -152,7 +162,7 @@
 		<span class="text-xs text-muted-foreground/80">{i18n.t.commands.tryIt.hint}</span>
 	</div>
 
-	{#if backend && !previewable}
+	{#if commandSendOnly}
 		<div class="list-card px-5 py-4 text-[13px] leading-relaxed text-muted-foreground">
 			{i18n.t.commands.tryIt.sendOnly}
 		</div>
@@ -208,7 +218,7 @@
 						</div>
 					{/if}
 				</div>
-				{#if isHttp}
+				{#if isHttp && previewable}
 					<p class="text-xs text-muted-foreground/80">{i18n.t.commands.tryIt.httpNote}</p>
 				{/if}
 			</div>
@@ -229,11 +239,15 @@
 					aria-live="polite"
 					aria-busy={running}
 				>
-					{#if running}
+					{#if backend && !previewable}
+						<p class="text-muted-foreground">{i18n.t.commands.tryIt.errors.nothingToPreview}</p>
+					{:else if running}
 						<div class="flex items-center gap-2 text-muted-foreground">
 							<LoaderIcon class="size-4 animate-spin" />
 							<span>{i18n.t.commands.tryIt.asking(backend?.name ?? '')}</span>
-							{#if elapsed > 0}<span class="text-muted-foreground/70">{elapsed} s</span>{/if}
+							{#if elapsed > 0}<span class="text-muted-foreground/70" aria-hidden="true"
+									>{formatDuration(elapsed * 1000)}</span
+								>{/if}
 						</div>
 					{:else if outcome?.kind === 'error'}
 						{@const key = editorErrorKey(outcome.error.reason)}
@@ -248,7 +262,7 @@
 						</div>
 					{:else if outcome?.kind === 'result'}
 						{#if outcome.result.html}
-							<div class="rich-preview">{@html outcome.result.html}</div>
+							<div class="rich-preview">{@html inertHtml(outcome.result.html)}</div>
 						{:else if unchanged}
 							<p class="whitespace-pre-wrap">{outcome.result.text}</p>
 							<p class="mt-2 text-xs text-muted-foreground">{i18n.t.commands.tryIt.noChanges}</p>
@@ -271,7 +285,10 @@
 					{/if}
 				</div>
 
-				{#if outcome?.kind === 'result' && !running}
+				{#if outcome?.kind === 'result' && !running && previewable && outcome.result.warnings.length > 0}
+					<p class="text-xs text-warning">{outcome.result.warnings.join(' ')}</p>
+				{/if}
+				{#if outcome?.kind === 'result' && !running && previewable}
 					<div class="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
 						<span class="size-1.5 shrink-0 rounded-full bg-success"></span>
 						<span class="truncate">
@@ -324,6 +341,7 @@
 	}
 	.rich-preview :global(a) {
 		text-decoration: underline;
+		cursor: default;
 	}
 	.rich-preview :global(b),
 	.rich-preview :global(strong) {

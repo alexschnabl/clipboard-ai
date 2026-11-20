@@ -62,7 +62,7 @@
 	}
 
 	function usedBy(backend: BackendConfig): string[] {
-		return configState.config.commands.filter((c) => c.backendId === backend.id).map((c) => c.name);
+		return configState.commandsUsingBackend(backend.id).map((c) => c.name);
 	}
 
 	function detail(backend: BackendConfig): string {

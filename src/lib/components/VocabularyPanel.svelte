@@ -52,9 +52,6 @@
 		if (event.key === 'Enter') {
 			event.preventDefault();
 			void addWord();
-		} else if (event.key === 'Backspace' && newWord === '' && vocabulary.keep.length > 0) {
-			const last = vocabulary.keep[vocabulary.keep.length - 1];
-			if (last) removeWord(last);
 		}
 	}
 
@@ -160,7 +157,7 @@
 			</div>
 			<div class="list-card">
 				<div class="flex flex-wrap items-center gap-1.5 p-4">
-					{#each vocabulary.keep as word (word)}
+					{#each vocabulary.keep as word, i (i)}
 						<span
 							class="inline-flex h-7 max-w-full items-center gap-0.5 rounded-full border bg-card pr-1 pl-3 text-[13px]"
 						>
@@ -216,7 +213,7 @@
 					{#if editing === i}
 						{@render pairEditor()}
 					{:else}
-						<div class="group list-row gap-3 py-0 pr-3">
+						<div class="group list-row gap-3 py-0 pr-3 hover:bg-canvas">
 							<button
 								type="button"
 								class="flex min-w-0 flex-1 items-center gap-3 py-3 text-left"

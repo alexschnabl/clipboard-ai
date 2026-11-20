@@ -73,7 +73,7 @@
 			{@const label = rule.name.trim() || displayExe(rule.exe)}
 			<button
 				type="button"
-				class="list-row py-3"
+				class="list-row"
 				onclick={() => openEdit(i)}
 				aria-label={i18n.t.commands.rules.editAria(label)}
 			>
@@ -90,7 +90,7 @@
 				<ChevronRightIcon class="size-4 shrink-0 text-muted-foreground/60" />
 			</button>
 		{/each}
-		<button type="button" class="list-row py-3 text-muted-foreground" onclick={openAdd}>
+		<button type="button" class="list-row text-muted-foreground" onclick={openAdd}>
 			<span class="grid size-6 shrink-0 place-items-center"><PlusIcon class="size-4" /></span>
 			<span>{i18n.t.commands.rules.add}</span>
 		</button>

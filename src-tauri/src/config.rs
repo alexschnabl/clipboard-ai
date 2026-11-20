@@ -32,8 +32,6 @@ pub enum ConfigError {
          about 16,000 ms, so a lower value only causes false timeouts"
     )]
     TimeoutTooLow { backend: String, timeout_ms: u64, minimum: u64 },
-    #[error("command {command} has an app rule without an app")]
-    AppRuleWithoutApp { command: String },
     #[error("config version {version} is newer than this app understands")]
     UnsupportedVersion { version: u32 },
     #[error("config version field is malformed: {found}")]
@@ -223,7 +221,12 @@ pub fn parse(json: &str) -> Result<Config, ConfigError> {
         other => return Err(ConfigError::UnsupportedVersion { version: other }),
     }
 
-    let config: Config = serde_json::from_value(value)?;
+    let mut config: Config = serde_json::from_value(value)?;
+    for rule in config.commands.iter_mut().flat_map(|c| c.app_rules.iter_mut()) {
+        if rule.backend_id.as_deref().is_some_and(|id| id.trim().is_empty()) {
+            rule.backend_id = None;
+        }
+    }
     validate(&config)?;
     Ok(config)
 }
@@ -261,19 +264,6 @@ fn validate(config: &Config) -> Result<(), ConfigError> {
                 command: command.id.clone(),
                 backend: command.backend_id.clone(),
             });
-        }
-        for rule in &command.app_rules {
-            if normalize_exe(&rule.exe).is_empty() {
-                return Err(ConfigError::AppRuleWithoutApp { command: command.id.clone() });
-            }
-            if let Some(backend_id) = &rule.backend_id {
-                if config.backend(backend_id).is_none() {
-                    return Err(ConfigError::UnknownBackend {
-                        command: command.id.clone(),
-                        backend: backend_id.clone(),
-                    });
-                }
-            }
         }
     }
     Ok(())
@@ -1031,20 +1021,19 @@ mod tests {
     }
 
     #[test]
-    fn an_app_rule_naming_an_unknown_backend_is_rejected() {
+    fn a_broken_app_rule_never_stops_the_config_from_loading() {
         let json = with(|v| {
-            v["commands"][0]["appRules"] =
-                serde_json::json!([{"exe": "OUTLOOK.EXE", "backendId": "ghost"}]);
+            v["commands"][0]["appRules"] = serde_json::json!([
+                {"exe": "OUTLOOK.EXE", "backendId": "ghost"},
+                {"exe": "  ", "promptAddition": "x"},
+                {"exe": "Code.exe", "backendId": "  ", "formatting": "plain"}
+            ]);
         });
-        assert!(matches!(parse(&json), Err(ConfigError::UnknownBackend { .. })));
-    }
-
-    #[test]
-    fn an_app_rule_without_an_app_is_rejected() {
-        let json = with(|v| {
-            v["commands"][0]["appRules"] = serde_json::json!([{"exe": "  "}]);
-        });
-        assert!(matches!(parse(&json), Err(ConfigError::AppRuleWithoutApp { .. })));
+        let cfg = parse(&json).expect("a bad rule must not make the whole config unreadable");
+        let rules = &cfg.commands[0].app_rules;
+        assert_eq!(rules.len(), 3);
+        assert_eq!(rules[0].backend_id.as_deref(), Some("ghost"));
+        assert_eq!(rules[2].backend_id, None, "a blank backend id means the command's own backend");
     }
 
     #[test]

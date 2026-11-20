@@ -94,7 +94,7 @@ export const it: typeof en = {
 			shortcutOr: 'o',
 			stop: 'Ferma',
 			asking: (backend: string) => `In attesa di ${backend}…`,
-			idle: 'Esegui un esempio per vedere qui il risultato.',
+			idle: 'Esegui un esempio per vedere qui il risultato. L’esempio viene inviato come testo semplice.',
 			stale: 'Modificato da questa prova',
 			noChanges: 'Nessuna modifica. Un’esecuzione reale incollerebbe lo stesso testo.',
 			appLabel: 'Come in',
@@ -196,7 +196,7 @@ export const it: typeof en = {
 		deleteDescription: 'Rimuove definitivamente il backend. Questa azione non può essere annullata.',
 		blockedDeleteTitle: (name: string) => `Impossibile eliminare «${name}»`,
 		blockedDeleteDescription: (usedBy: string) =>
-			`Ancora utilizzato da: ${usedBy}. Assegna prima a questi comandi un backend diverso, poi eliminalo.`,
+			`Ancora utilizzato da: ${usedBy}. Assegna prima a questi comandi e alle loro regole per app un backend diverso, poi eliminalo.`,
 		usedBy: (names: string) => `Usato da ${names}`,
 		unused: 'Non usato da nessun comando',
 		form: {

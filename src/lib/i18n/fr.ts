@@ -94,7 +94,7 @@ export const fr: typeof en = {
 			shortcutOr: 'ou',
 			stop: 'Arrêter',
 			asking: (backend: string) => `${backend} répond…`,
-			idle: 'Lancez un exemple pour voir le résultat ici.',
+			idle: 'Lancez un exemple pour voir le résultat ici. L’exemple est envoyé en texte brut.',
 			stale: 'Modifié depuis cet essai',
 			noChanges: 'Aucun changement. Une vraie exécution recollerait le même texte.',
 			appLabel: 'Comme dans',
@@ -196,7 +196,7 @@ export const fr: typeof en = {
 		deleteDescription: 'Cette action supprime définitivement le backend. Elle est irréversible.',
 		blockedDeleteTitle: (name: string) => `Impossible de supprimer « ${name} »`,
 		blockedDeleteDescription: (usedBy: string) =>
-			`Encore utilisé par : ${usedBy}. Faites d’abord pointer ces commandes vers un autre backend, puis supprimez-le.`,
+			`Encore utilisé par : ${usedBy}. Faites d’abord pointer ces commandes et leurs règles par app vers un autre backend, puis supprimez-le.`,
 		usedBy: (names: string) => `Utilisé par ${names}`,
 		unused: 'Utilisé par aucune commande',
 		form: {

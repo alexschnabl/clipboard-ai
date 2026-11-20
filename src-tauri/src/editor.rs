@@ -18,6 +18,7 @@ pub struct TryResult {
     pub backend_ms: u64,
     pub backend_name: String,
     pub rule: Option<String>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -64,7 +65,7 @@ pub fn try_with(
     if text.trim().is_empty() {
         return Err(EditorError::new("empty-input", None));
     }
-    let (plan, _) = plan::build(command, config, vocabulary, builder)
+    let (plan, warnings) = plan::build(command, config, vocabulary, builder)
         .map_err(|e| EditorError::new("unknown-backend", Some(e)))?;
     let job = plan.job_for(app);
     if !job.backend.pastes_result() {
@@ -81,6 +82,7 @@ pub fn try_with(
             backend_ms: transform.backend_ms,
             backend_name: job.backend.name().to_string(),
             rule: job.rule_name.map(str::to_string),
+            warnings,
         }),
         Ok(Transformed::Sent) => Err(EditorError::new("nothing-to-preview", None)),
         Err(f) => Err(failure(f)),
@@ -136,11 +138,14 @@ pub fn writer_input(description: &str, current_prompt: &str) -> String {
     }
 }
 
+const QUOTE_PAIRS: [(char, char); 4] =
+    [('"', '"'), ('\u{201c}', '\u{201d}'), ('\u{201e}', '\u{201c}'), ('\u{ab}', '\u{bb}')];
+
 pub fn clean_written_prompt(raw: &str) -> String {
     let trimmed = raw.trim();
-    let unquoted = trimmed
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
+    let unquoted = QUOTE_PAIRS
+        .iter()
+        .find_map(|(open, close)| trimmed.strip_prefix(*open)?.strip_suffix(*close))
         .unwrap_or(trimmed);
     unquoted.trim().to_string()
 }
@@ -395,6 +400,33 @@ mod tests {
         assert!(system.starts_with(WRITER_PROMPT));
         assert!(system.ends_with(sentinel::SENTINEL_INSTRUCTION));
         assert_eq!(text, "What the command should do:\nfriendlier emails, short");
+    }
+
+    #[test]
+    fn surrounding_quotes_of_any_common_kind_are_removed() {
+        assert_eq!(clean_written_prompt(" \u{201c}Be brief.\u{201d} "), "Be brief.");
+        assert_eq!(clean_written_prompt("\u{201e}Sei kurz.\u{201c}"), "Sei kurz.");
+        assert_eq!(clean_written_prompt("\u{ab} Sois bref. \u{bb}"), "Sois bref.");
+        assert_eq!(clean_written_prompt("Say \"hi\" nicely."), "Say \"hi\" nicely.");
+    }
+
+    #[test]
+    fn try_reports_a_rule_it_had_to_drop() {
+        let mut config = default_config();
+        config.commands[0].app_rules = vec![AppRule {
+            exe: "OUTLOOK.EXE".into(),
+            name: "Outlook".into(),
+            prompt_addition: String::new(),
+            backend_id: Some("ghost".into()),
+            formatting: None,
+        }];
+        let backend = Arc::new(Recording::answering("<output>x</output>"));
+        let command = config.commands[0].clone();
+        let result =
+            try_with(&command, &config, vocab(&[], &[]), "x", Some("outlook.exe"), &shared(&backend))
+                .unwrap();
+        assert_eq!(result.rule, None);
+        assert_eq!(result.warnings, vec!["rule for Outlook: unknown backend".to_string()]);
     }
 
     #[test]

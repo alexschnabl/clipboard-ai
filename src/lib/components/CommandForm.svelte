@@ -14,6 +14,7 @@
 	import AppRules from './AppRules.svelte';
 	import { defaultWriterBackend, isClaudeBackend } from '$lib/editor';
 	import { fade } from 'svelte/transition';
+	import { untrack } from 'svelte';
 	import { configState } from '$lib/state/config.svelte.js';
 	import { i18n } from '$lib/i18n/i18n.svelte';
 	import type { AppRule, CommandConfig, Formatting } from '$lib/types';
@@ -69,22 +70,27 @@
 
 	let wasOpen = false;
 	$effect(() => {
-		if (open) {
+		if (open && !wasOpen) {
 			wasOpen = true;
-			name = command?.name ?? '';
-			backendId = command?.backendId ?? configState.config.backends[0]?.id ?? '';
-			hotkey = command?.hotkey ?? '';
-			systemPrompt = command?.systemPrompt ?? '';
-			formatting = command?.formatting ?? 'auto';
-			appRules = (command?.appRules ?? []).map((r) => ({ ...r }));
-			draftId = command?.id ?? crypto.randomUUID();
-			written = null;
-			submitError = null;
-		} else if (wasOpen) {
+			untrack(() => initialise());
+		} else if (!open && wasOpen) {
 			wasOpen = false;
 			configState.error = null;
 		}
 	});
+
+	function initialise(): void {
+		name = command?.name ?? '';
+		backendId = command?.backendId ?? configState.config.backends[0]?.id ?? '';
+		hotkey = command?.hotkey ?? '';
+		systemPrompt = command?.systemPrompt ?? '';
+		formatting = command?.formatting ?? 'auto';
+		appRules = (command?.appRules ?? []).map((r) => ({ ...r }));
+		draftId = command?.id ?? crypto.randomUUID();
+		written = null;
+		writerOpen = false;
+		submitError = null;
+	}
 
 	const writerBackend = $derived(
 		configState.config.backends.find(
@@ -302,12 +308,11 @@
 			</div>
 		</div>
 	</div>
+
+	<PromptWriter
+		bind:open={writerOpen}
+		currentPrompt={systemPrompt}
+		commandBackendId={backendId}
+		onWritten={handleWritten}
+	/>
 {/if}
-
-
-<PromptWriter
-	bind:open={writerOpen}
-	currentPrompt={systemPrompt}
-	commandBackendId={backendId}
-	onWritten={handleWritten}
-/>

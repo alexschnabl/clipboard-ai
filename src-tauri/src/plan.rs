@@ -210,6 +210,7 @@ mod tests {
     fn a_rule_whose_backend_cannot_be_built_is_dropped_with_a_problem() {
         let config = config_with_rules(vec![
             AppRule { name: "Broken".into(), backend_id: Some("ghost".into()), ..rule("a.exe") },
+            AppRule { prompt_addition: "x".into(), ..rule("  ") },
             rule("b.exe"),
         ]);
         let (plan, problems) =
@@ -217,5 +218,6 @@ mod tests {
         assert_eq!(problems, vec!["rule for Broken: unknown backend".to_string()]);
         assert!(plan.rule_for(Some("a.exe")).is_none());
         assert!(plan.rule_for(Some("b.exe")).is_some());
+        assert_eq!(plan.rules.len(), 1);
     }
 }

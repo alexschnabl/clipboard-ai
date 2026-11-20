@@ -56,7 +56,8 @@ fn build_command_map(cfg: &config::Config) -> (HashMap<Shortcut, CommandEntry>, 
                         problems.push(Problem {
                             command_id: Some(command.id.clone()),
                             message: format!(
-                                "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing                                  ({shortcut}); only \"{}\" is registered",
+                                "{}: hotkey {:?} collides with \"{}\"'s hotkey after parsing \
+                                 ({shortcut}); only \"{}\" is registered",
                                 command.name,
                                 command.hotkey,
                                 existing.get().name,

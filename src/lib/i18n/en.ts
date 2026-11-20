@@ -90,7 +90,7 @@ export const en = {
 			shortcutOr: 'or',
 			stop: 'Stop',
 			asking: (backend: string) => `Asking ${backend}…`,
-			idle: 'Run a sample to see the result here.',
+			idle: 'Run a sample to see the result here. The sample is sent as plain text.',
 			stale: 'Changed since this run',
 			noChanges: 'No changes. A real run would paste the same text back.',
 			appLabel: 'As in',
@@ -190,7 +190,7 @@ export const en = {
 		deleteDescription: 'This removes the backend permanently. This can’t be undone.',
 		blockedDeleteTitle: (name: string) => `Can’t delete “${name}”`,
 		blockedDeleteDescription: (usedBy: string) =>
-			`Still used by: ${usedBy}. Point those commands at a different backend first, then delete it.`,
+			`Still used by: ${usedBy}. Point those commands and their app rules at a different backend first, then delete it.`,
 		usedBy: (names: string) => `Used by ${names}`,
 		unused: 'Not used by any command',
 		form: {

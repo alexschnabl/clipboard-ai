@@ -11,6 +11,7 @@ use windows::Win32::Graphics::Gdi::{
 use windows::Win32::Storage::FileSystem::{
     GetFileVersionInfoSizeW, GetFileVersionInfoW, VerQueryValueW, FILE_FLAGS_AND_ATTRIBUTES,
 };
+use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::Threading::{
     OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION,
@@ -322,7 +323,24 @@ unsafe extern "system" fn collect_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
     BOOL(1)
 }
 
+struct ComScope(bool);
+
+impl ComScope {
+    fn enter() -> Self {
+        Self(unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_ok())
+    }
+}
+
+impl Drop for ComScope {
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe { CoUninitialize() };
+        }
+    }
+}
+
 pub fn running_apps() -> Vec<RunningApp> {
+    let _com = ComScope::enter();
     let mut windows: Vec<HWND> = Vec::new();
     unsafe {
         let _ = EnumWindows(Some(collect_window), LPARAM(&mut windows as *mut Vec<HWND> as isize));

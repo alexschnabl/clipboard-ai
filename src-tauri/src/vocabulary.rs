@@ -81,7 +81,14 @@ fn matches_at(text: &[char], at: usize, pair: &Pair) -> bool {
     true
 }
 
-fn push_replacement(out: &mut String, matched_first: char, pair: &Pair) {
+fn push_replacement(out: &mut String, matched: &[char], pair: &Pair) {
+    let letters = matched.iter().filter(|c| c.is_alphabetic()).count();
+    let all_caps = letters > 1 && matched.iter().all(|c| !c.is_lowercase());
+    if all_caps && !pair.to_has_upper {
+        out.push_str(&pair.to.to_uppercase());
+        return;
+    }
+    let matched_first = matched.first().copied().unwrap_or_default();
     let carry_capital = matched_first.is_uppercase() && !pair.to_has_upper;
     let mut chars = pair.to.chars();
     match chars.next() {
@@ -98,7 +105,7 @@ fn replace_run(text: &[char], pairs: &[Pair], out: &mut String) {
     'outer: while i < text.len() {
         for pair in pairs {
             if matches_at(text, i, pair) {
-                push_replacement(out, text[i], pair);
+                push_replacement(out, &text[i..i + pair.from.len()], pair);
                 i += pair.from.len();
                 continue 'outer;
             }
@@ -229,7 +236,8 @@ mod tests {
     #[test]
     fn matching_ignores_case_and_a_capital_carries_over_to_a_lowercase_target() {
         let reps = [rep("teh", "the")];
-        assert_eq!(plain("Teh end. TEH end.", &reps), "The end. The end.");
+        assert_eq!(plain("Teh end. TEH end.", &reps), "The end. THE end.");
+        assert_eq!(plain("A teh", &[rep("a", "an")]), "An teh");
     }
 
     #[test]

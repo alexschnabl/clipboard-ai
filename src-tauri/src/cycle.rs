@@ -1005,14 +1005,8 @@ mod tests {
         assert_eq!(outcome.captured_text.as_deref(), Some("teh report"), "history keeps the real selection");
         let (system, text) = backend.seen.lock().unwrap()[0].clone();
         assert_eq!(text, "the report");
-        assert!(system.starts_with("Fix.
-
-Formal.
-
-Write these words"), "{system}");
-        assert!(system.contains("
-- Sus-Tech
-"), "{system}");
+        assert!(system.starts_with("Fix.\n\nFormal.\n\nWrite these words"), "{system}");
+        assert!(system.contains("\n- Sus-Tech\n"), "{system}");
     }
 
     #[test]

@@ -114,6 +114,7 @@ export interface TryResult {
 	backendMs: number;
 	backendName: string;
 	rule: string | null;
+	warnings: string[];
 }
 
 export interface EditorError {

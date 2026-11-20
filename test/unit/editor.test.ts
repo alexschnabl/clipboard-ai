@@ -5,6 +5,7 @@ import {
 	defaultWriterBackend,
 	displayExe,
 	editorErrorKey,
+	inertHtml,
 	hasRuleFor,
 	normalizeExe,
 	ruleIsEmpty,
@@ -153,5 +154,19 @@ describe('editor errors', () => {
 		});
 		expect(toEditorError({ reason: 'unreachable', detail: 'refused' }).detail).toBe('refused');
 		expect(toEditorError('boom')).toEqual({ reason: 'internal', detail: 'boom' });
+	});
+});
+
+describe('inertHtml', () => {
+	it('keeps the formatting but drops links, classes and handlers', () => {
+		const html =
+			'<p class="fixed inset-0" id="x"><b>Bold</b> <a href="https://example.com" target="_blank">link</a></p><ul><li onclick="x()">One</li></ul>';
+		expect(inertHtml(html)).toBe('<p><b>Bold</b> <a>link</a></p><ul><li>One</li></ul>');
+	});
+
+	it('keeps inline images', () => {
+		expect(inertHtml('<p><img src="data:image/png;base64,AA=="></p>')).toBe(
+			'<p><img src="data:image/png;base64,AA=="></p>'
+		);
 	});
 });
