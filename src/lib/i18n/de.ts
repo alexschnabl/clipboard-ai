@@ -5,6 +5,7 @@ export const de: typeof en = {
 		commands: 'Befehle',
 		backends: 'Backends',
 		history: 'Verlauf',
+		vocabulary: 'Vokabular',
 		settings: 'Einstellungen',
 		working: 'Arbeitet…',
 		version: (v: string) => `Version ${v}`,
@@ -82,6 +83,99 @@ export const de: typeof en = {
 			addSubmit: 'Befehl hinzufügen',
 			saveSubmit: 'Änderungen speichern',
 			deleteSubmit: 'Befehl löschen'
+		},
+		tryIt: {
+			title: 'Ausprobieren',
+			hint: 'Es wird nichts eingefügt',
+			inputLabel: 'Ihr Text',
+			inputPlaceholder: 'Tippen oder fügen Sie ein Beispiel ein, so wie Sie Text markieren würden.',
+			outputLabel: 'Das würde eingefügt',
+			run: 'Ausführen',
+			shortcutOr: 'oder',
+			stop: 'Stoppen',
+			asking: (backend: string) => `${backend} wird gefragt…`,
+			idle: 'Führen Sie ein Beispiel aus, um das Ergebnis hier zu sehen.',
+			stale: 'Seit diesem Lauf geändert',
+			noChanges: 'Keine Änderungen. Ein echter Lauf würde denselben Text wieder einfügen.',
+			appLabel: 'Wie in',
+			appAnywhere: 'jeder anderen App',
+			defaultModel: 'Standardmodell',
+			ruleApplied: (app: string) => `Regel für ${app}`,
+			sendOnly:
+				'Dieses Backend sendet den Text nur und fügt nichts zurück ein, daher gibt es keine Vorschau. Der Tab „Verlauf“ zeigt jeden Lauf.',
+			httpNote: 'Ausführen sendet das Beispiel an den Endpunkt, wie ein echter Lauf.',
+			errors: {
+				timeout:
+					'Das Backend hat nicht innerhalb seines Timeouts geantwortet. Ein langsames oder kaltes Modell braucht eventuell ein längeres Timeout.',
+				unreachable:
+					'Das Backend ist nicht erreichbar. Prüfen Sie, ob es läuft und die Adresse stimmt.',
+				misconfigured: 'Das Backend ist nicht vollständig eingerichtet.',
+				badResponse: 'Das Backend hat mit einem Fehler geantwortet.',
+				noSentinel:
+					'Das Modell hat geantwortet, aber nicht in der erwarteten Form. Versuchen Sie es erneut oder vereinfachen Sie den Prompt.',
+				emptyResult: 'Das Modell hat nichts zurückgegeben.',
+				nothingToPreview: 'Dieses Backend fügt nichts zurück ein, daher gibt es keine Vorschau.',
+				unknownBackend: 'Wählen Sie zuerst ein Backend.',
+				emptyInput: 'Geben Sie zuerst ein Beispiel ein.',
+				notAnAiBackend: 'Dieses Backend kann keine Prompts schreiben. Wählen Sie ein KI-Backend.',
+				internal: 'In der App ist etwas schiefgelaufen.'
+			}
+		},
+		writer: {
+			openClaude: 'Mit Claude schreiben',
+			openOther: 'Mit KI schreiben',
+			title: 'Prompt für mich schreiben',
+			description:
+				'Beschreiben Sie in einfachen Worten, was der Befehl tun soll. Das Ergebnis ersetzt den Prompt, und Sie können es bearbeiten oder rückgängig machen.',
+			label: 'Was soll der Befehl tun?',
+			placeholder: 'Meine E-Mails freundlicher klingen lassen, aber kurz halten.',
+			reviseHint:
+				'Ihr aktueller Prompt wird mitgeschickt, Sie können also auch um eine Änderung bitten, etwa „mach ihn kürzer“.',
+			backendLabel: 'Geschrieben von',
+			submit: 'Prompt schreiben',
+			working: 'Wird geschrieben…',
+			done: (backend: string) => `Geschrieben von ${backend}.`,
+			undo: 'Rückgängig',
+			errorTitle: 'Der Prompt konnte nicht geschrieben werden'
+		},
+		rules: {
+			title: 'In bestimmten Apps',
+			hint: 'Dort stattdessen verwendet',
+			add: 'Regel für eine App hinzufügen',
+			adds: (text: string) => `Ergänzt: ${text}`,
+			uses: (backend: string) => `Nutzt ${backend}`,
+			nothing: 'Ändert noch nichts',
+			savedWithCommand: 'Regeln werden mit dem Befehl gespeichert.',
+			addTitle: 'Regel für eine App hinzufügen',
+			editTitle: (app: string) => `Regel für ${app}`,
+			description: 'Wenn Sie diesen Befehl in dieser App ausführen, gelten stattdessen diese Einstellungen.',
+			appLabel: 'App',
+			search: 'Offene Apps durchsuchen',
+			loading: 'Offene Apps werden gesucht…',
+			none: 'Keine offenen Apps gefunden. Geben Sie stattdessen den Programmnamen ein.',
+			noMatch: 'Keine offene App passt.',
+			manual: 'Programmnamen eingeben',
+			pickFromList: 'Aus offenen Apps wählen',
+			refresh: 'Aktualisieren',
+			change: 'Ändern',
+			exeLabel: 'Programmdatei',
+			exePlaceholder: 'OUTLOOK.EXE',
+			exeHint: 'Der Name der .exe, wie ihn der Task-Manager unter „Details“ zeigt.',
+			nameLabel: 'Angezeigt als',
+			namePlaceholder: 'Outlook',
+			promptLabel: 'Zum Prompt hinzufügen',
+			promptPlaceholder: 'Bleib förmlich und sprich die Person mit Sie an.',
+			promptHint: 'Wird nur in dieser App an den Prompt des Befehls angehängt.',
+			backendLabel: 'Backend',
+			formattingLabel: 'Formatierung',
+			same: 'Wie beim Befehl',
+			duplicate: 'Dieser Befehl hat bereits eine Regel für diese App.',
+			empty: 'Ändern Sie mindestens eine Sache für diese App.',
+			pickApp: 'Wählen Sie zuerst eine App.',
+			submitAdd: 'Regel hinzufügen',
+			submitSave: 'Regel speichern',
+			delete: 'Regel löschen',
+			editAria: (app: string) => `Regel für ${app} bearbeiten`
 		}
 	},
 
@@ -196,6 +290,30 @@ export const de: typeof en = {
 		clearTitle: 'Verlauf leeren?',
 		clearDescription: (count: number) =>
 			`Löscht dauerhaft alle ${count} erfassten Ausführungen, einschließlich aller hier noch zur Wiederherstellung vorgehaltenen Eingabe- und Ergebnistexte. Diese Aktion kann nicht rückgängig gemacht werden.`
+	},
+
+	vocabulary: {
+		title: 'Vokabular',
+		keepTitle: 'Wörter, die jeder Befehl unverändert lässt',
+		keepHint: 'Namen, Produkte, Orte',
+		keepPlaceholder: 'Wort oder Namen hinzufügen',
+		keepAdd: 'Hinzufügen',
+		keepRemove: (word: string) => `${word} entfernen`,
+		keepEmpty: 'Noch keine Wörter. Fügen Sie Namen hinzu, die das Modell gern „korrigiert“.',
+		replaceTitle: 'Immer ersetzen',
+		replaceHint: 'Bevor der Text das Modell erreicht',
+		replaceFrom: 'Ersetzen',
+		replaceTo: 'Durch',
+		replaceFromPlaceholder: 'sus tech',
+		replaceToPlaceholder: 'Sus-Tech',
+		replaceAdd: 'Ersetzung hinzufügen',
+		replaceSave: 'Speichern',
+		replaceDeleted: 'entfernt',
+		replaceEditAria: (from: string) => `Ersetzung für ${from} bearbeiten`,
+		replaceRemove: (from: string) => `Ersetzung für ${from} entfernen`,
+		note: 'Die Wortliste kommt in die Anweisungen jedes Befehls, denn ein Modell, das einen unbekannten Namen „korrigiert“, ist das häufigste schlechte Ergebnis. Ersetzungen gelten für ganze Wörter in jeder Groß- und Kleinschreibung und ändern den markierten Text, bevor ein Backend ihn sieht.',
+		saveErrorTitle: 'Die Änderung konnte nicht gespeichert werden',
+		saveFailedFallback: 'Die Änderung konnte nicht gespeichert werden.'
 	},
 
 	settings: {

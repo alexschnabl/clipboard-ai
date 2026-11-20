@@ -23,6 +23,14 @@ export interface BackendConfig {
 
 export type Formatting = 'auto' | 'rich' | 'plain';
 
+export interface AppRule {
+	exe: string;
+	name: string;
+	promptAddition: string;
+	backendId: string | null;
+	formatting: Formatting | null;
+}
+
 export interface CommandConfig {
 	id: string;
 	name: string;
@@ -30,6 +38,17 @@ export interface CommandConfig {
 	hotkey: string;
 	systemPrompt: string;
 	formatting: Formatting;
+	appRules?: AppRule[];
+}
+
+export interface Replacement {
+	from: string;
+	to: string;
+}
+
+export interface Vocabulary {
+	keep: string[];
+	replacements: Replacement[];
 }
 
 export type Theme = 'system' | 'light' | 'dark';
@@ -47,6 +66,7 @@ export interface Config {
 	backends: BackendConfig[];
 	commands: CommandConfig[];
 	settings: Settings;
+	vocabulary?: Vocabulary;
 }
 
 export interface Problem {
@@ -86,4 +106,29 @@ export interface HistoryEntry {
 	totalCycleMs: number | null;
 	inputText: string | null;
 	resultText: string | null;
+}
+
+export interface TryResult {
+	text: string;
+	html: string | null;
+	backendMs: number;
+	backendName: string;
+	rule: string | null;
+}
+
+export interface EditorError {
+	reason: string;
+	detail: string | null;
+}
+
+export interface AppIcon {
+	size: number;
+	rgba: string;
+}
+
+export interface RunningApp {
+	exe: string;
+	name: string;
+	title: string;
+	icon: AppIcon | null;
 }
