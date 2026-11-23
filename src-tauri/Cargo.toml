@@ -1,6 +1,6 @@
 [package]
 name = "clipboard-ai-app"
-version = "0.2.0"
+version = "0.2.1"
 description = "System-wide AI text assistant: select text anywhere, press a hotkey, get the transformed result pasted back over the selection"
 authors = ["Alexander Schnabl <alexander.schnabl@sus-tech.at>"]
 license = "MIT"

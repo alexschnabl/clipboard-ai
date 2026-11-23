@@ -45,7 +45,7 @@ Nothing about the text ever leaves your machine except the request to the backen
 Download the `-setup.exe` from the [latest release](https://github.com/alexschnabl/clipboard-ai/releases/latest) and run it. There is also an `.msi` if you prefer that, and a `SHA256SUMS.txt` to check either download against:
 
 ```powershell
-Get-FileHash .\clipboard-ai-app_0.2.0_x64-setup.exe -Algorithm SHA256
+Get-FileHash .\Clipboard.AI_0.2.1_x64-setup.exe -Algorithm SHA256
 ```
 
 The build is **unsigned**. Windows SmartScreen will warn you the first time you run the installer: click "More info", then "Run anyway". If you would rather not run an unsigned download, [build from source](#build-from-source) instead; it takes a few minutes and produces the same installer.
