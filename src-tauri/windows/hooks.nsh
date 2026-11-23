@@ -174,6 +174,36 @@ FunctionEnd
 
 !insertmacro CAI_DEFINE_REMOVE "un."
 
+Function CaiRemoveLegacyInstall
+  Push $0
+  Push $1
+  ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\clipboard-ai-app" "InstallLocation"
+  StrCmp $0 "" legacy_done
+  StrCpy $1 $0 1
+  ${If} $1 == '"'
+    StrCpy $0 $0 "" 1
+    StrCpy $0 $0 -1
+  ${EndIf}
+  ${If} ${FileExists} "$0\uninstall.exe"
+    DetailPrint "Removing the previous install in $0"
+    ExecWait '"$0\uninstall.exe" /S _?=$0'
+    Delete "$0\uninstall.exe"
+    Delete "$0\smoke.exe"
+    Delete "$0\clipboard-ai.exe"
+    Delete "$0\clipboard-ai-app.exe"
+    RMDir "$0"
+  ${EndIf}
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\clipboard-ai-app"
+  DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "clipboard-ai-app"
+  legacy_done:
+  Pop $1
+  Pop $0
+FunctionEnd
+
+!macro NSIS_HOOK_PREINSTALL
+  Call CaiRemoveLegacyInstall
+!macroend
+
 !macro NSIS_HOOK_POSTINSTALL
   Call CaiAddToPath
 !macroend

@@ -20,7 +20,8 @@ try {
 }
 const notesFlag = process.argv.indexOf('--notes');
 const notes = notesFlag > -1 ? process.argv[notesFlag + 1] : `Clipboard AI ${version}`;
-const url = `https://github.com/alexschnabl/clipboard-ai/releases/download/v${version}/${setup}`;
+const assetName = setup.replace(/ /g, '.');
+const url = `https://github.com/alexschnabl/clipboard-ai/releases/download/v${version}/${assetName}`;
 const manifest = {
 	version,
 	notes,
@@ -32,3 +33,4 @@ const manifest = {
 const out = join(nsisDir, 'latest.json');
 writeFileSync(out, `${JSON.stringify(manifest, null, 2)}\n`);
 console.log(`Wrote ${out}`);
+if (assetName !== setup) console.log(`GitHub stores "${setup}" as "${assetName}"; latest.json points there.`);

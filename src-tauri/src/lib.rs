@@ -204,8 +204,10 @@ fn create_overlay_windows(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+const SETTINGS_WINDOW_LABEL: &str = "settings";
+
 fn show_settings(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("settings") {
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
         let _ = window.show();
         let _ = window.unminimize();
         let _ = window.set_focus();
@@ -360,6 +362,15 @@ mod config_load_failure_tests {
     }
 }
 
+fn create_settings_window(app: &tauri::App) -> tauri::Result<()> {
+    if let Some(window_config) =
+        app.config().app.windows.iter().find(|w| w.label == SETTINGS_WINDOW_LABEL).cloned()
+    {
+        tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?.build()?;
+    }
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
@@ -428,7 +439,6 @@ pub fn run() {
             let status_item =
                 MenuItem::with_id(app, "status", "starting…", false, None::<&str>)?;
 
-            create_overlay_windows(app.handle())?;
             if !overlay::track_foreground() {
                 let line = "STARTUP foreground tracking unavailable; tray paste-again will refuse to paste";
                 eprintln!("{line}");
@@ -669,6 +679,9 @@ pub fn run() {
                 })
                 .build(app)?;
 
+            create_overlay_windows(app.handle())?;
+            create_settings_window(app)?;
+
             if let Some(window) = app.get_webview_window(palette::WINDOW_LABEL) {
                 let handle = handle.clone();
                 window.on_window_event(move |event| {
@@ -680,7 +693,7 @@ pub fn run() {
                 });
             }
 
-            if let Some(window) = app.get_webview_window("settings") {
+            if let Some(window) = app.get_webview_window(SETTINGS_WINDOW_LABEL) {
                 let handle = handle.clone();
                 window.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -749,5 +762,24 @@ pub(crate) fn wait_for_running_cycle(state: &AppState) {
             eprintln!("{line}");
             status::append_log(&state.config_dir, &line);
         }
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    #[test]
+    fn the_settings_window_is_created_only_after_startup_has_loaded_the_config() {
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json parses");
+        let windows = conf["app"]["windows"].as_array().expect("windows array");
+        let settings = windows
+            .iter()
+            .find(|w| w["label"] == super::SETTINGS_WINDOW_LABEL)
+            .expect("a settings window is configured");
+        assert_eq!(
+            settings["create"],
+            serde_json::Value::Bool(false),
+            "Tauri would create the window before setup and its page could read an empty config"
+        );
     }
 }
